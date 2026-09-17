@@ -378,13 +378,16 @@ class Player:
                 args = ['zenity', '--file-selection', '--title=OmaGAWD · Add music']
                 if command['cmd'] == 'choose_folder': args += ['--directory']
                 else: args += ['--multiple', '--separator=\n', '--file-filter=Audio | *.mp3 *.flac *.m4a *.aac *.ogg *.opus *.wav *.aiff *.aif *.alac *.wma *.ape *.wv *.m4b', '--file-filter=All files | *']
+                # Let the desktop portal provide the native file/folder picker.
                 result = subprocess.run(args, capture_output=True, text=True)
                 if result.returncode == 1: return
                 if result.returncode: raise RuntimeError('Could not open the file picker. Check that zenity is installed.')
                 paths = result.stdout.rstrip('\n').split('\n')
             with self.lock:
                 if generation != self.generation: return
-                if paths: self.local.add(paths)
+                if paths:
+                    self.local.add(paths)
+                    self.emit({'type': 'local_sources', 'available': bool(self.local.roots)})
             self.load_local(generation)
         except Exception as exc:
             with self.lock:
@@ -538,6 +541,7 @@ def main():
     player = Player(emit, store=SessionStore(), local=LocalLibrary())
     from mpris import Mpris
     media = Mpris(player)
+    emit({'type': 'local_sources', 'available': bool(player.local.roots)})
     emit({'type': 'ready'})
     player.handle({'cmd': 'restore'})
     try:

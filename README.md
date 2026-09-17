@@ -12,7 +12,7 @@ Requires Omarchy/Quickshell, system Python with `python-gobject`, mpv, FFmpeg, `
 ./scripts/install.sh
 ```
 
-Open from the llama icon or app launcher. Connect to Jellyfin, or choose **Local Music → + FILES / + FOLDER**. Sources and sign-in are remembered; the queue is not. Libraries refresh automatically.
+Open from the llama icon or app launcher. Use the source menu at the top right to connect to Jellyfin or choose **Add local files… / Add local folder…**. It shows **LOCAL MUSIC** when browsing local sources. Sources and sign-in are remembered; the queue is not. Libraries refresh automatically.
 
 **Double-click/Return** replaces the playlist and plays. **+ ADD** or **Option-click/Return** appends without interrupting playback. Removing tracks only changes the playlist.
 

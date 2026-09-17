@@ -48,7 +48,9 @@ Item {
     property string serverUrl: ""
     property bool remembered: false
     property string selectedLibrary: "local"
-    property var libraries: [{id: "local", name: "Local Music"}]
+    property bool hasLocalSources: false
+    property var remoteLibraries: []
+    readonly property var libraries: (hasLocalSources ? [{id: "local", name: "Local Music"}] : []).concat(remoteLibraries)
     property var songs: []
     property var state: ({queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0})
     readonly property var current: state.queue[state.index] || null
@@ -87,20 +89,21 @@ Item {
     function receive(data) {
         if (data.type === "ready") ready = true
         else if (data.type === "state") state = data
+        else if (data.type === "local_sources") hasLocalSources = data.available
         else if (data.type === "profile") { savedUsername = data.username; serverUrl = data.url }
         else if (data.type === "remembered") remembered = data.value
         else if (data.type === "meter" && playing) levels = data.levels
         else if (data.type === "busy") busy = data.value
         else if (data.type === "error") error = data.message
         else if (data.type === "connected") {
-            connected = true; username = data.username; selectedLibrary = data.folder || ""; libraries = [{id: "local", name: "Local Music"}].concat(data.libraries); songs = []; tab = "library"
+            connected = true; username = data.username; selectedLibrary = data.folder || ""; remoteLibraries = data.libraries; songs = []; tab = "library"
         } else if (data.type === "library") {
             selectedLibrary = data.folder || ""
             lastLibraryCheck = Date.now()
             if (JSON.stringify(songs) !== JSON.stringify(data.songs)) songs = data.songs
         }
         else if (data.type === "picker_closed") { opened = true; showLibrary() }
-        else if (data.type === "disconnected") { connected = false; remembered = false; savedUsername = ""; busy = false; libraries = [{id: "local", name: "Local Music"}]; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
+        else if (data.type === "disconnected") { connected = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
     }
     Timer {
         interval: 66; repeat: true

@@ -16,7 +16,7 @@ OmaGAWD is a native Omarchy/Quickshell music plugin, not a web app or Codex plug
 - `scripts/install.sh`: copies plugin files; refuses to overwrite an existing install.
 - `scripts/preview.sh`: native standalone preview; uses the real backend and keyring.
 
-The backend launches with `/usr/bin/python3` because system `python-gobject` supplies Gio/GLib. Keep all Python modules in the installer copy list. Local music uses ffprobe and zenity. No pip/npm dependencies are needed.
+The backend launches with `/usr/bin/python3` because system `python-gobject` supplies Gio/GLib. Keep all Python modules in the installer copy list. Local music uses ffprobe and zenity. Use the native desktop portal picker via zenity without GTK/GDK portal overrides. The stale Strata service path was repaired to /usr/bin/strata; do not reinstate the direct GTK chooser workaround. No pip/npm dependencies are needed.
 
 ## Product behaviour to preserve
 
@@ -32,7 +32,7 @@ Library: text-based Artist → Album → Song browser, short “Search” placeh
 - P/L toggle playlist/library only outside text input. Escape hides the popup.
 - Media keys use MPRIS, including when the popup is hidden.
 
-Local files/folders are supported through Local Music with + FILES/+ FOLDER and saved sources. File drag-and-drop, playlist-file import/export, and radio are proposed only. Do not describe them as implemented. Queue persistence and server-playlist sync are also not implemented.
+The top-right source button opens a themed menu for Local Music, adding local files/folders, switching to Jellyfin, and account settings. Local Music is listed only after files/folders have been added; add-source actions remain available. Its label reflects the selected source; the connection dot only appears for Jellyfin. Local files/folders are also available through Local Music with + FILES/+ FOLDER and saved sources. File drag-and-drop, playlist-file import/export, and radio are proposed only. Do not describe them as implemented. Queue persistence and server-playlist sync are also not implemented.
 
 ## Credentials and playback
 

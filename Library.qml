@@ -7,6 +7,12 @@ import qs.Ui as UI
 Rectangle {
     id: root
     required property var app
+    component SourceAction: Controls.MenuItem {
+        id: action
+        implicitHeight: Style.space(28)
+        contentItem: AmpText { text: action.text; verticalAlignment: Text.AlignVCenter; opacity: action.enabled ? 1 : 0.4 }
+        background: Rectangle { color: action.highlighted ? Style.hoverFill : "transparent"; radius: Style.cornerRadius }
+    }
     readonly property bool editingText: server.activeFocus || username.activeFocus || password.activeFocus || search.activeFocus
     property string artist: ""
     property string album: ""
@@ -89,17 +95,44 @@ Rectangle {
             Item { Layout.fillWidth: true }
             AmpButton {
                 id: accountButton
-                text: app.connected ? app.username : "CONNECT"
-                hint: app.connected ? "Connected to Jellyfin as " + app.username : "Connect to Jellyfin"
+                text: app.selectedLibrary === "local" && app.hasLocalSources ? "LOCAL MUSIC ▾" : app.connected ? app.username + " ▾" : "SOURCE ▾"
+                hint: "Choose music source or add local files"
                 lit: app.tab === "connect"
                 implicitWidth: accountLabel.implicitWidth + Style.space(14)
                 contentItem: Row {
                     id: accountLabel
                     spacing: Style.space(5)
-                    AmpText { text: "●"; visible: app.connected; color: Color.accent; anchors.verticalCenter: parent.verticalCenter }
+                    AmpText { text: "●"; visible: app.connected && app.selectedLibrary !== "local"; color: Color.accent; anchors.verticalCenter: parent.verticalCenter }
                     AmpText { text: accountButton.text; color: Color.foreground; font.bold: accountButton.lit; anchors.verticalCenter: parent.verticalCenter }
                 }
-                onClicked: app.tab = "connect"
+                onClicked: sourceMenu.open()
+                Controls.Menu {
+                    id: sourceMenu
+                    x: accountButton.width - width
+                    y: accountButton.height + Style.space(4)
+                    width: Style.space(195)
+                    padding: Style.space(4)
+                    background: Rectangle { color: Color.background; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
+                    SourceAction {
+                        text: "Local Music"
+                        visible: app.hasLocalSources || false
+                        height: visible ? implicitHeight : 0
+                        enabled: !app.busy
+                        onTriggered: { app.showLibrary(); app.send({cmd: "library", folder: "local"}) }
+                    }
+                    SourceAction { text: "Add local files…"; enabled: !app.busy; onTriggered: app.chooseLocal(false) }
+                    SourceAction { text: "Add local folder…"; enabled: !app.busy; onTriggered: app.chooseLocal(true) }
+                    SourceAction {
+                        text: app.connected ? "Jellyfin · " + app.username : "Connect to Jellyfin…"
+                        enabled: !app.busy
+                        onTriggered: {
+                            const remote = app.libraries.find(item => item.id !== "local")
+                            if (app.connected && remote) { app.showLibrary(); app.send({cmd: "library", folder: remote.id}) }
+                            else app.tab = "connect"
+                        }
+                    }
+                    SourceAction { text: "Jellyfin account…"; visible: app.connected; height: visible ? implicitHeight : 0; onTriggered: app.tab = "connect" }
+                }
             }
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
@@ -178,12 +211,48 @@ Rectangle {
                 }
                 Controls.ComboBox {
                     id: folders
+                    objectName: "musicFolders"
+                    visible: app.libraries.length > 0
                     Layout.preferredWidth: Style.space(135)
                     Layout.preferredHeight: search.implicitHeight
                     currentIndex: app.selectedLibrary ? app.libraries.findIndex(item => item.id === app.selectedLibrary) : 0
                     model: app.libraries; textRole: "name"; valueRole: "id"; enabled: !app.busy
                     font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
                     Accessible.name: "Music folder"
+                    delegate: Controls.ItemDelegate {
+                        required property int index
+                        width: folders.width - Style.space(8)
+                        implicitHeight: Style.space(28)
+                        highlighted: folders.highlightedIndex === index
+                        contentItem: AmpText {
+                            text: app.libraries[index] ? app.libraries[index].name : ""
+                            color: folders.currentIndex === index ? Color.accent : Color.foreground
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        background: Rectangle {
+                            color: parent.highlighted ? Style.hoverFill : folders.currentIndex === parent.index ? Style.selectedFill : "transparent"
+                            radius: Style.cornerRadius
+                        }
+                    }
+                    popup: Controls.Popup {
+                        y: folders.height + Style.space(4)
+                        width: folders.width
+                        padding: Style.space(4)
+                        implicitHeight: Math.min(contentItem.implicitHeight + 2 * padding, Style.space(240))
+                        background: Rectangle {
+                            color: Color.background
+                            border.color: Style.normalBorderFor(Color.foreground, Color.accent)
+                            radius: Style.cornerRadius
+                        }
+                        contentItem: ListView {
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: folders.popup.visible ? folders.delegateModel : null
+                            currentIndex: folders.highlightedIndex
+                            boundsBehavior: Flickable.StopAtBounds
+                            Controls.ScrollIndicator.vertical: Controls.ScrollIndicator { }
+                        }
+                    }
                     contentItem: AmpText { text: folders.displayText; verticalAlignment: Text.AlignVCenter; leftPadding: Style.space(8); rightPadding: Style.space(22) }
                     background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
                     onActivated: { root.folder = currentValue; root.artist = ""; root.album = ""; root.selectedSongs = []; app.send({cmd: "library", folder: currentValue}) }

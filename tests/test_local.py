@@ -58,6 +58,7 @@ class LocalTests(unittest.TestCase):
             p.songs = [song(0)]
             p.handle({'cmd': 'replace_play', 'ids': ['0']})
             p.local_command({'cmd': 'local_add', 'paths': [str(self.music)]}, p.generation)
+            self.assertIn({'type': 'local_sources', 'available': True}, events)
             p.client = None
             track = p.songs[0]
             p.handle({'cmd': 'replace_play', 'ids': [track['id']]})
@@ -85,6 +86,36 @@ class LocalTests(unittest.TestCase):
             self.assertTrue(any(e.get('duration', 0) > 0 for e in events))
             self.assertTrue(p.idle)
             self.assertFalse(any(e.get('type') == 'error' for e in events))
+        finally: p.close()
+
+    def test_folder_picker_uses_desktop_defaults_and_imports_selection(self):
+        events = []
+        p = Player(events.append, FakeMpv, local=self.local)
+        real_run = subprocess.run
+        calls = []
+        def run(args, **kwargs):
+            if args[0] == 'zenity':
+                calls.append((args, kwargs))
+                return Mock(returncode=0, stdout=str(self.music) + '\n', stderr='')
+            return real_run(args, **kwargs)
+        try:
+            with patch('backend.subprocess.run', side_effect=run):
+                p.local_command({'cmd': 'choose_folder'}, 0)
+            self.assertIn('--directory', calls[0][0])
+            self.assertNotIn('env', calls[0][1])
+            self.assertEqual(len(p.songs), 1)
+            self.assertEqual(events[-1], {'type': 'picker_closed'})
+        finally: p.close()
+
+    def test_cancelled_picker_does_not_add_sources(self):
+        events = []
+        p = Player(events.append, FakeMpv, local=self.local)
+        try:
+            with patch('backend.subprocess.run', return_value=Mock(returncode=1)):
+                p.local_command({'cmd': 'choose_folder'}, 0)
+            self.assertEqual(self.local.roots, [])
+            self.assertFalse(any(e.get('type') == 'error' for e in events))
+            self.assertEqual(events[-1], {'type': 'picker_closed'})
         finally: p.close()
 
     def test_restore_local_source_without_jellyfin(self):
