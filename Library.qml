@@ -95,9 +95,9 @@ Rectangle {
             Item { Layout.fillWidth: true }
             AmpButton {
                 id: accountButton
-                text: app.selectedLibrary === "local" && app.hasLocalSources ? "LOCAL MUSIC ▾" : app.connected ? app.username + " ▾" : "SOURCE ▾"
+                text: app.selectedLibrary === "local" ? (app.hasLocalSources ? "Local Music ▾" : "Sources ▾") : app.connected ? "Jellyfin ▾" : "Sources ▾"
                 hint: "Choose music source or add local files"
-                lit: app.tab === "connect"
+                lit: app.tab === "sources" || app.tab === "connect"
                 implicitWidth: accountLabel.implicitWidth + Style.space(14)
                 contentItem: Row {
                     id: accountLabel
@@ -120,10 +120,8 @@ Rectangle {
                         enabled: !app.busy
                         onTriggered: { app.showLibrary(); app.send({cmd: "library", folder: "local"}) }
                     }
-                    SourceAction { text: "Add local files…"; enabled: !app.busy; onTriggered: app.chooseLocal(false) }
-                    SourceAction { text: "Add local folder…"; enabled: !app.busy; onTriggered: app.chooseLocal(true) }
                     SourceAction {
-                        text: app.connected ? "Jellyfin · " + app.username : "Connect to Jellyfin…"
+                        text: app.connected ? "Jellyfin" : "Connect to Jellyfin…"
                         enabled: !app.busy
                         onTriggered: {
                             const remote = app.libraries.find(item => item.id !== "local")
@@ -131,11 +129,53 @@ Rectangle {
                             else app.tab = "connect"
                         }
                     }
-                    SourceAction { text: "Jellyfin account…"; visible: app.connected; height: visible ? implicitHeight : 0; onTriggered: app.tab = "connect" }
+                    SourceAction { text: "Manage sources…"; onTriggered: app.tab = "sources" }
                 }
             }
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+        ColumnLayout {
+            visible: app.tab === "sources"
+            Layout.fillWidth: true; Layout.fillHeight: true
+            spacing: Style.space(10)
+            RowLayout {
+                Layout.fillWidth: true
+                AmpText { text: "LOCAL SOURCES"; font.pixelSize: Style.font.caption; Layout.fillWidth: true }
+                AmpButton { text: "+ Files"; enabled: !app.busy; onClicked: app.chooseLocal(false) }
+                AmpButton { text: "+ Folder"; enabled: !app.busy; onClicked: app.chooseLocal(true) }
+            }
+            AmpText { text: "Removing a source keeps your files and queued tracks."; Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6 }
+            ListView {
+                Layout.fillWidth: true; Layout.fillHeight: true
+                clip: true
+                model: app.localSources || []
+                spacing: Style.space(6)
+                Controls.ScrollBar.vertical: Controls.ScrollBar { }
+                delegate: Rectangle {
+                    required property string modelData
+                    width: ListView.view.width; height: Style.space(62)
+                    color: Style.normalFill
+                    border.color: Style.normalBorderFor(Color.foreground, Color.accent)
+                    RowLayout {
+                        anchors.fill: parent; anchors.margins: Style.space(8)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            AmpText { text: modelData.split("/").filter(part => part).pop() || modelData; Layout.fillWidth: true }
+                            AmpText { text: modelData; Layout.fillWidth: true; font.pixelSize: Style.font.caption; opacity: 0.6; elide: Text.ElideMiddle }
+                        }
+                        AmpButton { text: "Remove"; hint: "Stop including this source; files stay on disk"; enabled: !app.busy; onClicked: app.send({cmd: "local_remove", paths: [modelData]}) }
+                    }
+                }
+                AmpText { anchors.centerIn: parent; width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; text: "No local sources yet.\nAdd files or a music folder above."; visible: parent.count === 0; opacity: 0.6 }
+            }
+            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+            RowLayout {
+                Layout.fillWidth: true
+                AmpText { text: app.connected ? "Jellyfin · " + app.username : "Jellyfin not connected"; Layout.fillWidth: true }
+                AmpButton { text: app.connected ? "Account…" : "Connect…"; onClicked: app.tab = "connect" }
+            }
+            AmpButton { text: "Back to library"; onClicked: app.showLibrary() }
+        }
         ColumnLayout {
             visible: app.tab === "connect"
             Layout.fillWidth: true; Layout.fillHeight: true
@@ -263,6 +303,7 @@ Rectangle {
                 Layout.fillWidth: true
                 AmpButton { text: "+ FILES"; hint: "Choose local audio files"; enabled: !app.busy; onClicked: app.chooseLocal(false) }
                 AmpButton { text: "+ FOLDER"; hint: "Include a music folder and its subfolders"; enabled: !app.busy; onClicked: app.chooseLocal(true) }
+                AmpButton { text: "Sources…"; onClicked: app.tab = "sources" }
                 Item { Layout.fillWidth: true }
             }
             GridLayout {

@@ -31,6 +31,15 @@ class LocalLibrary:
         self.prefer_local = True
         self.save()
 
+    def remove(self, paths):
+        # Forget configured sources only. Never unlink the underlying media.
+        previous = list(self.roots)
+        self.roots = [p for p in self.roots if p not in set(paths)]
+        try: self.save()
+        except Exception:
+            self.roots = previous
+            raise
+
     def scan(self):
         files = set()
         for value in self.roots:

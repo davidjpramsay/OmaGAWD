@@ -8,7 +8,7 @@ Winamp-inspired music player for Omarchy. **Jellyfin + local files.**
 ./scripts/install.sh
 ```
 
-Open the llama icon. Choose your music from the source menu.
+Open the llama icon. Choose music from the source menu. **Manage sources…** adds or removes local sources without deleting files.
 
 | Shortcut | Action |
 |---|---|

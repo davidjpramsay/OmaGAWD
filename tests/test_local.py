@@ -41,6 +41,22 @@ class LocalTests(unittest.TestCase):
         self.assertEqual(self.local.scan()[1], 1)
         self.audio.unlink()
         self.assertEqual(self.local.scan()[0], [])
+    def test_forgetting_source_keeps_files_and_playback(self):
+        events = []
+        p = Player(events.append, FakeMpv, local=self.local)
+        try:
+            p.local_command({'cmd': 'local_add', 'paths': [str(self.music)]}, 0)
+            p.handle({'cmd': 'replace_play', 'ids': [p.songs[0]['id']]})
+            queue = list(p.queue)
+            p.local_command({'cmd': 'local_remove', 'paths': [str(self.music)]}, 0)
+            self.assertTrue(self.audio.exists())
+            self.assertEqual(p.queue, queue)
+            self.assertFalse(p.idle)
+            self.assertEqual(p.songs, [])
+            self.assertEqual(LocalLibrary(self.local.path).roots, [])
+            self.assertIn({'type': 'local_sources', 'available': False, 'paths': []}, events)
+        finally: p.close()
+
     def test_untagged_file_uses_filename_and_directory(self):
         audio = self.music / 'plain.wav'
         subprocess.run(['ffmpeg', '-v', 'error', '-i', str(self.audio), '-map_metadata', '-1', str(audio)], check=True)
@@ -58,7 +74,7 @@ class LocalTests(unittest.TestCase):
             p.songs = [song(0)]
             p.handle({'cmd': 'replace_play', 'ids': ['0']})
             p.local_command({'cmd': 'local_add', 'paths': [str(self.music)]}, p.generation)
-            self.assertIn({'type': 'local_sources', 'available': True}, events)
+            self.assertIn({'type': 'local_sources', 'available': True, 'paths': [str(self.music)]}, events)
             p.client = None
             track = p.songs[0]
             p.handle({'cmd': 'replace_play', 'ids': [track['id']]})

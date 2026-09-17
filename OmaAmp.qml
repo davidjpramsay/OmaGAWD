@@ -49,6 +49,7 @@ Item {
     property bool remembered: false
     property string selectedLibrary: "local"
     property bool hasLocalSources: false
+    property var localSources: []
     property var remoteLibraries: []
     readonly property var libraries: (hasLocalSources ? [{id: "local", name: "Local Music"}] : []).concat(remoteLibraries)
     property var songs: []
@@ -89,7 +90,7 @@ Item {
     function receive(data) {
         if (data.type === "ready") ready = true
         else if (data.type === "state") state = data
-        else if (data.type === "local_sources") hasLocalSources = data.available
+        else if (data.type === "local_sources") { hasLocalSources = data.available; localSources = data.paths || [] }
         else if (data.type === "profile") { savedUsername = data.username; serverUrl = data.url }
         else if (data.type === "remembered") remembered = data.value
         else if (data.type === "meter" && playing) levels = data.levels

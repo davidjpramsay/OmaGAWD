@@ -374,6 +374,13 @@ class Player:
         try:
             if not self.local: raise RuntimeError('Local library unavailable.')
             paths = command.get('paths', [])
+            if command['cmd'] == 'local_remove':
+                with self.lock:
+                    if generation != self.generation: return
+                    self.local.remove(paths)
+                    self.emit({'type': 'local_sources', 'available': bool(self.local.roots), 'paths': self.local.roots})
+                if self.local.prefer_local: self.load_local(generation)
+                return
             if picker:
                 args = ['zenity', '--file-selection', '--title=OmaGAWD · Add music']
                 if command['cmd'] == 'choose_folder': args += ['--directory']
@@ -387,7 +394,7 @@ class Player:
                 if generation != self.generation: return
                 if paths:
                     self.local.add(paths)
-                    self.emit({'type': 'local_sources', 'available': bool(self.local.roots)})
+                    self.emit({'type': 'local_sources', 'available': bool(self.local.roots), 'paths': self.local.roots})
             self.load_local(generation)
         except Exception as exc:
             with self.lock:
@@ -406,7 +413,7 @@ class Player:
                 if self.mpv and not self.idle and not self.paused:
                     self.mpv.query_meter()
                 return
-            if cmd in ('local_add', 'choose_files', 'choose_folder') or (cmd == 'library' and c.get('folder') == 'local'):
+            if cmd in ('local_add', 'local_remove', 'choose_files', 'choose_folder') or (cmd == 'library' and c.get('folder') == 'local'):
                 self.generation += 1
                 self.emit({'type': 'busy', 'value': True})
                 self.work.submit(self.local_command, c, self.generation)
@@ -541,7 +548,7 @@ def main():
     player = Player(emit, store=SessionStore(), local=LocalLibrary())
     from mpris import Mpris
     media = Mpris(player)
-    emit({'type': 'local_sources', 'available': bool(player.local.roots)})
+    emit({'type': 'local_sources', 'available': bool(player.local.roots), 'paths': player.local.roots})
     emit({'type': 'ready'})
     player.handle({'cmd': 'restore'})
     try:

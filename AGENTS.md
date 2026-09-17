@@ -32,7 +32,7 @@ Library: text-based Artist → Album → Song browser, short “Search” placeh
 - P/L toggle playlist/library only outside text input. Escape hides the popup.
 - Media keys use MPRIS, including when the popup is hidden.
 
-The top-right source button opens a themed menu for Local Music, adding local files/folders, switching to Jellyfin, and account settings. Local Music is listed only after files/folders have been added; add-source actions remain available. Its label reflects the selected source; the connection dot only appears for Jellyfin. Local files/folders are also available through Local Music with + FILES/+ FOLDER and saved sources. File drag-and-drop, playlist-file import/export, and radio are proposed only. Do not describe them as implemented. Queue persistence and server-playlist sync are also not implemented.
+The top-right source button opens a themed menu for switching Local Music/Jellyfin and opening Manage sources. The manager lists saved paths, adds files/folders, forgets sources without deleting media or modifying the queue, and links to Jellyfin account settings. Local Music is listed only after files/folders have been added; add-source actions remain available. Its label reflects the selected source; the connection dot only appears for Jellyfin. Local files/folders are also available through Local Music with + FILES/+ FOLDER and saved sources. File drag-and-drop, playlist-file import/export, and radio are proposed only. Do not describe them as implemented. Queue persistence and server-playlist sync are also not implemented.
 
 ## Credentials and playback
 
