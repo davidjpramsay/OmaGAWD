@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "david.omaamp",
+  "name": "OmaGAWD",
+  "version": "0.4.0",
+  "author": "David",
+  "description": "A theme-aware, Winamp-inspired Jellyfin music receiver",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "keepLoaded": true,
+  "barWidget": {
+    "displayName": "OmaGAWD",
+    "description": "Llama button for the Jellyfin music receiver",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

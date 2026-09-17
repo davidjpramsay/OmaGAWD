@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>OmaGAWD llama</title>
+  <rect x="4" y="4" width="120" height="120" rx="25" fill="#282828"/>
+  <!-- Upright banana ears and a shaggy cheek outline. -->
+  <path d="M39 52C28 36 28 14 34 12C41 10 49 30 50 44L61 40L67 44L77 40C79 24 85 11 92 12C99 14 98 36 88 52L96 65L92 78L88 83L92 112H36L40 83L34 76L31 64Z" fill="#83b3a5"/>
+  <path d="M37 23L43 44L39 41Z M89 23L83 44L88 40Z" fill="#d5be94"/>
+  <path d="M47 62L55 58M74 58L82 62" stroke="#282828" stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="64" cy="79" rx="21" ry="18" fill="#d5be94"/>
+  <path d="M57 72Q64 68 71 72L64 79Z" fill="#282828"/>
+  <path d="M64 78V84M56 84Q64 91 72 84" fill="none" stroke="#282828" stroke-width="3" stroke-linecap="round"/>
+  <path d="M48 103H80" stroke="#282828" stroke-width="5"/>
+  <path d="M52 103H56M62 103H66M72 103H76" stroke="#d5be94" stroke-width="5"/>
+</svg>
