@@ -22,11 +22,11 @@ Rectangle {
             AmpButton { text: "−"; hint: "Hide player (music keeps playing)"; implicitHeight: Style.space(22); onClicked: app.close() }
         }
         Rectangle {
-            Layout.fillWidth: true; Layout.preferredHeight: Style.space(82)
+            Layout.fillWidth: true; Layout.preferredHeight: Style.space(90)
             color: Qt.darker(Color.background, 1.3)
             border.color: Style.normalBorderFor(Color.foreground, Color.accent)
             RowLayout {
-                anchors.fill: parent; anchors.margins: Style.space(8); spacing: Style.space(10)
+                anchors.fill: parent; anchors.margins: Style.space(8); spacing: Style.space(8)
                 ColumnLayout {
                     Layout.preferredWidth: Style.space(90)
                     spacing: Style.space(5)
@@ -34,7 +34,7 @@ Rectangle {
                     AmpText { text: app.state.idle ? "■  STOPPED" : app.state.paused ? "Ⅱ  PAUSED" : "▶  STREAMING"; color: Color.accent; font.pixelSize: Style.font.caption }
                     Visualizer {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Style.space(14)
+                        Layout.preferredHeight: Style.space(22)
                         levels: app.levels
                         playing: app.playing
                     }
@@ -97,10 +97,9 @@ Rectangle {
             Item { Layout.preferredWidth: Style.space(4) }
             AmpButton { text: "SHF"; hint: "Shuffle"; lit: app.state.shuffle; onClicked: app.send({cmd: "shuffle"}) }
             AmpButton { text: app.state.repeat === "one" ? "R1" : "RPT"; hint: "Repeat: " + app.state.repeat; lit: app.state.repeat !== "off"; onClicked: app.send({cmd: "repeat"}) }
-            Item { Layout.fillWidth: true }
             AmpText { text: "VOL"; font.pixelSize: Style.font.caption; opacity: 0.6 }
-            AmpSlider { Layout.preferredWidth: Style.space(60); from: 0; to: 100; value: app.state.volume; Accessible.name: "Volume"; onMoved: app.send({cmd: "volume", value: value}) }
-            AmpButton { text: "PL"; hint: "Toggle playlist window"; lit: app.playlistOpen; onClicked: { app.playlistOpen = !app.playlistOpen; if (!app.connected) app.tab = "connect" } }
+            AmpSlider { Layout.fillWidth: true; Layout.minimumWidth: Style.space(60); from: 0; to: 100; value: app.state.volume; Accessible.name: "Volume"; onMoved: app.send({cmd: "volume", value: value}) }
+            AmpButton { text: "PL"; hint: "Playlist (P) / Library (L)"; lit: app.playlistOpen; onClicked: { app.playlistOpen = !app.playlistOpen; if (!app.connected) app.tab = "connect" } }
         }
     }
 }

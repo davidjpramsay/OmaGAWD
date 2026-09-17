@@ -1,4 +1,4 @@
-"""Store only OmaGAWD's reconnect token in the desktop Secret Service."""
+"""Store OmaGAWD's reconnect session and selected library in Secret Service."""
 import json
 import subprocess
 
@@ -31,9 +31,9 @@ class SessionStore:
         except (ValueError, TypeError, AttributeError) as exc:
             raise RuntimeError('Saved sign-in is unreadable. Sign in again to replace it.') from exc
 
-    def save(self, client, username):
+    def save(self, client, username, folder=""):
         self.run('store', json.dumps({'url': client.url, 'username': username,
-                                     'token': client.token, 'user': client.user, 'device': client.device}))
+                                     'token': client.token, 'user': client.user, 'device': client.device, 'folder': folder}))
 
     def clear(self):
         self.run('clear')

@@ -30,6 +30,32 @@ class SessionTests(unittest.TestCase):
             p.close()
             revoke.assert_not_called()
         self.assertTrue(any(e['type'] == 'connected' for e in events))
+    def test_restores_last_library_and_falls_back_if_missing(self):
+        for saved_folder, expected in [('second', 'second'), ('removed', 'first')]:
+            with self.subTest(folder=saved_folder):
+                store, events = Mock(), []
+                store.load.return_value = {'url': 'https://example.com', 'username': 'david',
+                                          'token': 'saved', 'user': 'u', 'device': 'd', 'folder': saved_folder}
+                p = Player(events.append, FakeMpv, store)
+                with patch.object(Jellyfin, 'request', return_value={}), patch.object(Jellyfin, 'libraries',
+                     return_value=[{'id': 'first'}, {'id': 'second'}]), patch.object(Jellyfin, 'songs', return_value=[]) as songs:
+                    p.network({'cmd': 'restore'}, 0)
+                    songs.assert_called_once_with(expected)
+                    self.assertEqual(p.folder, expected)
+                    self.assertTrue(any(e.get('type') == 'connected' and e.get('folder') == expected for e in events))
+                p.close()
+
+    def test_library_change_saved_without_resaving_on_refresh(self):
+        store = Mock()
+        p = Player(lambda event: None, FakeMpv, store)
+        p.client = Jellyfin('https://example.com')
+        p.remembered, p.username, p.folder = True, 'david', 'first'
+        with patch.object(Jellyfin, 'songs', return_value=[]):
+            p.network({'cmd': 'library', 'folder': 'second'}, 0)
+            p.network({'cmd': 'library', 'folder': 'second'}, 0)
+        store.save.assert_called_once_with(p.client, 'david', 'second')
+        p.close()
+
     def test_successful_login_is_saved(self):
         store, events = Mock(), []
         p = Player(events.append, FakeMpv, store)

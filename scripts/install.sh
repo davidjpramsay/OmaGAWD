@@ -6,12 +6,13 @@ plugin_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/david.omaamp"
 for executable in python3 mpv quickshell omarchy secret-tool; do
   command -v "$executable" >/dev/null || { echo "Missing dependency: $executable" >&2; exit 1; }
 done
+/usr/bin/python3 -c "from gi.repository import Gio, GLib" || { echo "Missing dependency: python-gobject" >&2; exit 1; }
 if [[ -e "$plugin_dir" ]]; then
   echo "Plugin already exists at $plugin_dir; update its files deliberately." >&2
   exit 1
 fi
 mkdir -p "$plugin_dir"
-cp "$project_dir"/*.qml "$project_dir/backend.py" "$project_dir/session_store.py" "$project_dir/manifest.json" "$project_dir/README.md" "$plugin_dir/"
+cp "$project_dir"/*.qml "$project_dir/backend.py" "$project_dir/session_store.py" "$project_dir/spectrum.py" "$project_dir/mpris.py" "$project_dir/manifest.json" "$project_dir/README.md" "$plugin_dir/"
 cp -r "$project_dir/assets" "$plugin_dir/"
 icon_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
 mkdir -p "$icon_dir"

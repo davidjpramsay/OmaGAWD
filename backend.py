@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""OmaGAWD: JSON-lines bridge. Credentials stay in memory, never argv or files."""
+"""OmaGAWD: JSON-lines bridge. Passwords stay in memory; reconnect tokens use the desktop keyring."""
 import json
-import math
 import os
 import random
 import signal
@@ -17,6 +16,7 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from session_store import SessionStore
+from spectrum import filter_graph, level
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -87,8 +87,15 @@ class Mpv:
         self.callback, self.lock = callback, threading.Lock()
         self.temp = tempfile.TemporaryDirectory(prefix='omaamp-')
         path = self.temp.name + '/mpv.sock'
+        meter_path = self.temp.name + '/spectrum.pipe'
+        os.mkfifo(meter_path, 0o600)
+        self.meter_fd = os.open(meter_path, os.O_RDWR | os.O_NONBLOCK)
+        self.meter_stop = threading.Event()
+        self.spectrum = [0.0] * 16
+        self.meter_thread = threading.Thread(target=self.read_spectrum, daemon=True)
+        self.meter_thread.start()
         self.proc = subprocess.Popen(['mpv', '--no-config', '--idle=yes', '--no-video', '--no-terminal',
-                                      '--audio-display=no', '--af=@meter:lavfi=[astats=metadata=1:reset=1]',
+                                      '--audio-display=no', '--af=@meter:lavfi=[' + filter_graph(meter_path) + ']',
                                       '--input-ipc-server=' + path],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.sock = socket.socket(socket.AF_UNIX)
@@ -113,8 +120,30 @@ class Mpv:
             self.sock.sendall((json.dumps({'command': command}) + '\n').encode())
 
     def query_meter(self):
-        with self.lock:
-            self.sock.sendall((json.dumps({"command": ["get_property", "af-metadata/meter"], "request_id": 900}) + "\n").encode())
+        self.callback({'request_id': 900, 'spectrum': list(self.spectrum)})
+
+    def read_spectrum(self):
+        pending = ''
+        frame = [0.0] * 16
+        while not self.meter_stop.wait(0.02):
+            try:
+                raw = os.read(self.meter_fd, 65536)
+            except BlockingIOError:
+                continue
+            pending += raw.decode('utf-8', errors='replace')
+            lines = pending.split('\n')
+            pending = lines.pop()
+            for line in lines:
+                if line.startswith('lavfi.astats.') and '.RMS_level=' in line:
+                    key, value = line.split('=', 1)
+                    try:
+                        index = int(key.split('.')[2]) - 1
+                    except ValueError:
+                        continue
+                    if 0 <= index < 16:
+                        frame[index] = level(value)
+                        if index == 15:
+                            self.spectrum = frame[:]
 
     def read(self):
         try:
@@ -134,6 +163,9 @@ class Mpv:
                 self.proc.wait()
         if getattr(self, 'sock', None):
             self.sock.close()
+        self.meter_stop.set()
+        self.meter_thread.join(timeout=1)
+        os.close(self.meter_fd)
         self.temp.cleanup()
 
 
@@ -141,6 +173,7 @@ class Player:
     def __init__(self, emit, mpv_factory=Mpv, store=None):
         self.emit, self.mpv_factory = emit, mpv_factory
         self.store, self.remembered = store, False
+        self.username, self.folder = "", ""
         self.lock = threading.RLock()
         self.client, self.mpv = None, None
         self.songs, self.queue = [], []
@@ -163,14 +196,8 @@ class Player:
     def event(self, event):
         with self.lock:
             if event.get('request_id') == 900:
-                metadata = event.get('data') or {}
-                try:
-                    db = float(metadata.get('lavfi.astats.Overall.RMS_level', '-inf'))
-                    level = max(0.0, min(1.0, (db + 60.0) / 60.0)) if math.isfinite(db) else 0.0
-                except (TypeError, ValueError):
-                    level = 0.0
                 if not self.idle and not self.paused:
-                    self.emit({'type': 'meter', 'level': level})
+                    self.emit({'type': 'meter', 'levels': event.get('spectrum', [0.0] * 16)})
             elif event.get('event') == 'property-change':
                 name, value = event.get('name'), event.get('data')
                 mapping = {'time-pos': 'position', 'duration': 'duration', 'pause': 'paused',
@@ -242,10 +269,14 @@ class Player:
                     client.login(command['username'], command.pop('password', ''))
                 stage = 'libraries'
                 libraries = client.libraries()
+                preferred = saved.get('folder', '') if command['cmd'] == 'restore' else ''
+                folder = next((item['id'] for item in libraries if item['id'] == preferred),
+                              libraries[0]['id'] if libraries else '')
                 with self.lock:
                     if generation != self.generation:
                         return
                     self.client = client
+                    self.username = command['username']
                     self.emit({'type': 'profile', 'url': client.url, 'username': command['username']})
                     self.remembered = command['cmd'] == 'restore'
                     if self.store and command['cmd'] == 'login':
@@ -255,18 +286,27 @@ class Player:
                         except RuntimeError as exc:
                             self.emit({'type': 'error', 'message': str(exc)})
                     self.emit({'type': 'remembered', 'value': self.remembered})
-                    self.emit({'type': 'connected', 'libraries': libraries, 'username': command['username']})
+                    self.emit({'type': 'connected', 'libraries': libraries, 'username': command['username'], 'folder': folder})
                 stage = 'library'
-                songs = client.songs(libraries[0]['id']) if libraries else []
+                songs = client.songs(folder) if libraries else []
             else:
                 client = self.client
                 if not client:
                     raise ValueError('Connect to Jellyfin first.')
-                songs = client.songs(command.get('folder', ''))
+                folder = command.get('folder', self.folder)
+                songs = client.songs(folder)
             with self.lock:
                 if generation == self.generation:
                     self.songs = songs
-                    self.emit({'type': 'library', 'songs': songs})
+                    changed = folder != self.folder
+                    self.folder = folder
+                    self.emit({'type': 'library', 'songs': songs, 'folder': folder})
+                    if changed and self.store and self.remembered:
+                        try:
+                            self.store.save(client, self.username, folder)
+                        except RuntimeError:
+                            self.emit({'type': 'error', 'message': 'Library loaded, but its selection could not be saved. Unlock your keyring and select it again.'})
+                            self.folder = ''
         except Exception as exc:
             with self.lock:
                 if generation != self.generation:
@@ -323,6 +363,12 @@ class Player:
             elif cmd == 'add':
                 ids = set(c.get('ids', []))
                 self.queue = self.queue + [dict(s, key=str(uuid.uuid4())) for s in self.songs if s['id'] in ids]
+            elif cmd == 'replace_play':
+                ids = set(c.get('ids', []))
+                selection = [dict(s, key=str(uuid.uuid4())) for s in self.songs if s['id'] in ids]
+                if selection and self.client:
+                    self.queue = selection
+                    self.play(0)
             elif cmd == 'remove':
                 keys = set(c.get('keys', []))
                 current = self.queue[self.index]['key'] if 0 <= self.index < len(self.queue) else None
@@ -400,6 +446,7 @@ class Player:
             self.mpv.send('stop')
             self.mpv.send('set_property', 'http-header-fields', [])
         self.client, self.songs, self.queue = None, [], []
+        self.username, self.folder = "", ""
         self.index, self.position, self.duration, self.bitrate = -1, 0, 0, 0
         self.idle, self.paused = True, True
 
@@ -414,13 +461,18 @@ class Player:
 
 def main():
     output_lock = threading.Lock()
+    media = None
     def emit(data):
+        if media and data.get("type") == "state":
+            media.update()
         with output_lock:
             print(json.dumps(data, separators=(',', ':')), flush=True)
     def terminate(signum, frame):
         raise SystemExit(0)
     signal.signal(signal.SIGTERM, terminate)
     player = Player(emit, store=SessionStore())
+    from mpris import Mpris
+    media = Mpris(player)
     emit({'type': 'ready'})
     player.handle({'cmd': 'restore'})
     try:
@@ -430,6 +482,7 @@ def main():
             except Exception:
                 emit({'type': 'error', 'message': 'Player command failed. Check that mpv is installed and try again.'})
     finally:
+        media.close()
         player.close()
 
 

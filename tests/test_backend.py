@@ -33,6 +33,45 @@ class QueueTests(unittest.TestCase):
     def tearDown(self):
         self.p.client = None
         self.p.close()
+    def test_replace_playlist_starts_first_selected_song(self):
+        self.p.play(2)
+        previous_keys = {s['key'] for s in self.p.queue}
+        self.p.handle({'cmd': 'replace_play', 'ids': ['1', '0']})
+        self.assertEqual([s['id'] for s in self.p.queue], ['0', '1'])
+        self.assertFalse(previous_keys.intersection(s['key'] for s in self.p.queue))
+        self.assertEqual(self.p.index, 0)
+        self.assertFalse(self.p.paused)
+        self.assertFalse(self.p.idle)
+        self.assertEqual(self.p.position, 0)
+        self.assertEqual([c for c in self.p.mpv.commands if c[0] == 'loadfile'][-1],
+                         ('loadfile', 'https://example.com/jellyfin/Audio/0/stream?static=true', 'replace'))
+
+    def test_replace_playlist_with_single_song(self):
+        self.p.handle({'cmd': 'replace_play', 'ids': ['2']})
+        self.assertEqual([s['id'] for s in self.p.queue], ['2'])
+        self.assertEqual(self.p.index, 0)
+        self.assertFalse(self.p.idle)
+
+    def test_empty_replace_keeps_playing_queue(self):
+        self.p.play(1)
+        previous = list(self.p.queue)
+        self.p.handle({'cmd': 'replace_play', 'ids': ['missing']})
+        self.assertEqual(self.p.queue, previous)
+        self.assertEqual(self.p.index, 1)
+        self.assertFalse(self.p.idle)
+
+    def test_append_does_not_interrupt_current_playback(self):
+        self.p.play(1)
+        self.p.position = 42
+        commands = list(self.p.mpv.commands)
+        current = self.p.queue[1]['key']
+        self.p.handle({'cmd': 'add', 'ids': ['0', '2']})
+        self.assertEqual([s['id'] for s in self.p.queue], ['0', '1', '2', '0', '2'])
+        self.assertEqual(self.p.queue[self.p.index]['key'], current)
+        self.assertEqual(self.p.position, 42)
+        self.assertFalse(self.p.paused)
+        self.assertEqual(self.p.mpv.commands, commands)
+
     def test_duplicate_entries_remove_independently(self):
         self.p.handle({'cmd': 'add', 'ids': ['0']})
         key = self.p.queue[0]['key']
@@ -110,10 +149,10 @@ class QueueTests(unittest.TestCase):
 
     def test_meter_silence_and_pause(self):
         self.p.idle, self.p.paused = False, False
-        self.p.event({'request_id': 900, 'data': {'lavfi.astats.Overall.RMS_level': '-inf'}})
-        self.assertEqual(self.messages[-1], {'type': 'meter', 'level': 0.0})
-        self.p.event({'request_id': 900, 'data': {'lavfi.astats.Overall.RMS_level': '-30'}})
-        self.assertEqual(self.messages[-1], {'type': 'meter', 'level': 0.5})
+        self.p.event({'request_id': 900, 'spectrum': [0.0] * 16})
+        self.assertEqual(self.messages[-1], {'type': 'meter', 'levels': [0.0] * 16})
+        self.p.event({'request_id': 900, 'spectrum': [0.5] * 16})
+        self.assertEqual(self.messages[-1], {'type': 'meter', 'levels': [0.5] * 16})
         self.p.paused = True
         count = len(self.messages)
         self.p.event({'request_id': 900, 'data': {'lavfi.astats.Overall.RMS_level': '-10'}})

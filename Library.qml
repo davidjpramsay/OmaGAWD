@@ -7,11 +7,13 @@ import qs.Ui as UI
 Rectangle {
     id: root
     required property var app
+    readonly property bool editingText: server.activeFocus || username.activeFocus || password.activeFocus || search.activeFocus
     property string artist: ""
     property string album: ""
     property var selectedSongs: []
     property var selectedQueue: []
     property string folder: ""
+    readonly property string currentFolder: app.selectedLibrary || folders.currentValue || ""
     readonly property var filtered: app.songs.filter(s => !search.text || (s.artist + " " + s.album + " " + s.title).toLowerCase().indexOf(search.text.toLowerCase()) >= 0)
     readonly property var artistSongs: filtered.filter(s => !artist || s.artist === artist)
     readonly property var albumSongs: artistSongs.filter(s => !album || s.albumId === album)
@@ -20,6 +22,20 @@ Rectangle {
     readonly property var albumRows: unique(artistSongs, "albumId")
     readonly property var songRows: albumSongs.map(s => ({key: s.id, label: (s.track ? String(s.track).padStart(2, "0") + "  " : "") + s.title, detail: app.time(s.duration)}))
     readonly property var queueRows: app.state.queue.map((s, i) => ({key: s.key, label: String(i + 1).padStart(2, "0") + "  " + s.artist + " — " + s.title, detail: app.time(s.duration)}))
+    function focusPlaylist() { queueList.focusList() }
+    function cycleLists(backward) {
+        const lists = [artistList, albumList, songList]
+        const current = lists.findIndex(item => item.listFocused)
+        const next = current < 0 ? (backward ? 2 : 0) : (current + (backward ? 2 : 1)) % 3
+        lists[next].focusList()
+    }
+    function focusSearch() {
+        search.clear()
+        root.artist = ""
+        root.album = ""
+        root.selectedSongs = []
+        search.forceActiveFocus(Qt.ShortcutFocusReason)
+    }
     function unique(songs, field) {
         var map = {}
         songs.forEach(s => { var key = s[field]; if (!map[key]) map[key] = {key: key, label: field === "albumId" ? s.album : s.artist, count: 0}; map[key].count++ })
@@ -33,11 +49,16 @@ Rectangle {
         if (modifiers & Qt.ControlModifier) return keys.indexOf(key) >= 0 ? keys.filter(k => k !== key) : keys.concat([key])
         return [key]
     }
-    function addMusic() { app.send({cmd: "add", ids: chosenSongs.map(s => s.id)}) }
-    function removeMusic() {
-        var ids = chosenSongs.map(s => s.id)
-        app.send({cmd: "remove", keys: app.state.queue.filter(s => ids.indexOf(s.id) >= 0).map(s => s.key)})
+    function playMusic(items) {
+        if (!items.length || app.busy) return
+        selectedQueue = []
+        app.send({cmd: "replace_play", ids: items.map(s => s.id)})
     }
+    function appendMusic(items) {
+        if (!items.length || app.busy) return
+        app.send({cmd: "add", ids: items.map(s => s.id)})
+    }
+    function addMusic() { app.send({cmd: "add", ids: chosenSongs.map(s => s.id)}) }
     function playQueue(key) { app.send({cmd: "play", index: app.state.queue.findIndex(s => s.key === key)}) }
     function move(delta) {
         var index = app.state.queue.findIndex(s => s.key === selectedQueue[0])
@@ -48,7 +69,11 @@ Rectangle {
     radius: Style.cornerRadius
     Connections {
         target: app
-        function onSongsChanged() { root.artist = ""; root.album = ""; root.selectedSongs = [] }
+        function onSongsChanged() {
+            if (!app.songs.some(s => s.artist === root.artist)) root.artist = ""
+            if (!app.songs.some(s => s.albumId === root.album)) root.album = ""
+            root.selectedSongs = root.selectedSongs.filter(id => app.songs.some(s => s.id === id))
+        }
     }
     ColumnLayout {
         anchors.fill: parent; anchors.margins: Style.space(10); spacing: Style.space(8)
@@ -59,10 +84,23 @@ Rectangle {
         }
         RowLayout {
             spacing: Style.space(6)
-            AmpButton { text: "PLAYLIST  " + app.state.queue.length; lit: app.tab === "queue"; onClicked: app.tab = "queue" }
-            AmpButton { text: "LIBRARY"; lit: app.tab === "library"; enabled: app.connected; onClicked: app.tab = "library" }
+            AmpButton { text: "PLAYLIST  " + app.state.queue.length; hint: "Playlist (P)"; lit: app.tab === "queue"; onClicked: app.tab = "queue" }
+            AmpButton { text: "LIBRARY"; hint: "Library (L)"; lit: app.tab === "library"; enabled: app.connected; onClicked: app.tab = "library" }
             Item { Layout.fillWidth: true }
-            AmpButton { text: app.connected ? "● " + app.username : "CONNECT"; lit: app.tab === "connect"; onClicked: app.tab = "connect" }
+            AmpButton {
+                id: accountButton
+                text: app.connected ? app.username : "CONNECT"
+                hint: app.connected ? "Connected to Jellyfin as " + app.username : "Connect to Jellyfin"
+                lit: app.tab === "connect"
+                implicitWidth: accountLabel.implicitWidth + Style.space(14)
+                contentItem: Row {
+                    id: accountLabel
+                    spacing: Style.space(5)
+                    AmpText { text: "●"; visible: app.connected; color: Color.accent; anchors.verticalCenter: parent.verticalCenter }
+                    AmpText { text: accountButton.text; color: Color.foreground; font.bold: accountButton.lit; anchors.verticalCenter: parent.verticalCenter }
+                }
+                onClicked: app.tab = "connect"
+            }
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
         ColumnLayout {
@@ -108,52 +146,90 @@ Rectangle {
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: Style.space(10)
             RowLayout {
                 Layout.fillWidth: true
-                UI.TextField { font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); id: search; Layout.fillWidth: true; placeholderText: "Filter artists, albums, songs…"; Accessible.name: "Search library"; onTextChanged: { root.artist = ""; root.album = ""; root.selectedSongs = [] } }
+                UI.TextField {
+                    id: search
+                    Layout.fillWidth: true
+                    font.pixelSize: Style.font.bodySmall
+                    verticalPadding: Style.space(5)
+                    rightPadding: clearSearch.width + Style.space(4)
+                    placeholderText: "Search"
+                    Accessible.name: "Search library"
+                    onTextChanged: { root.artist = ""; root.album = ""; root.selectedSongs = [] }
+                    Controls.ToolButton {
+                        id: clearSearch
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Style.space(26)
+                        height: parent.height - Style.space(4)
+                        enabled: !!search.text || !!root.artist || !!root.album || root.selectedSongs.length > 0
+                        hoverEnabled: true
+                        Accessible.name: "Clear search and filters"
+                        contentItem: AmpText { text: "×"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; opacity: clearSearch.enabled ? 1 : 0.35 }
+                        background: Rectangle { color: clearSearch.down ? Style.pressedFill : clearSearch.hovered ? Style.hoverFill : "transparent" }
+                        UI.PanelToolTip { visible: clearSearch.hovered && clearSearch.enabled; text: "Clear search and filters" }
+                        onClicked: {
+                            search.clear()
+                            root.artist = ""
+                            root.album = ""
+                            root.selectedSongs = []
+                            search.forceActiveFocus(Qt.MouseFocusReason)
+                        }
+                    }
+                }
                 Controls.ComboBox {
                     id: folders
                     Layout.preferredWidth: Style.space(135)
+                    Layout.preferredHeight: search.implicitHeight
+                    currentIndex: app.selectedLibrary ? app.libraries.findIndex(item => item.id === app.selectedLibrary) : 0
                     model: app.libraries; textRole: "name"; valueRole: "id"; enabled: !app.busy
                     font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
                     Accessible.name: "Music folder"
                     contentItem: AmpText { text: folders.displayText; verticalAlignment: Text.AlignVCenter; leftPadding: Style.space(8); rightPadding: Style.space(22) }
                     background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
-                    onActivated: { root.folder = currentValue; app.send({cmd: "library", folder: currentValue}) }
+                    onActivated: { root.folder = currentValue; root.artist = ""; root.album = ""; root.selectedSongs = []; app.send({cmd: "library", folder: currentValue}) }
                 }
-                AmpButton { text: "↻"; hint: "Refresh library"; enabled: !app.busy; onClicked: app.send({cmd: "library", folder: folders.currentValue || ""}) }
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                AmpText { text: root.artist || "All artists"; Layout.fillWidth: true; color: Color.accent }
-                AmpButton { text: "RESET FILTERS"; implicitHeight: Style.space(24); onClicked: { root.artist = ""; root.album = ""; root.selectedSongs = []; search.clear() } }
             }
             GridLayout {
                 columns: 2
                 Layout.fillWidth: true; Layout.fillHeight: true; columnSpacing: Style.space(8); rowSpacing: Style.space(8)
                 TextList {
                     Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: Math.max(Style.space(100), root.height * 0.24)
+                    onActivated: function(key) { root.playMusic(app.songs.filter(s => s.artist === key)) }
+                    id: artistList
+                    addEnabled: true
+                    addHeld: app.optionHeld || false
+                    onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.artist === key)) }
                     heading: "ARTIST"; rows: root.artistRows; selected: [root.artist]
                     emptyText: app.busy ? "Reading library…" : app.libraries.length ? "No matching artists" : "No music libraries"
                     onChosen: function(key) { root.artist = root.artist === key ? "" : key; root.album = ""; root.selectedSongs = [] }
                 }
                 TextList {
                     Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: Math.max(Style.space(100), root.height * 0.24)
+                    onActivated: function(key) { root.playMusic(app.songs.filter(s => s.albumId === key)) }
+                    id: albumList
+                    addEnabled: true
+                    addHeld: app.optionHeld || false
+                    onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.albumId === key)) }
                     heading: "ALBUM"; rows: root.albumRows; selected: [root.album]
                     emptyText: "No matching albums"
                     onChosen: function(key) { root.album = root.album === key ? "" : key; root.selectedSongs = [] }
                 }
                 TextList {
                     Layout.columnSpan: 2; Layout.fillHeight: true; Layout.fillWidth: true
+                    id: songList
+                    addEnabled: true
+                    addHeld: app.optionHeld || false
+                    onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.id === key)) }
                     heading: "SONG"; rows: root.songRows; selected: root.selectedSongs
                     emptyText: "No matching songs"
                     onChosen: function(key, modifiers) { root.selectedSongs = root.select(root.selectedSongs, key, modifiers, root.songRows) }
-                    onActivated: function(key) { app.send({cmd: "add", ids: [key]}) }
+                    onActivated: function(key) { root.playMusic(app.songs.filter(s => s.id === key)) }
                 }
             }
             RowLayout {
                 AmpButton { text: "+ ADD " + root.chosenSongs.length; hint: "Add selected songs, album, or artist to playlist"; enabled: root.chosenSongs.length > 0 && !app.busy; onClicked: root.addMusic() }
-                AmpButton { text: "− REMOVE"; hint: "Remove selected music from the playlist"; enabled: root.chosenSongs.length > 0; onClicked: root.removeMusic() }
                 Item { Layout.fillWidth: true }
-                AmpText { text: "Ctrl / Shift select"; font.pixelSize: Style.font.caption; opacity: 0.45 }
+                AmpText { text: "⌥ click / Return to add"; font.pixelSize: Style.font.caption; opacity: 0.45 }
             }
         }
         ColumnLayout {
@@ -161,12 +237,22 @@ Rectangle {
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: Style.space(10)
             TextList {
                 Layout.fillWidth: true; Layout.fillHeight: true
+                id: queueList
+                playlistKeys: true
+                onRemoveRequested: function(key) {
+                    app.send({cmd: "remove", keys: root.selectedQueue.indexOf(key) >= 0 ? root.selectedQueue : [key]})
+                    root.selectedQueue = []
+                }
+                onMoveRequested: function(key, delta) {
+                    root.selectedQueue = [key]
+                    root.move(delta)
+                }
+                onSelectAllRequested: root.selectedQueue = root.queueRows.map(row => row.key)
                 heading: "PLAYLIST"; rows: root.queueRows; selected: root.selectedQueue
                 playing: app.current ? app.current.key : ""
                 emptyText: "A good playlist starts with one song.\nOpen the library to add yours."
                 onChosen: function(key, modifiers) { root.selectedQueue = root.select(root.selectedQueue, key, modifiers, root.queueRows) }
                 onActivated: function(key) { root.playQueue(key) }
-                Keys.onDeletePressed: { app.send({cmd: "remove", keys: root.selectedQueue}); root.selectedQueue = [] }
             }
             RowLayout {
                 AmpButton { text: "+ MUSIC"; onClicked: app.showLibrary() }
@@ -179,7 +265,7 @@ Rectangle {
         }
         AmpText {
             Layout.fillWidth: true
-            text: app.error || (app.busy ? "READING LIBRARY…" : app.tab === "queue" ? app.state.queue.length + " TRACKS  /  " + app.time(app.state.queue.reduce((n,s) => n + s.duration, 0)) + " TOTAL  ·  DOUBLE-CLICK TO PLAY" : app.tab === "library" ? app.songs.length + " SONGS  ·  SELECT AN ARTIST OR ALBUM TO ADD / REMOVE ALL ITS SONGS" : "OMAGAWD  /  PERSONAL AUDIO")
+            text: app.error || (app.busy ? "READING LIBRARY…" : app.tab === "queue" ? app.state.queue.length + " TRACKS  /  " + app.time(app.state.queue.reduce((n,s) => n + s.duration, 0)) + " TOTAL  ·  DOUBLE-CLICK TO PLAY" : app.tab === "library" ? app.songs.length + " SONGS  ·  SELECT MUSIC TO ADD · DOUBLE-CLICK TO PLAY" : "OMAGAWD  /  PERSONAL AUDIO")
             color: app.error ? Color.urgent : Color.foreground
             opacity: app.error ? 1 : 0.5
             wrapMode: Text.WordWrap; elide: Text.ElideNone; font.pixelSize: Style.font.caption

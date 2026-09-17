@@ -54,7 +54,10 @@ class StreamTests(unittest.TestCase):
             self.assertEqual(received[0][0], '/Audio/1/stream?static=true')
             self.assertIn('Token="stream-token"', received[0][1])
             self.assertTrue(any(e.get('position', 0) > .5 for e in events), 'mpv must decode audio and report progress')
-            self.assertTrue(any(e.get('type') == 'meter' and e['level'] > 0.1 for e in events), 'visualizer must measure actual decoded audio')
+            self.assertTrue(any(e.get('type') == 'meter' and max(e['levels']) > 0.1 for e in events), 'visualizer must measure actual decoded audio')
+            frames = [e['levels'] for e in events if e.get('type') == 'meter' and max(e['levels']) > .1]
+            peak = max(range(16), key=lambda i: sum(f[i] for f in frames))
+            self.assertIn(peak, (5, 6), '440 Hz must light its frequency band, not all bars equally')
             self.assertTrue(player.idle, 'playlist must stop after EOF without repeat')
             self.assertFalse(any(e.get('type') == 'error' for e in events))
         finally:
