@@ -27,7 +27,7 @@ Item {
     property bool connected: false
     property bool busy: false
     property double lastLibraryCheck: 0
-    readonly property bool browsingLibrary: opened && playlistOpen && tab === "library" && connected
+    readonly property bool browsingLibrary: opened && playlistOpen && tab === "library"
     onBrowsingLibraryChanged: if (browsingLibrary) Qt.callLater(refreshLibrary)
     onBusyChanged: if (!busy && browsingLibrary) Qt.callLater(refreshLibrary)
     function refreshLibrary() {
@@ -47,8 +47,8 @@ Item {
     property string savedUsername: ""
     property string serverUrl: ""
     property bool remembered: false
-    property string selectedLibrary: ""
-    property var libraries: []
+    property string selectedLibrary: "local"
+    property var libraries: [{id: "local", name: "Local Music"}]
     property var songs: []
     property var state: ({queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0})
     readonly property var current: state.queue[state.index] || null
@@ -60,14 +60,18 @@ Item {
         else { playlistOpen = true; tab = "queue" }
     }
     function toggleLibrary() {
-        var target = connected ? "library" : "connect"
+        var target = "library"
         if (playlistOpen && tab === target) playlistOpen = false
         else { playlistOpen = true; tab = target }
     }
-    function showLibrary() { playlistOpen = true; tab = connected ? "library" : "connect" }
+    function showLibrary() { playlistOpen = true; tab = "library" }
+    function chooseLocal(folder) {
+        close()
+        send({cmd: folder ? "choose_folder" : "choose_files"})
+    }
     function searchLibrary() {
         showLibrary()
-        if (connected) Qt.callLater(function() {
+        Qt.callLater(function() {
             if (root.opened && root.playlistOpen && root.tab === "library") library.focusSearch()
         })
     }
@@ -89,13 +93,14 @@ Item {
         else if (data.type === "busy") busy = data.value
         else if (data.type === "error") error = data.message
         else if (data.type === "connected") {
-            connected = true; username = data.username; selectedLibrary = data.folder || ""; libraries = data.libraries; songs = []; tab = "library"
+            connected = true; username = data.username; selectedLibrary = data.folder || ""; libraries = [{id: "local", name: "Local Music"}].concat(data.libraries); songs = []; tab = "library"
         } else if (data.type === "library") {
             selectedLibrary = data.folder || ""
             lastLibraryCheck = Date.now()
             if (JSON.stringify(songs) !== JSON.stringify(data.songs)) songs = data.songs
         }
-        else if (data.type === "disconnected") { connected = false; remembered = false; savedUsername = ""; busy = false; libraries = []; songs = []; tab = "connect" }
+        else if (data.type === "picker_closed") { opened = true; showLibrary() }
+        else if (data.type === "disconnected") { connected = false; remembered = false; savedUsername = ""; busy = false; libraries = [{id: "local", name: "Local Music"}]; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
     }
     Timer {
         interval: 66; repeat: true

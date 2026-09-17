@@ -9,13 +9,14 @@ OmaGAWD is a native Omarchy/Quickshell music plugin, not a web app or Codex plug
 - `Receiver.qml`, `Visualizer.qml`: compact head unit and real 16-band spectrum with peak markers.
 - `Library.qml`, `TextList.qml`: library/queue views, selection and keyboard interaction.
 - `backend.py`: Jellyfin API, local queue, mpv IPC and playback state.
+- `local_library.py`: explicitly chosen local paths, persistent sources, cached ffprobe tags, recursive scans.
 - `session_store.py`: Secret Service reconnect token and last successful library.
 - `spectrum.py`: analysis-only filter bank; preserve the playback signal.
 - `mpris.py`: Gio/GLib desktop media controls and metadata.
 - `scripts/install.sh`: copies plugin files; refuses to overwrite an existing install.
 - `scripts/preview.sh`: native standalone preview; uses the real backend and keyring.
 
-The backend launches with `/usr/bin/python3` because system `python-gobject` supplies Gio/GLib. Keep all Python modules in the installer copy list. No pip/npm dependencies are needed.
+The backend launches with `/usr/bin/python3` because system `python-gobject` supplies Gio/GLib. Keep all Python modules in the installer copy list. Local music uses ffprobe and zenity. No pip/npm dependencies are needed.
 
 ## Product behaviour to preserve
 
@@ -31,11 +32,11 @@ Library: text-based Artist → Album → Song browser, short “Search” placeh
 - P/L toggle playlist/library only outside text input. Escape hides the popup.
 - Media keys use MPRIS, including when the popup is hidden.
 
-Local files/folders, playlist-file import/export, and radio are proposed only. Do not describe them as implemented. Queue persistence and server-playlist sync are also not implemented.
+Local files/folders are supported through Local Music with + FILES/+ FOLDER and saved sources. File drag-and-drop, playlist-file import/export, and radio are proposed only. Do not describe them as implemented. Queue persistence and server-playlist sync are also not implemented.
 
 ## Credentials and playback
 
-Never log tokens/passwords or put them in argv/stream URLs. Secret-tool receives saved data over stdin; passwords are not saved. Keep TLS verification, the modern Authorization header, and stale-network-response protection. Removing items affects the local queue only. Appending must preserve current track, position, and play/pause state.
+Never log tokens/passwords or put them in argv/stream URLs. Secret-tool receives saved data over stdin; passwords are not saved. Keep TLS verification, the modern Authorization header, and stale-network-response protection. Removing items affects the local queue only. Appending must preserve current track, position, and play/pause state. Clear mpv HTTP authentication headers before local playback. Never send a local path to Jellyfin. Saved local roots live in the user config, never in the repository; do not crawl unselected folders.
 
 ## Verification
 

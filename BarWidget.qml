@@ -27,7 +27,7 @@ UI.BarWidget {
         id: button
         anchors.fill: parent
         bar: root.bar
-        tooltipText: "OmaGAWD · Jellyfin music"
+        tooltipText: "OmaGAWD · Music"
         slotSize: Style.bar.statusSlot
         // The tall ears fill the canvas; compensate to match neighboring glyphs.
         opticalSize: Math.round(Style.bar.iconCanvas * 0.75)

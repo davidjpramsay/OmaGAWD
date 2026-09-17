@@ -170,8 +170,9 @@ class Mpv:
 
 
 class Player:
-    def __init__(self, emit, mpv_factory=Mpv, store=None):
+    def __init__(self, emit, mpv_factory=Mpv, store=None, local=None):
         self.emit, self.mpv_factory = emit, mpv_factory
+        self.local = local
         self.store, self.remembered = store, False
         self.username, self.folder = "", ""
         self.lock = threading.RLock()
@@ -214,11 +215,24 @@ class Player:
                     self.state()
 
     def play(self, index):
-        if not self.client or not 0 <= index < len(self.queue):
+        if not 0 <= index < len(self.queue):
+            return
+        track = self.queue[index]
+        if track.get('source') == 'local':
+            if not os.path.isfile(track['path']):
+                if self.mpv: self.mpv.send('stop')
+                self.index, self.position = index, 0
+                self.idle, self.paused = True, True
+                self.emit({'type': 'error', 'message': 'This local file is no longer available.'})
+                return
+            url, headers = track['path'], []
+        elif self.client:
+            url, headers = self.client.stream(track['id']), ['Authorization: ' + self.client.authorization()]
+        else:
             return
         engine = self.engine()
-        engine.send('set_property', 'http-header-fields', ['Authorization: ' + self.client.authorization()])
-        engine.send('loadfile', self.client.stream(self.queue[index]['id']), 'replace')
+        engine.send('set_property', 'http-header-fields', headers)
+        engine.send('loadfile', url, 'replace')
         engine.send('set_property', 'pause', False)
         self.index, self.position = index, 0
         self.duration = self.queue[index]['duration']
@@ -254,6 +268,7 @@ class Player:
                     stage = 'restore'
                     saved = self.store.load() if self.store else None
                     if not saved:
+                        if self.local: self.load_local(generation)
                         return
                     with self.lock:
                         if generation != self.generation:
@@ -288,6 +303,9 @@ class Player:
                     self.emit({'type': 'remembered', 'value': self.remembered})
                     self.emit({'type': 'connected', 'libraries': libraries, 'username': command['username'], 'folder': folder})
                 stage = 'library'
+                if self.local and self.local.prefer_local and command['cmd'] == 'restore':
+                    self.load_local(generation)
+                    return
                 songs = client.songs(folder) if libraries else []
             else:
                 client = self.client
@@ -298,6 +316,9 @@ class Player:
             with self.lock:
                 if generation == self.generation:
                     self.songs = songs
+                    if self.local:
+                        self.local.prefer_local = False
+                        self.local.save()
                     changed = folder != self.folder
                     self.folder = folder
                     self.emit({'type': 'library', 'songs': songs, 'folder': folder})
@@ -336,6 +357,45 @@ class Player:
                 if generation == self.generation:
                     self.emit({'type': 'busy', 'value': False})
 
+    def load_local(self, generation):
+        if not self.local: raise RuntimeError('Local library unavailable.')
+        songs, skipped = self.local.scan()
+        with self.lock:
+            if generation != self.generation: return
+            self.songs = songs
+            self.local.prefer_local = True
+            self.local.save()
+            self.emit({'type': 'library', 'folder': 'local', 'songs': songs})
+            if skipped:
+                self.emit({'type': 'error', 'message': str(skipped) + ' unreadable local audio file(s) skipped.'})
+
+    def local_command(self, command, generation):
+        picker = command['cmd'] in ('choose_files', 'choose_folder')
+        try:
+            if not self.local: raise RuntimeError('Local library unavailable.')
+            paths = command.get('paths', [])
+            if picker:
+                args = ['zenity', '--file-selection', '--title=OmaGAWD · Add music']
+                if command['cmd'] == 'choose_folder': args += ['--directory']
+                else: args += ['--multiple', '--separator=\n', '--file-filter=Audio | *.mp3 *.flac *.m4a *.aac *.ogg *.opus *.wav *.aiff *.aif *.alac *.wma *.ape *.wv *.m4b', '--file-filter=All files | *']
+                result = subprocess.run(args, capture_output=True, text=True)
+                if result.returncode == 1: return
+                if result.returncode: raise RuntimeError('Could not open the file picker. Check that zenity is installed.')
+                paths = result.stdout.rstrip('\n').split('\n')
+            with self.lock:
+                if generation != self.generation: return
+                if paths: self.local.add(paths)
+            self.load_local(generation)
+        except Exception as exc:
+            with self.lock:
+                if generation == self.generation:
+                    self.emit({'type': 'error', 'message': str(exc) if isinstance(exc, (RuntimeError, ValueError)) else 'Could not read or save local music sources.'})
+        finally:
+            with self.lock:
+                if generation == self.generation:
+                    self.emit({'type': 'busy', 'value': False})
+                if picker: self.emit({'type': 'picker_closed'})
+
     def handle(self, c):
         with self.lock:
             cmd = c.get('cmd')
@@ -343,7 +403,11 @@ class Player:
                 if self.mpv and not self.idle and not self.paused:
                     self.mpv.query_meter()
                 return
-            if cmd in ('login', 'library', 'restore'):
+            if cmd in ('local_add', 'choose_files', 'choose_folder') or (cmd == 'library' and c.get('folder') == 'local'):
+                self.generation += 1
+                self.emit({'type': 'busy', 'value': True})
+                self.work.submit(self.local_command, c, self.generation)
+            elif cmd in ('login', 'library', 'restore'):
                 self.generation += 1
                 if cmd == 'login':
                     old = self.client
@@ -366,7 +430,7 @@ class Player:
             elif cmd == 'replace_play':
                 ids = set(c.get('ids', []))
                 selection = [dict(s, key=str(uuid.uuid4())) for s in self.songs if s['id'] in ids]
-                if selection and self.client:
+                if selection and (self.client or all(s.get('source') == 'local' for s in selection)):
                     self.queue = selection
                     self.play(0)
             elif cmd == 'remove':
@@ -470,7 +534,8 @@ def main():
     def terminate(signum, frame):
         raise SystemExit(0)
     signal.signal(signal.SIGTERM, terminate)
-    player = Player(emit, store=SessionStore())
+    from local_library import LocalLibrary
+    player = Player(emit, store=SessionStore(), local=LocalLibrary())
     from mpris import Mpris
     media = Mpris(player)
     emit({'type': 'ready'})

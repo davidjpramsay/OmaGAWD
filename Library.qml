@@ -85,7 +85,7 @@ Rectangle {
         RowLayout {
             spacing: Style.space(6)
             AmpButton { text: "PLAYLIST  " + app.state.queue.length; hint: "Playlist (P)"; lit: app.tab === "queue"; onClicked: app.tab = "queue" }
-            AmpButton { text: "LIBRARY"; hint: "Library (L)"; lit: app.tab === "library"; enabled: app.connected; onClicked: app.tab = "library" }
+            AmpButton { text: "LIBRARY"; hint: "Library (L)"; lit: app.tab === "library"; onClicked: app.tab = "library" }
             Item { Layout.fillWidth: true }
             AmpButton {
                 id: accountButton
@@ -189,6 +189,13 @@ Rectangle {
                     onActivated: { root.folder = currentValue; root.artist = ""; root.album = ""; root.selectedSongs = []; app.send({cmd: "library", folder: currentValue}) }
                 }
             }
+            RowLayout {
+                visible: app.selectedLibrary === "local"
+                Layout.fillWidth: true
+                AmpButton { text: "+ FILES"; hint: "Choose local audio files"; enabled: !app.busy; onClicked: app.chooseLocal(false) }
+                AmpButton { text: "+ FOLDER"; hint: "Include a music folder and its subfolders"; enabled: !app.busy; onClicked: app.chooseLocal(true) }
+                Item { Layout.fillWidth: true }
+            }
             GridLayout {
                 columns: 2
                 Layout.fillWidth: true; Layout.fillHeight: true; columnSpacing: Style.space(8); rowSpacing: Style.space(8)
@@ -200,7 +207,7 @@ Rectangle {
                     addHeld: app.optionHeld || false
                     onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.artist === key)) }
                     heading: "ARTIST"; rows: root.artistRows; selected: [root.artist]
-                    emptyText: app.busy ? "Reading library…" : app.libraries.length ? "No matching artists" : "No music libraries"
+                    emptyText: app.busy ? "Reading library…" : app.selectedLibrary === "local" && !app.songs.length ? "Add local files or a folder" : "No matching artists"
                     onChosen: function(key) { root.artist = root.artist === key ? "" : key; root.album = ""; root.selectedSongs = [] }
                 }
                 TextList {
@@ -250,7 +257,7 @@ Rectangle {
                 onSelectAllRequested: root.selectedQueue = root.queueRows.map(row => row.key)
                 heading: "PLAYLIST"; rows: root.queueRows; selected: root.selectedQueue
                 playing: app.current ? app.current.key : ""
-                emptyText: "A good playlist starts with one song.\nOpen the library to add yours."
+                emptyText: "A GAWD playlist starts with one song.\nOpen the library to add yours."
                 onChosen: function(key, modifiers) { root.selectedQueue = root.select(root.selectedQueue, key, modifiers, root.queueRows) }
                 onActivated: function(key) { root.playQueue(key) }
             }

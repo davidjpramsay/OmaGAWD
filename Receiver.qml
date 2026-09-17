@@ -18,7 +18,7 @@ Rectangle {
             Image { source: Qt.resolvedUrl("assets/omaamp.svg"); Layout.preferredWidth: Style.space(16); Layout.preferredHeight: Style.space(16); sourceSize: Qt.size(48, 48); Accessible.name: "OmaGAWD llama" }
             AmpText { text: "OMAGAWD"; font.bold: true; font.letterSpacing: 2 }
             Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
-            AmpText { text: "JELLYFIN"; font.pixelSize: Style.font.caption; opacity: 0.55 }
+            AmpText { text: app.current && app.current.source === "local" ? "LOCAL" : app.selectedLibrary === "local" && !app.current ? "LOCAL" : "JELLYFIN"; font.pixelSize: Style.font.caption; opacity: 0.55 }
             AmpButton { text: "−"; hint: "Hide player (music keeps playing)"; implicitHeight: Style.space(22); onClicked: app.close() }
         }
         Rectangle {
@@ -99,7 +99,7 @@ Rectangle {
             AmpButton { text: app.state.repeat === "one" ? "R1" : "RPT"; hint: "Repeat: " + app.state.repeat; lit: app.state.repeat !== "off"; onClicked: app.send({cmd: "repeat"}) }
             AmpText { text: "VOL"; font.pixelSize: Style.font.caption; opacity: 0.6 }
             AmpSlider { Layout.fillWidth: true; Layout.minimumWidth: Style.space(60); from: 0; to: 100; value: app.state.volume; Accessible.name: "Volume"; onMoved: app.send({cmd: "volume", value: value}) }
-            AmpButton { text: "PL"; hint: "Playlist (P) / Library (L)"; lit: app.playlistOpen; onClicked: { app.playlistOpen = !app.playlistOpen; if (!app.connected) app.tab = "connect" } }
+            AmpButton { text: "PL"; hint: "Playlist (P) / Library (L)"; lit: app.playlistOpen; onClicked: { app.playlistOpen = !app.playlistOpen } }
         }
     }
 }
