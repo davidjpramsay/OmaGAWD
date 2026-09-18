@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
+import uuid
 
 EXTENSIONS = {'.mp3', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.aiff', '.aif', '.alac', '.wma', '.ape', '.wv', '.m4b'}
 
@@ -12,12 +14,27 @@ class LocalLibrary:
     def __init__(self, path=None):
         self.path = Path(path) if path else Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'omagawd/local.json'
         self.roots, self.prefer_local, self.cache = [], False, {}
+        self.warning = ''
         if self.path.exists():
-            data = json.loads(self.path.read_text())
-            self.roots = [str(Path(p).expanduser().resolve()) for p in data.get('paths', []) if isinstance(p, str)]
-            self.prefer_local = bool(data.get('preferLocal', False))
+            try:
+                data = json.loads(self.path.read_text())
+                if not isinstance(data, dict) or not isinstance(data.get('paths', []), list):
+                    raise ValueError('Invalid local settings')
+                self.roots = [str(Path(p).expanduser().resolve()) for p in data.get('paths', []) if isinstance(p, str)]
+                self.prefer_local = bool(data.get('preferLocal', False))
+            except (OSError, ValueError, RuntimeError):
+                backup = self.path.with_name(self.path.name + '.damaged-' + uuid.uuid4().hex)
+                try:
+                    shutil.copy2(self.path, backup)
+                    self.warning = 'Local settings were unreadable. A backup was kept; add your music sources again.'
+                except OSError:
+                    self.warning = 'Local settings could not be read or backed up. Check file permissions.'
+                    self.path = None  # Never overwrite settings we could not preserve.
+                self.roots, self.prefer_local = [], False
 
     def save(self):
+        if self.path is None:
+            raise RuntimeError('Local settings are not writable. Check file permissions and reopen the player.')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.path.with_suffix('.tmp')
         temp.write_text(json.dumps({'paths': self.roots, 'preferLocal': self.prefer_local}))

@@ -12,7 +12,7 @@ if [[ -e "$plugin_dir" ]]; then
   exit 1
 fi
 mkdir -p "$plugin_dir"
-cp "$project_dir"/*.qml "$project_dir/backend.py" "$project_dir/session_store.py" "$project_dir/spectrum.py" "$project_dir/mpris.py" "$project_dir/local_library.py" "$project_dir/manifest.json" "$project_dir/README.md" "$plugin_dir/"
+cp "$project_dir"/*.qml "$project_dir/backend.py" "$project_dir/stream_proxy.py" "$project_dir/process_guard.py" "$project_dir/session_store.py" "$project_dir/spectrum.py" "$project_dir/mpris.py" "$project_dir/local_library.py" "$project_dir/manifest.json" "$project_dir/README.md" "$plugin_dir/"
 cp -r "$project_dir/assets" "$plugin_dir/"
 icon_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
 mkdir -p "$icon_dir"

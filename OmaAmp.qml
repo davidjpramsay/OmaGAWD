@@ -55,7 +55,7 @@ Item {
     property var songs: []
     property var state: ({queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0})
     readonly property var current: state.queue[state.index] || null
-    function open() { opened = true; if (!connected) showLibrary() }
+    function open() { if (!bridge.running) { error = ""; bridge.running = true } opened = true; if (!connected) showLibrary() }
     function close() { opened = false; playlistOpen = false }
     function toggle() { opened ? close() : open() }
     function togglePlaylist() {
@@ -97,7 +97,9 @@ Item {
         else if (data.type === "busy") busy = data.value
         else if (data.type === "error") error = data.message
         else if (data.type === "connected") {
-            connected = true; username = data.username; selectedLibrary = data.folder || ""; remoteLibraries = data.libraries; songs = []; tab = "library"
+            connected = true; username = data.username; remoteLibraries = data.libraries
+            if (!data.preserveLocal) { selectedLibrary = data.folder || ""; songs = [] }
+            tab = "library"
         } else if (data.type === "library") {
             selectedLibrary = data.folder || ""
             lastLibraryCheck = Date.now()
@@ -111,8 +113,14 @@ Item {
         running: root.opened && root.playing && root.ready
         onTriggered: bridge.write(JSON.stringify({cmd: "meter"}) + "\n")
     }
+    Timer {
+        interval: 500; repeat: true
+        running: bridge.running && !root.ready
+        onTriggered: bridge.write('{"cmd":"sync"}\n')
+    }
     Process {
         id: bridge
+        objectName: "backendBridge"
         command: ["/usr/bin/python3", decodeURIComponent(Qt.resolvedUrl("backend.py").toString().replace(/^file:\/\//, ""))]
         running: true
         stdinEnabled: true
@@ -123,6 +131,10 @@ Item {
         }
         onExited: {
             root.ready = false; root.busy = false
+            root.connected = false; root.remembered = false; root.remoteLibraries = []; root.songs = []
+            root.lastLibraryCheck = 0
+            root.state = {queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0}
+            root.levels = Array(16).fill(0)
             root.error = "Player stopped. Reopen the plugin after checking Python and mpv."
         }
     }

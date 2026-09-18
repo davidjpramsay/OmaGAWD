@@ -17,6 +17,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from session_store import SessionStore
 from spectrum import filter_graph, level
+from stream_proxy import StreamProxy
+from process_guard import guard_parent
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -94,7 +96,8 @@ class Mpv:
         self.spectrum = [0.0] * 16
         self.meter_thread = threading.Thread(target=self.read_spectrum, daemon=True)
         self.meter_thread.start()
-        self.proc = subprocess.Popen(['mpv', '--no-config', '--idle=yes', '--no-video', '--no-terminal',
+        self.proxy = None
+        self.proc = subprocess.Popen(['/usr/bin/python3', os.path.join(os.path.dirname(__file__), 'process_guard.py'), str(os.getpid()), 'mpv', '--no-config', '--idle=yes', '--no-video', '--no-terminal',
                                       '--audio-display=no', '--af=@meter:lavfi=[' + filter_graph(meter_path) + ']',
                                       '--input-ipc-server=' + path],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -114,6 +117,16 @@ class Mpv:
         threading.Thread(target=self.read, daemon=True).start()
         for n, prop in enumerate(['time-pos', 'duration', 'pause', 'idle-active', 'audio-bitrate']):
             self.send('observe_property', n, prop)
+
+    def load(self, url, headers):
+        if headers:
+            if self.proxy is None:
+                self.proxy = StreamProxy()
+            url = self.proxy.stream(url, {'Authorization': headers[0].split(': ', 1)[1]})
+        elif self.proxy:
+            self.proxy.route = None
+        self.send('set_property', 'http-header-fields', [])
+        self.send('loadfile', url, 'replace')
 
     def send(self, *command):
         with self.lock:
@@ -163,6 +176,8 @@ class Mpv:
                 self.proc.wait()
         if getattr(self, 'sock', None):
             self.sock.close()
+        if getattr(self, 'proxy', None):
+            self.proxy.close()
         self.meter_stop.set()
         self.meter_thread.join(timeout=1)
         os.close(self.meter_fd)
@@ -231,8 +246,7 @@ class Player:
         else:
             return
         engine = self.engine()
-        engine.send('set_property', 'http-header-fields', headers)
-        engine.send('loadfile', url, 'replace')
+        engine.load(url, headers)
         engine.send('set_property', 'pause', False)
         self.index, self.position = index, 0
         self.duration = self.queue[index]['duration']
@@ -266,9 +280,12 @@ class Player:
             if command['cmd'] in ('login', 'restore'):
                 if command['cmd'] == 'restore':
                     stage = 'restore'
+                    # Local browsing must not depend on the keyring or server.
+                    if self.local and self.local.prefer_local:
+                        self.load_local(generation)
                     saved = self.store.load() if self.store else None
                     if not saved:
-                        if self.local: self.load_local(generation)
+                        if self.local and not self.local.prefer_local: self.load_local(generation)
                         return
                     with self.lock:
                         if generation != self.generation:
@@ -301,10 +318,10 @@ class Player:
                         except RuntimeError as exc:
                             self.emit({'type': 'error', 'message': str(exc)})
                     self.emit({'type': 'remembered', 'value': self.remembered})
-                    self.emit({'type': 'connected', 'libraries': libraries, 'username': command['username'], 'folder': folder})
+                    self.emit({'type': 'connected', 'libraries': libraries, 'username': command['username'], 'folder': folder,
+                               'preserveLocal': bool(self.local and self.local.prefer_local and command['cmd'] == 'restore')})
                 stage = 'library'
                 if self.local and self.local.prefer_local and command['cmd'] == 'restore':
-                    self.load_local(generation)
                     return
                 songs = client.songs(folder) if libraries else []
             else:
@@ -318,7 +335,10 @@ class Player:
                     self.songs = songs
                     if self.local:
                         self.local.prefer_local = False
-                        self.local.save()
+                        try:
+                            self.local.save()
+                        except (OSError, RuntimeError):
+                            self.emit({'type': 'error', 'message': 'Jellyfin loaded, but its source selection could not be saved.'})
                     changed = folder != self.folder
                     self.folder = folder
                     self.emit({'type': 'library', 'songs': songs, 'folder': folder})
@@ -364,8 +384,11 @@ class Player:
             if generation != self.generation: return
             self.songs = songs
             self.local.prefer_local = True
-            self.local.save()
             self.emit({'type': 'library', 'folder': 'local', 'songs': songs})
+            try:
+                self.local.save()
+            except (OSError, RuntimeError):
+                self.emit({'type': 'error', 'message': 'Local music loaded, but its selection could not be saved.'})
             if skipped:
                 self.emit({'type': 'error', 'message': str(skipped) + ' unreadable local audio file(s) skipped.'})
 
@@ -536,25 +559,45 @@ class Player:
 def main():
     output_lock = threading.Lock()
     media = None
+    snapshot = {}
     def emit(data):
         if media and data.get("type") == "state":
             media.update()
         with output_lock:
+            kind = data.get('type')
+            if kind == 'disconnected':
+                for stale in ('connected', 'profile', 'remembered', 'library'):
+                    snapshot.pop(stale, None)
+            if kind == 'connected': snapshot.pop('disconnected', None)
+            if kind in ('state', 'local_sources', 'profile', 'remembered', 'connected', 'disconnected', 'library', 'busy'):
+                snapshot.pop(kind, None)
+                snapshot[kind] = data
             print(json.dumps(data, separators=(',', ':')), flush=True)
     def terminate(signum, frame):
         raise SystemExit(0)
     signal.signal(signal.SIGTERM, terminate)
+    guard_parent(os.getppid())
     from local_library import LocalLibrary
     player = Player(emit, store=SessionStore(), local=LocalLibrary())
     from mpris import Mpris
     media = Mpris(player)
     emit({'type': 'local_sources', 'available': bool(player.local.roots), 'paths': player.local.roots})
+    if player.local.warning:
+        emit({'type': 'error', 'message': player.local.warning})
     emit({'type': 'ready'})
     player.handle({'cmd': 'restore'})
     try:
         for line in sys.stdin:
             try:
-                player.handle(json.loads(line))
+                command = json.loads(line)
+                if command.get('cmd') == 'sync':
+                    # Quickshell may retain this process across a QML reload.
+                    with output_lock:
+                        for data in snapshot.values():
+                            print(json.dumps(data, separators=(',', ':')), flush=True)
+                        print('{"type":"ready"}', flush=True)
+                else:
+                    player.handle(command)
             except Exception:
                 emit({'type': 'error', 'message': 'Player command failed. Check that mpv is installed and try again.'})
     finally:

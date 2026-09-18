@@ -13,6 +13,8 @@ OmaGAWD is a native Omarchy/Quickshell music plugin, not a web app or Codex plug
 - `session_store.py`: Secret Service reconnect token and last successful library.
 - `spectrum.py`: analysis-only filter bank; preserve the playback signal.
 - `mpris.py`: Gio/GLib desktop media controls and metadata.
+- `stream_proxy.py`: loopback audio relay; rejects upstream redirects and keeps authorization out of mpv.
+- `process_guard.py`: Linux parent-death protection for the backend/mpv process chain.
 - `scripts/install.sh`: copies plugin files; refuses to overwrite an existing install.
 - `scripts/preview.sh`: native standalone preview; uses the real backend and keyring.
 
@@ -54,7 +56,9 @@ Use an isolated session bus for MPRIS tests to avoid controlling the real player
 
 Use the Omarchy skill for desktop configuration/installed-plugin work. `/usr/share/omarchy` is read-only reference material. The installed copy is `~/.config/omarchy/plugins/david.omaamp`; repo edits do not deploy themselves.
 
-**Known issue:** shell/plugin reloads have left orphaned mpv processes playing while a new UI shows no track. Stop playback before modifying installed files. If orphaned playback already exists, identify only mpv instances with this app's `--input-ipc-server=/tmp/omaamp-…/mpv.sock` argument and stop those. Never blanket-kill mpv. Tell the user a reload stops playback. A durable parent/child cleanup fix remains outstanding.
+Backend and mpv have parent-death protection. The QML bridge requests a state snapshot when reconnecting to a process retained across reloads; reopening a stopped backend starts it again and clears stale playback indicators. Stop playback before modifying installed files. To clean up older orphaned playback, identify only mpv instances with this app's `--input-ipc-server=/tmp/omaamp-…/mpv.sock` argument. Never blanket-kill mpv. Tell the user a deployment reload stops playback.
+
+Audio redirects are rejected by the relay; configure a direct Jellyfin/base-path URL. Range requests support seeking. No token reaches mpv. Local restoration happens before remote/keyring access. Malformed local settings are backed up beside `local.json` and recovered as empty sources; failed backups prohibit overwriting the original. Library grouping must use a prototype-free map for arbitrary metadata.
 
 After deployment, restart using `omarchy restart shell`, reopen using `omarchy-shell shell summon david.omaamp '{}'`, and check logs. Rescanning alone has previously left cached QML. Avoid synthetic keyboard input while the user is typing in another app.
 

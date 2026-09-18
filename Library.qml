@@ -43,7 +43,7 @@ Rectangle {
         search.forceActiveFocus(Qt.ShortcutFocusReason)
     }
     function unique(songs, field) {
-        var map = {}
+        var map = Object.create(null)
         songs.forEach(s => { var key = s[field]; if (!map[key]) map[key] = {key: key, label: field === "albumId" ? s.album : s.artist, count: 0}; map[key].count++ })
         return Object.keys(map).map(k => ({key: k, label: map[k].label, detail: String(map[k].count)})).sort((a,b) => a.label.localeCompare(b.label))
     }

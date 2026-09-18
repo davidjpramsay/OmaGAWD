@@ -12,6 +12,9 @@ from backend import Jellyfin, Player
 class FakeMpv:
     def __init__(self, callback):
         self.commands = []
+    def load(self, url, headers):
+        self.send('set_property', 'http-header-fields', headers)
+        self.send('loadfile', url, 'replace')
     def send(self, *args):
         self.commands.append(args)
     def close(self):
