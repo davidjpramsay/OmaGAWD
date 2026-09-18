@@ -2,7 +2,7 @@
 
 Winamp-inspired music player for Omarchy. **Jellyfin + local files.** Use a direct Jellyfin URL; audio redirects are blocked.
 
-![OmaGAWD](preview.png)
+<img src="preview.png" alt="OmaGAWD playing music with its frequency visualizer and library" width="420">
 
 ```sh
 git clone https://github.com/davidjpramsay/OmaGAWD.git
