@@ -73,12 +73,18 @@ class LocalLibrary:
         temp.replace(self.path)
 
     def add(self, paths):
+        candidate = list(self.roots)
         for value in paths:
             path = Path(value).expanduser().resolve()
             if not path.exists(): raise ValueError('Selected file or folder is no longer available.')
-            if str(path) not in self.roots: self.roots.append(str(path))
-        self.prefer_local = True
-        self.save()
+            if str(path) not in candidate: candidate.append(str(path))
+        previous = self.roots, self.prefer_local
+        self.roots, self.prefer_local = candidate, True
+        try:
+            self.save()
+        except Exception:
+            self.roots, self.prefer_local = previous
+            raise
 
     def remove(self, paths):
         # Forget configured sources only. Never unlink the underlying media.

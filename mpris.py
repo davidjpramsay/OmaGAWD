@@ -1,6 +1,20 @@
 """Expose OmaGAWD to Omarchy's standard desktop media controls."""
 import threading
+import math
 from gi.repository import Gio, GLib
+
+
+def microseconds(value):
+    """Return a nonnegative signed-64-bit value, even for malformed metadata."""
+    try:
+        seconds = float(value)
+        if not math.isfinite(seconds) or seconds < 0:
+            return 0
+        if seconds >= ((1 << 63) - 1) / 1000000:
+            return (1 << 63) - 1
+        return min((1 << 63) - 1, int(seconds * 1000000))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 ROOT = 'org.mpris.MediaPlayer2'
 PLAYER = ROOT + '.Player'
@@ -69,10 +83,10 @@ class Mpris:
                             'xesam:title': V('s', track['title']),
                             'xesam:artist': V('as', [track['artist']]),
                             'xesam:album': V('s', track['album']),
-                            'mpris:length': V('x', int(track['duration'] * 1000000))}
+                            'mpris:length': V('x', microseconds(track['duration']))}
             return {'PlaybackStatus': V('s', 'Stopped' if p.idle else 'Paused' if p.paused else 'Playing'),
                     'Metadata': V('a{sv}', metadata), 'Volume': V('d', p.volume / 100),
-                    'Position': V('x', int(p.position * 1000000)),
+                    'Position': V('x', microseconds(p.position)),
                     'Rate': V('d', 1.0), 'MinimumRate': V('d', 1.0), 'MaximumRate': V('d', 1.0),
                     'CanGoNext': V('b', bool(p.queue)), 'CanGoPrevious': V('b', bool(p.queue)),
                     'CanPlay': V('b', bool(p.queue)), 'CanPause': V('b', bool(p.queue)),

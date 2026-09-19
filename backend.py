@@ -149,6 +149,8 @@ class Jellyfin:
 class Mpv:
     def __init__(self, callback):
         self.callback, self.lock = callback, threading.Lock()
+        self.closing = False
+        self.close_lock = threading.Lock()
         self.temp = tempfile.TemporaryDirectory(prefix='omaamp-')
         path = self.temp.name + '/mpv.sock'
         meter_path = self.temp.name + '/spectrum.pipe'
@@ -227,8 +229,15 @@ class Mpv:
                     self.callback(json.loads(line))
         except (OSError, ValueError):
             pass
+        finally:
+            if not self.closing:
+                self.callback({'event': 'engine-exited'})
 
     def close(self):
+        with self.close_lock:
+            if self.closing:
+                return
+            self.closing = True
         if getattr(self, 'proc', None):
             self.proc.terminate()
             try:
@@ -254,6 +263,7 @@ class Player:
         self.username, self.folder = "", ""
         self.lock = threading.RLock()
         self.client, self.mpv = None, None
+        self.engine_token = None
         self.songs, self.queue = [], []
         self.index, self.position, self.duration = -1, 0, 0
         self.paused, self.idle, self.shuffle, self.repeat = True, True, False, 'off'
@@ -265,15 +275,33 @@ class Player:
                    'duration': self.duration, 'paused': self.paused, 'idle': self.idle,
                    'shuffle': self.shuffle, 'repeat': self.repeat, 'volume': self.volume, 'bitrate': self.bitrate})
 
+    def discard_engine(self):
+        old, self.mpv = self.mpv, None
+        self.engine_token = None
+        if old:
+            old.close()
+
     def engine(self):
+        if self.mpv and getattr(self.mpv, 'proc', None) and self.mpv.proc.poll() is not None:
+            self.discard_engine()
         if self.mpv is None:
-            self.mpv = self.mpv_factory(self.event)
+            token = self.engine_token = object()
+            def receive(event):
+                with self.lock:
+                    if self.engine_token is token:
+                        self.event(event)
+            self.mpv = self.mpv_factory(receive)
             self.mpv.send('set_property', 'volume', self.volume)
         return self.mpv
 
     def event(self, event):
         with self.lock:
-            if event.get('request_id') == 900:
+            if event.get('event') == 'engine-exited':
+                self.discard_engine()
+                self.idle, self.paused, self.position, self.bitrate = True, True, 0, 0
+                self.emit({'type': 'error', 'message': 'Audio player stopped. Press Play to restart playback.'})
+                self.state()
+            elif event.get('request_id') == 900:
                 if not self.idle and not self.paused:
                     self.emit({'type': 'meter', 'levels': event.get('spectrum', [0.0] * 16)})
             elif event.get('event') == 'property-change':
@@ -612,8 +640,8 @@ class Player:
 
     def close(self):
         self.generation += 1
-        if self.mpv:
-            self.mpv.close()
+        with self.lock:
+            self.discard_engine()
         self.work.shutdown(wait=True, cancel_futures=False)
         if self.client and not self.remembered:
             self.revoke(self.client)
