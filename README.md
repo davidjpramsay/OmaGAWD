@@ -32,5 +32,3 @@ omarchy-shell shell summon david.omaamp '{}'
 ```
 
 Remove with `omarchy plugin remove david.omaamp`. The script-installed launcher/icon can also be removed from `~/.local/share/applications/omaamp.desktop` and `~/.local/share/icons/hicolor/scalable/apps/omaamp.svg`. Music files, saved sources, and keyring sign-in remain.
-
-[Setup and development notes](AGENTS.md)
