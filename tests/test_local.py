@@ -35,7 +35,7 @@ class LocalTests(unittest.TestCase):
         restored = LocalLibrary(self.local.path)
         self.assertTrue(restored.prefer_local)
         self.assertEqual(restored.scan()[0], songs)
-        with patch('local_library.subprocess.run', side_effect=AssertionError('unchanged file should be cached')):
+        with patch('local_library.probe_output', side_effect=AssertionError('unchanged file should be cached')):
             self.assertEqual(self.local.scan()[0], songs)
         (self.music / 'bad.mp3').write_text('not audio')
         self.assertEqual(self.local.scan()[1], 1)

@@ -6,8 +6,40 @@ from pathlib import Path
 import subprocess
 import shutil
 import uuid
+import selectors
+import time
 
 EXTENSIONS = {'.mp3', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.aiff', '.aif', '.alac', '.wma', '.ape', '.wv', '.m4b'}
+
+
+MAX_PROBE_BYTES = 2 * 1024 * 1024
+
+
+def probe_output(command, timeout=10):
+    """Drain ffprobe incrementally; hostile tags cannot fill captured stdout."""
+    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
+        try:
+            data = bytearray()
+            deadline = time.monotonic() + timeout
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not selector.select(remaining):
+                        raise ValueError('Audio metadata scan timed out.')
+                    chunk = os.read(process.stdout.fileno(), min(65536, MAX_PROBE_BYTES + 1 - len(data)))
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                    if len(data) > MAX_PROBE_BYTES:
+                        raise ValueError('Audio metadata exceeds the 2 MiB safety limit.')
+            if process.wait(timeout=max(.01, deadline - time.monotonic())):
+                raise ValueError('Unreadable audio')
+            return data
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
 
 
 class LocalLibrary:
@@ -76,11 +108,9 @@ class LocalLibrary:
                 if cached and cached[0] == stamp:
                     item = cached[1]
                 else:
-                    result = subprocess.run(['ffprobe', '-v', 'error', '-protocol_whitelist', 'file',
-                                             '-show_format', '-show_streams', '-of', 'json', str(path)],
-                                            capture_output=True, text=True, timeout=10)
-                    if result.returncode: raise ValueError('Unreadable audio')
-                    data = json.loads(result.stdout)
+                    raw = probe_output(['ffprobe', '-v', 'error', '-protocol_whitelist', 'file',
+                                        '-show_format', '-show_streams', '-of', 'json', str(path)])
+                    data = json.loads(raw)
                     audio = next(s for s in data.get('streams', []) if s.get('codec_type') == 'audio')
                     tags = {k.lower(): v for k, v in {**data.get('format', {}).get('tags', {}), **audio.get('tags', {})}.items()}
                     def number(key):
@@ -95,7 +125,7 @@ class LocalLibrary:
                             'track': number('track'), 'disc': number('disc')}
                     self.cache[str(path)] = (stamp, item)
                 songs.append(item)
-            except (OSError, ValueError, StopIteration, subprocess.TimeoutExpired): skipped += 1
+            except (OSError, ValueError, RecursionError, StopIteration, subprocess.TimeoutExpired): skipped += 1
         self.cache = {str(p): self.cache[str(p)] for p in files if str(p) in self.cache}
         songs.sort(key=lambda s: (s['artist'].casefold(), s['album'].casefold(), s['disc'], s['track'], s['title'].casefold()))
         return songs, skipped

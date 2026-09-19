@@ -2,6 +2,8 @@
 
 Winamp-inspired music player for Omarchy. **Jellyfin + local files.** Use a direct Jellyfin URL; audio redirects are blocked.
 
+Safety limits: 8 MiB per API response; 100,000 tracks / 64 MiB per Jellyfin library scan; 2 MiB of metadata per local file.
+
 <img src="preview.png" alt="OmaGAWD playing music with its frequency visualizer and library" width="420">
 
 ```sh

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """OmaGAWD: JSON-lines bridge. Passwords stay in memory; reconnect tokens use the desktop keyring."""
 import json
+import math
 import os
 import random
 import signal
@@ -26,6 +27,49 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+MAX_API_BYTES = 8 * 1024 * 1024
+MAX_LIBRARY_BYTES = 64 * 1024 * 1024
+MAX_LIBRARY_TRACKS = 100000
+
+
+def read_api_body(response):
+    """Bound decoded HTTP bodies regardless of framing or declared size."""
+    for declared in response.headers.get_all('Content-Length', []):
+        try:
+            if not declared.isascii() or not declared.isdecimal():
+                raise ValueError()
+            length = int(declared)
+        except ValueError:
+            raise ValueError('Jellyfin sent an invalid response length.') from None
+        if length > MAX_API_BYTES:
+            raise ValueError('Jellyfin API response exceeds the 8 MiB safety limit.')
+    if response.headers.get('Content-Encoding', 'identity').lower() != 'identity':
+        raise ValueError('Jellyfin sent an unsupported encoded API response.')
+    data = bytearray()
+    deadline = time.monotonic() + 30
+    while True:
+        if time.monotonic() > deadline:
+            raise ValueError('Jellyfin API response took too long.')
+        # One extra byte distinguishes a full valid response from an oversized one.
+        chunk = response.read1(min(65536, MAX_API_BYTES + 1 - len(data)))
+        if not chunk:
+            return data
+        data.extend(chunk)
+        if len(data) > MAX_API_BYTES:
+            raise ValueError('Jellyfin API response exceeds the 8 MiB safety limit.')
+
+
+def finite_json_float(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError('Jellyfin sent a non-finite JSON number.')
+    return number
+
+
+def invalid_json_constant(value):
+    raise ValueError('Jellyfin sent a non-finite JSON number.')
+
+
 class Jellyfin:
     def __init__(self, url):
         url = url.strip().rstrip('/')
@@ -34,6 +78,7 @@ class Jellyfin:
             raise ValueError('Enter an http(s) server URL, including any /jellyfin base path.')
         self.url, self.token, self.user = url, '', ''
         self.device = str(uuid.uuid4())
+        self.response_bytes = 0
         self.opener = urllib.request.build_opener(NoRedirect)
 
     def authorization(self):
@@ -46,11 +91,18 @@ class Jellyfin:
         url = self.url + path
         if params:
             url += '?' + urllib.parse.urlencode(params)
-        headers = {'Authorization': self.authorization(), 'Content-Type': 'application/json'}
+        headers = {'Authorization': self.authorization(), 'Content-Type': 'application/json', 'Accept-Encoding': 'identity'}
         request = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, headers=headers)
         with self.opener.open(request, timeout=20) as response:
-            raw = response.read()
-            return json.loads(raw) if raw else {}
+            raw = read_api_body(response)
+            self.response_bytes = len(raw)
+            try:
+                data = json.loads(raw, parse_constant=invalid_json_constant, parse_float=finite_json_float) if raw else {}
+            except (RecursionError, UnicodeError):
+                raise ValueError('Jellyfin sent invalid or excessively nested JSON.') from None
+            if not isinstance(data, dict):
+                raise ValueError('Jellyfin API response must be a JSON object.')
+            return data
 
     def login(self, username, password):
         data = self.request('/Users/AuthenticateByName', body={'Username': username, 'Pw': password})
@@ -61,7 +113,7 @@ class Jellyfin:
         return [{'id': i['Id'], 'name': i['Name']} for i in data.get('Items', []) if i.get('CollectionType') == 'music']
 
     def songs(self, folder):
-        result = []
+        result, seen, total_bytes = [], set(), 0
         while True:
             params = {'Recursive': 'true', 'IncludeItemTypes': 'Audio', 'UserId': self.user,
                       'SortBy': 'AlbumArtist,Album,ParentIndexNumber,IndexNumber,SortName', 'SortOrder': 'Ascending',
@@ -69,8 +121,18 @@ class Jellyfin:
             if folder:
                 params['ParentId'] = folder
             data = self.request('/Items', params)
+            total_bytes += self.response_bytes
             batch = data.get('Items', [])
+            if not isinstance(batch, list) or len(batch) > 500:
+                raise ValueError('Jellyfin returned an invalid or oversized library page.')
+            if total_bytes > MAX_LIBRARY_BYTES or len(result) + len(batch) > MAX_LIBRARY_TRACKS:
+                raise ValueError('Jellyfin library exceeds the safety limit (100,000 tracks / 64 MiB).')
             for i in batch:
+                if not isinstance(i, dict) or not isinstance(i.get('Id'), str) or not i['Id']:
+                    raise ValueError('Jellyfin returned an invalid track.')
+                if i['Id'] in seen:
+                    raise ValueError('Jellyfin repeated tracks while paging. Refresh the library and try again.')
+                seen.add(i['Id'])
                 result.append({'id': i['Id'], 'title': i.get('Name', 'Untitled'),
                                'artist': i.get('AlbumArtist') or ', '.join(i.get('Artists') or []) or 'Unknown artist',
                                'album': i.get('Album') or 'Unknown album', 'albumId': i.get('AlbumId') or i.get('Album', ''),
@@ -353,6 +415,7 @@ class Player:
                 if generation != self.generation:
                     return
                 if isinstance(exc, urllib.error.HTTPError):
+                    exc.close()
                     if exc.code in (401, 403) and stage == 'restore':
                         if self.store:
                             self.clear_saved()
