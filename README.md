@@ -1,6 +1,22 @@
 # OmaGAWD
 
-Winamp-inspired music player for Omarchy. **Jellyfin + local files.** Use a direct Jellyfin URL; audio redirects are blocked.
+Winamp-inspired music player for **Omarchy and macOS**, with Jellyfin streaming and local files.
+
+## macOS
+
+[Download the signed macOS beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.1.0-beta.1) (macOS 14+, Apple silicon and Intel). Open the DMG and drag the app to Applications.
+
+The native Swift menu bar app lives in [`macOS/`](macOS/README.md). Build and open it with:
+
+```sh
+./script/build_and_run.sh --release
+```
+
+See the [macOS guide](macOS/README.md) for installation, shortcuts, format support, and tests.
+
+## Omarchy
+
+Use a direct Jellyfin URL; audio redirects are blocked.
 
 Safety limits: 8 MiB per API response; 100,000 tracks / 64 MiB per Jellyfin library scan; 2 MiB of metadata per local file.
 
