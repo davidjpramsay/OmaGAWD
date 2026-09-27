@@ -1,7 +1,16 @@
 __pycache__/
 *.pyc
 .agents/
-.codex/
+.codex/*
+!.codex/environments/
+.codex/environments/*
+!.codex/environments/environment.toml
 .env
 .env.*
 /AGENTS.md
+
+# Native macOS build products
+macOS/.build/
+macOS/.swiftpm/
+dist/
+.DS_Store
