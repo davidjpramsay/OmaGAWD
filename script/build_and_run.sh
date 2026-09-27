@@ -4,10 +4,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-run}"
 CONFIG="debug"
 if [[ "$MODE" == "--release" ]]; then CONFIG="release"; MODE="run"; fi
-case "$MODE" in run|--verify|--build|--debug|--logs|--telemetry) ;; *) echo "Usage: $0 [--release|--build|--verify|--debug|--logs|--telemetry]"; exit 2 ;; esac
-if [[ "$MODE" != "--build" ]]; then pkill -x OmaGAWD >/dev/null 2>&1 || true; fi
-swift build --package-path "$ROOT_DIR/macOS" -c "$CONFIG"
-BIN_DIR="$(swift build --package-path "$ROOT_DIR/macOS" -c "$CONFIG" --show-bin-path)"
+if [[ "$MODE" == "--package" ]]; then CONFIG="release"; fi
+case "$MODE" in run|--verify|--build|--package|--debug|--logs|--telemetry) ;; *) echo "Usage: $0 [--release|--build|--verify|--debug|--logs|--telemetry]"; exit 2 ;; esac
+if [[ "$MODE" != "--build" && "$MODE" != "--package" ]]; then pkill -x OmaGAWD >/dev/null 2>&1 || true; fi
+BUILD_ARGS=(--package-path "$ROOT_DIR/macOS" -c "$CONFIG")
+if [[ "$MODE" == "--package" ]]; then BUILD_ARGS+=(--arch arm64 --arch x86_64); fi
+swift build "${BUILD_ARGS[@]}"
+BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 BUNDLE="$ROOT_DIR/dist/OmaGAWD.app"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 cp "$BIN_DIR/OmaGAWD" "$BUNDLE/Contents/MacOS/OmaGAWD"
@@ -22,8 +25,8 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>OmaGAWD</string>
 <key>CFBundleIconFile</key><string>OmaGAWD.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.0.0</string>
-<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>3</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -33,7 +36,7 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 PLIST
 codesign --force --sign - "$BUNDLE" >/dev/null
 case "$MODE" in
- --build) echo "Built $BUNDLE" ;;
+ --build|--package) echo "Built $BUNDLE" ;;
  --debug) lldb -- "$BUNDLE/Contents/MacOS/OmaGAWD" ;;
  --logs|--telemetry) open -n "$BUNDLE"; /usr/bin/log stream --info --style compact --predicate 'process == "OmaGAWD"' ;;
  --verify) open -n "$BUNDLE"; sleep 1; pgrep -x OmaGAWD ;;

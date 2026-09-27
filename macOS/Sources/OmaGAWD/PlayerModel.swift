@@ -28,6 +28,7 @@ import OmaCore
     private var loader: AudioResourceLoader?
     private var scanTask: Task<Void, Never>?
     private var playbackTask: Task<Void, Never>?
+    private var wantsPlayback = false
     private var statusObservation: NSKeyValueObservation?
     private var rateObservation: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
@@ -65,16 +66,16 @@ import OmaCore
         selectedFolder = id
         if id == "local" { loadLocal(); return }
         guard let account else { return }
-        work { try await Jellyfin(account).songs(folder: id) }
+        work { (try await Jellyfin(account).songs(folder: id), []) }
     }
-    func loadLocal() { let paths = sources; work { try await self.local.scan(paths) } }
-    private func work(_ operation: @escaping () async throws -> [Song]) {
+    func loadLocal() { let paths = sources; work { let songs = try await self.local.scan(paths); return (songs, await self.local.warnings) } }
+    private func work(_ operation: @escaping () async throws -> ([Song], [String])) {
         scanTask?.cancel(); generation += 1; let current = generation
         busy = true; error = false; message = "Reading library…"; onChange?()
         scanTask = Task {
             do {
                 let result = try await operation(); try Task.checkCancellation()
-                guard generation == current else { return }; songs = result; message = "\(songs.count) songs"; error = false
+                guard generation == current else { return }; songs = result.0; message = (["\(songs.count) songs"] + result.1).joined(separator: " · "); error = !result.1.isEmpty
             } catch { if generation == current { report(error) } }
             if generation == current { busy = false; onChange?() }
         }
@@ -105,7 +106,7 @@ import OmaCore
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }; failureObserver = nil
         player.replaceCurrentItem(with: nil); loader?.cancel(); loader = nil
         queue.current = queue.entries[index].id; let identity = queue.current; let song = queue.entries[index].song
-        stopped = false; bitRate = 0; error = false; message = "Loading \(song.title)…"; onChange?()
+        wantsPlayback = true; stopped = false; bitRate = 0; error = false; message = "Loading \(song.title)…"; onChange?()
         let asset: AVURLAsset
         if let file = song.file { asset = AVURLAsset(url: file) }
         else if let account {
@@ -135,14 +136,14 @@ import OmaCore
                     let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
                     Task { @MainActor in self?.report(error ?? MusicError.message("Playback was interrupted.")) }
                 }
-                player.replaceCurrentItem(with: item); player.play(); updateNowPlaying(); onChange?()
+                player.replaceCurrentItem(with: item); if wantsPlayback { player.play() }; updateNowPlaying(); onChange?()
             } catch { if !(error is CancellationError), queue.current == identity { stopped = true; report(error) } }
         }
     }
-    func toggle() { playing ? pause() : resume() }
-    func resume() { if stopped || player.currentItem == nil { play(queue.index ?? 0) } else { player.play() } }
-    func pause() { player.pause() }
-    func stop() { playbackTask?.cancel(); player.pause(); player.replaceCurrentItem(with: nil); loader?.cancel(); loader = nil; stopped = true; spectrum.setEnabled(false); updateNowPlaying(); onTick?() }
+    func toggle() { wantsPlayback && !stopped ? pause() : resume() }
+    func resume() { wantsPlayback = true; if stopped { play(queue.index ?? 0) } else if player.currentItem != nil { player.play() } }
+    func pause() { wantsPlayback = false; player.pause(); updateNowPlaying(); onTick?() }
+    func stop() { wantsPlayback = false; playbackTask?.cancel(); player.pause(); player.replaceCurrentItem(with: nil); loader?.cancel(); loader = nil; stopped = true; spectrum.setEnabled(false); updateNowPlaying(); onTick?() }
     func next(automatic: Bool = false) { if let next = queue.next(automatic: automatic) { play(next) } else { stop() } }
     func previous() { play(max(0, (queue.index ?? 0) - 1)) }
     func seek(_ seconds: Double) { guard seconds.isFinite else { return }; player.seek(to: CMTime(seconds: min(duration, max(0, seconds)), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero); updateNowPlaying() }

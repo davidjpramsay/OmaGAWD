@@ -99,30 +99,41 @@ actor LocalLibrary {
     struct Cached: Codable { let modified: Date; let size: Int; let song: Song }
     private var cache: [String: Cached] = [:]
     private let cacheURL: URL
-    init() {
-        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("com.davidjpramsay.OmaGAWD")
+    private(set) var warnings: [String] = []
+    init(cacheDirectory: URL? = nil) {
+        let directory = cacheDirectory ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("com.davidjpramsay.OmaGAWD")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        cacheURL = directory.appendingPathComponent("metadata.json")
+        cacheURL = directory.appendingPathComponent("metadata-v2.json")
         if let data = try? Data(contentsOf: cacheURL), let saved = try? JSONDecoder().decode([String: Cached].self, from: data) { cache = saved }
+    }
+    private static func number(_ item: AVMetadataItem, binary: Bool) async -> Int {
+        if binary, let data = try? await item.load(.dataValue), data.count >= 4 {
+            return Int(data[data.startIndex + 2]) << 8 | Int(data[data.startIndex + 3])
+        }
+        if let value = try? await item.load(.stringValue) { return Int(value.split(separator: "/").first ?? "") ?? 0 }
+        return (try? await item.load(.numberValue))?.intValue ?? 0
     }
     func scan(_ sources: [URL]) async throws -> [Song] {
         let extensions: Set<String> = ["mp3", "m4a", "aac", "flac", "wav", "aiff", "aif", "alac", "caf", "mp4"]
+        warnings = []
         var urls = Set<URL>()
         for source in sources {
             try Task.checkCancellation()
-            let info = try source.resourceValues(forKeys: [.isDirectoryKey])
+            guard let info = try? source.resourceValues(forKeys: [.isDirectoryKey]) else { warnings.append("Unavailable source: \(source.lastPathComponent)"); continue }
             if info.isDirectory == true {
                 let iterator = FileManager.default.enumerator(at: source, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles, .skipsPackageDescendants])
                 while let url = iterator?.nextObject() as? URL {
+                    try Task.checkCancellation()
                     if extensions.contains(url.pathExtension.lowercased()), (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true { urls.insert(url.standardizedFileURL) }
                     guard urls.count <= 100_000 else { throw MusicError.message("Local library exceeds 100,000 tracks.") }
                 }
             } else if extensions.contains(source.pathExtension.lowercased()) { urls.insert(source.standardizedFileURL) }
+            guard urls.count <= 100_000 else { throw MusicError.message("Local library exceeds 100,000 tracks.") }
         }
         var songs: [Song] = []; var updated: [String: Cached] = [:]
         for url in urls.sorted(by: { $0.path < $1.path }) {
             try Task.checkCancellation()
-            let values = try url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) else { warnings.append("Unavailable file: \(url.lastPathComponent)"); continue }
             let date = values.contentModificationDate ?? .distantPast; let size = values.fileSize ?? 0
             if let entry = cache[url.path], entry.modified == date, entry.size == size { songs.append(entry.song); updated[url.path] = entry; continue }
             let asset = AVURLAsset(url: url)
@@ -141,8 +152,10 @@ actor LocalLibrary {
             let all = (try? await asset.load(.metadata)) ?? []
             for item in all {
                 let key = String(describing: item.key ?? "" as NSString)
-                if key == "TRCK" { track = Int((try? await item.load(.stringValue))?.split(separator: "/").first ?? "") ?? 0 }
-                if key == "TPOS" { disc = Int((try? await item.load(.stringValue))?.split(separator: "/").first ?? "") ?? 0 }
+                if item.identifier == .iTunesMetadataTrackNumber { track = await Self.number(item, binary: true) }
+                else if item.identifier == .iTunesMetadataDiscNumber { disc = await Self.number(item, binary: true) }
+                else if ["TRCK", "TRACKNUMBER"].contains(key.uppercased()) { track = await Self.number(item, binary: false) }
+                else if ["TPOS", "DISCNUMBER"].contains(key.uppercased()) { disc = await Self.number(item, binary: false) }
             }
             let duration = (try? await asset.load(.duration).seconds) ?? 0
             let song = Song(id: url.absoluteString, title: title, artist: artist, album: album, albumID: "\(artist)/\(album)", duration: duration.isFinite ? duration : 0, track: track, disc: disc, file: url)

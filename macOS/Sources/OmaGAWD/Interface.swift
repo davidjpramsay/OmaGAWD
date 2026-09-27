@@ -2,16 +2,35 @@ import AppKit
 import UniformTypeIdentifiers
 import OmaCore
 
+final class PaddedSourceCell: NSPopUpButtonCell {
+    override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
+        super.drawTitle(title, withFrame: frame.insetBy(dx: 5, dy: 0), in: controlView)
+    }
+}
+
 final class ActionButton: NSButton {
     var perform: () -> Void
     init(_ title: String, help: String? = nil, action: @escaping () -> Void) {
         perform = action; super.init(frame: .zero); self.title = title; target = self; self.action = #selector(run)
-        bezelStyle = .rounded; font = .monospacedSystemFont(ofSize: 11, weight: .medium); toolTip = help
+        bezelStyle = .smallSquare; font = .monospacedSystemFont(ofSize: 11, weight: .medium); toolTip = help
         setAccessibilityLabel(help ?? title)
+    }
+    override var intrinsicContentSize: NSSize {
+        let size = super.intrinsicContentSize
+        return NSSize(width: max(32, size.width + 12), height: max(24, size.height))
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc private func run() { perform() }
 }
+func styleSquareInput(_ field: NSTextField) {
+    field.bezelStyle = .squareBezel
+    field.isBezeled = false
+    field.isBordered = true
+    field.drawsBackground = true
+    field.backgroundColor = .controlBackgroundColor
+    field.heightAnchor.constraint(equalToConstant: 24).isActive = true
+}
+
 func label(_ text: String, size: CGFloat = 12, color: NSColor = .labelColor) -> NSTextField {
     let label = NSTextField(labelWithString: text); label.font = .monospacedSystemFont(ofSize: size, weight: .regular); label.textColor = color; label.lineBreakMode = .byTruncatingTail; return label
 }
@@ -86,6 +105,7 @@ final class DockedPlayerPanel: NSPanel {
     var libraryPane: NSView!, queuePane: NSView!, desk: NSView!
     private var filterTablesHeight: NSLayoutConstraint!
     private var contentStack: NSStackView!
+    private var bottomControls: NSStackView!
     var playlist = false
     var compact = false
     var monitor: Any?
@@ -128,19 +148,26 @@ final class DockedPlayerPanel: NSPanel {
         let display = row([left, right], spacing: 18)
         display.wantsLayer = true; display.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.22).cgColor
         display.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        // Keep the receiver at its content height; the library absorbs extra height.
+        display.heightAnchor.constraint(equalToConstant: display.fittingSize.height).isActive = true
         right.setContentHuggingPriority(.init(1), for: .horizontal)
         seek.target = self; seek.action = #selector(seekChanged); seek.isContinuous = false; seek.setAccessibilityLabel("Playback position")
         volume.target = self; volume.action = #selector(volumeChanged); volume.doubleValue = Double(model.volume); volume.setAccessibilityLabel("Volume")
-        volume.widthAnchor.constraint(equalToConstant: 90).isActive = true
+        volume.widthAnchor.constraint(greaterThanOrEqualToConstant: 90).isActive = true
+        volume.setContentHuggingPriority(.init(1), for: .horizontal)
         playButton = ActionButton("▶", help: "Play or pause") { [weak model] in model?.toggle() }
         shuffleButton = ActionButton("SHF", help: "Shuffle") { [weak model] in model?.toggleShuffle() }
         repeatButton = ActionButton("RPT", help: "Repeat: off, all, one") { [weak model] in model?.cycleRepeat() }
-        let controls = row([ActionButton("◀|", help: "Previous track") { [weak model] in model?.previous() }, playButton, ActionButton("■", help: "Stop") { [weak model] in model?.stop() }, ActionButton("|▶", help: "Next track") { [weak model] in model?.next() }, shuffleButton, repeatButton, spacer(), label("VOL", size: 10), volume, ActionButton("PL", help: "Show or hide music desk") { [weak self] in self?.toggleCompact() }])
+        let controls = row([ActionButton("◀|", help: "Previous track") { [weak model] in model?.previous() }, playButton, ActionButton("■", help: "Stop") { [weak model] in model?.stop() }, ActionButton("|▶", help: "Next track") { [weak model] in model?.next() }, shuffleButton, repeatButton, label("VOL", size: 10), volume, ActionButton("PL", help: "Show or hide music desk") { [weak self] in self?.toggleCompact() }])
         playlistButton = ActionButton("PLAYLIST", help: "Playlist (P)") { [weak self] in self?.showPlaylist(true) }
         libraryButton = ActionButton("LIBRARY", help: "Library (L)") { [weak self] in self?.showPlaylist(false) }
+        source.cell = PaddedSourceCell(textCell: "", pullsDown: false)
+        source.bezelStyle = .smallSquare
+        source.heightAnchor.constraint(equalToConstant: 28).isActive = true
         source.target = self; source.action = #selector(sourceChanged); source.setAccessibilityLabel("Music source")
         source.widthAnchor.constraint(equalToConstant: 170).isActive = true
         let tabs = row([playlistButton, libraryButton, spacer(), source])
+        styleSquareInput(search)
         search.placeholderString = "Search your collection  ⌘F"; search.delegate = self; search.setAccessibilityLabel("Search library")
         refreshButton = ActionButton("", help: "Refresh library — check for added or changed music") { [weak model] in
             guard let model, !model.busy else { return }
@@ -165,6 +192,7 @@ final class DockedPlayerPanel: NSPanel {
         queuePane = column([queueScroll, queueActions]); queuePane.isHidden = true
         desk = column([tabs, libraryPane, queuePane]); desk.setContentHuggingPriority(.init(1), for: .vertical)
         let bottom = row([ActionButton("Sources…") { [weak self] in self?.manageSources() }, spacer(), ActionButton("Shortcuts") { [weak self] in self?.showHelp() }, ActionButton("Quit") { NSApp.terminate(nil) }])
+        bottomControls = bottom
         footer.maximumNumberOfLines = 2; footer.lineBreakMode = .byWordWrapping
         let root = column([branding, display, row([seek,total]), controls, desk, footer, bottom], spacing: 10)
         contentStack = root
@@ -275,6 +303,7 @@ final class DockedPlayerPanel: NSPanel {
     }
     func toggleCompact() {
         compact.toggle(); desk.isHidden = compact
+        footer.isHidden = compact; bottomControls.isHidden = compact
         positionAtTopRight()
     }
     private func handle(_ event: NSEvent) -> Bool {
@@ -283,10 +312,17 @@ final class DockedPlayerPanel: NSPanel {
         if event.charactersIgnoringModifiers?.lowercased() == "f", flags.contains(.command) || flags.contains(.control) {
             showPlaylist(false); search.stringValue = ""; artist = nil; album = nil; filter(); window?.makeFirstResponder(search); return true
         }
-        if !playlist && !compact && event.keyCode == 48 {
+        if !playlist && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) {
             let tables = [artistTable, albumTable, songTable]; let current = tables.firstIndex { $0 === window?.firstResponder }
             let next = current.map { ($0 + (flags.contains(.shift) ? 2 : 1)) % 3 } ?? (flags.contains(.shift) ? 2 : 0)
-            window?.makeFirstResponder(tables[next]); return true
+            let target = tables[next]
+            guard window?.makeFirstResponder(target) == true else { return false }
+            // Give keyboard focus a visible, actionable row, as the QML list does.
+            if target.selectedRow < 0 && target.numberOfRows > 0 {
+                target.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            }
+            if target.selectedRow >= 0 { target.scrollRowToVisible(target.selectedRow) }
+            return true
         }
         if window?.firstResponder is NSTextView { return false }
         if flags.isDisjoint(with: [.command,.control,.option]), let key = event.charactersIgnoringModifiers?.lowercased() {
@@ -360,6 +396,7 @@ final class DockedPlayerPanel: NSPanel {
         let server = NSTextField(string: model.account?.server.absoluteString ?? ""); server.placeholderString = "https://music.example.com"; server.setAccessibilityLabel("Jellyfin server")
         let username = NSTextField(string: model.account?.username ?? ""); username.placeholderString = "Username"; username.setAccessibilityLabel("Username")
         let password = NSSecureTextField(); password.placeholderString = "Password"; password.setAccessibilityLabel("Password")
+        for field in [server, username, password] { styleSquareInput(field) }
         let status = label(model.account.map { "Connected as \($0.username). Sign-in saved in Keychain." } ?? "Your server. Your records.", size: 11, color: .secondaryLabelColor); status.maximumNumberOfLines = 3; status.lineBreakMode = .byWordWrapping
         let connect = ActionButton(model.account == nil ? "Connect" : "Sign out") {}
         connect.perform = { [weak self, weak connect, weak panel] in

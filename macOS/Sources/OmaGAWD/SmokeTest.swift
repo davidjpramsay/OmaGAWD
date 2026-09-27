@@ -9,7 +9,9 @@ import OmaCore
     func settle(_ seconds: Double) async { try? await Task.sleep(for: .seconds(seconds)) }
     do {
         model.player.volume = 0
-        let songs = try await model.local.scan([URL(fileURLWithPath: fixture)])
+        let fixtureURL = URL(fileURLWithPath: fixture)
+        let library = LocalLibrary(cacheDirectory: fixtureURL.deletingLastPathComponent().appendingPathComponent("cache"))
+        let songs = try await library.scan([fixtureURL])
         try check(songs.count == 1 && songs[0].duration >= 29, "Local metadata and duration")
         model.songs = songs; model.visible = true; model.queue.repeatMode = .off; model.queue.shuffle = false
         model.replace(songs); await settle(2)

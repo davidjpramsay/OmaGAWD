@@ -4,6 +4,8 @@ Winamp-inspired music player for **Omarchy and macOS**, with Jellyfin streaming 
 
 ## macOS
 
+[Download the signed macOS beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.1.0-beta.1) (macOS 14+, Apple silicon and Intel). Open the DMG and drag the app to Applications.
+
 The native Swift menu bar app lives in [`macOS/`](macOS/README.md). Build and open it with:
 
 ```sh
