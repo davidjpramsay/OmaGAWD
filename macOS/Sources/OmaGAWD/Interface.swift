@@ -105,10 +105,10 @@ final class DockedPlayerPanel: NSPanel {
     var libraryPane: NSView!, queuePane: NSView!, desk: NSView!
     private var filterTablesHeight: NSLayoutConstraint!
     private var contentStack: NSStackView!
-    private var bottomControls: NSStackView!
     var playlist = false
     var compact = false
     var monitor: Any?
+    private var outsideClickMonitor: Any?
     var timer: Timer?
     var playButton: ActionButton!, shuffleButton: ActionButton!, repeatButton: ActionButton!, playlistButton: ActionButton!, libraryButton: ActionButton!
     var accountWindow: NSWindow?
@@ -140,7 +140,16 @@ final class DockedPlayerPanel: NSPanel {
     required init?(coder: NSCoder) { fatalError() }
     private func build() {
         guard let content = window?.contentView else { return }
-        let branding = row([label("🦙  O M A G A W D", size: 13), spacer()])
+        let settings = NSButton(image: NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")!, target: self, action: #selector(showSettings(_:)))
+        settings.isBordered = false
+        settings.imageScaling = .scaleProportionallyDown
+        settings.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        settings.contentTintColor = .secondaryLabelColor
+        settings.toolTip = "Settings"
+        settings.setAccessibilityLabel("Settings")
+        settings.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        settings.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        let branding = row([label("🦙  O M A G A W D", size: 13), spacer(), settings])
         branding.heightAnchor.constraint(equalToConstant: 22).isActive = true
         spectrum.heightAnchor.constraint(equalToConstant: 30).isActive = true
         let left = column([elapsed, stateLabel, spectrum], spacing: 5); left.widthAnchor.constraint(equalToConstant: 122).isActive = true
@@ -191,10 +200,8 @@ final class DockedPlayerPanel: NSPanel {
         let queueActions = row([ActionButton("− SELECTED") { [weak self] in self?.removeQueue() }, ActionButton("↑") { [weak self] in self?.moveQueue(-1) }, ActionButton("↓") { [weak self] in self?.moveQueue(1) }, spacer(), ActionButton("CLEAR") { [weak model] in model?.clear() }])
         queuePane = column([queueScroll, queueActions]); queuePane.isHidden = true
         desk = column([tabs, libraryPane, queuePane]); desk.setContentHuggingPriority(.init(1), for: .vertical)
-        let bottom = row([ActionButton("Sources…") { [weak self] in self?.manageSources() }, spacer(), ActionButton("Shortcuts") { [weak self] in self?.showHelp() }, ActionButton("Quit") { NSApp.terminate(nil) }])
-        bottomControls = bottom
         footer.maximumNumberOfLines = 2; footer.lineBreakMode = .byWordWrapping
-        let root = column([branding, display, row([seek,total]), controls, desk, footer, bottom], spacing: 10)
+        let root = column([branding, display, row([seek,total]), controls, desk, footer], spacing: 10)
         contentStack = root
         root.translatesAutoresizingMaskIntoConstraints = false; content.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14), root.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14), root.topAnchor.constraint(equalTo: content.topAnchor, constant: 12), root.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12)])
@@ -303,7 +310,7 @@ final class DockedPlayerPanel: NSPanel {
     }
     func toggleCompact() {
         compact.toggle(); desk.isHidden = compact
-        footer.isHidden = compact; bottomControls.isHidden = compact
+        footer.isHidden = compact
         positionAtTopRight()
     }
     private func handle(_ event: NSEvent) -> Bool {
@@ -336,6 +343,13 @@ final class DockedPlayerPanel: NSPanel {
         if let button { anchorButton = button }
         positionAtTopRight()
         NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil); model.visible = true
+        if outsideClickMonitor == nil {
+            // Global mouse monitors exclude this app, so menus, sheets and source
+            // windows remain interactive and the status button keeps its toggle.
+            outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+                self?.hide()
+            }
+        }
         updateSpectrumTimer()
     }
     private func positionAtTopRight() {
@@ -360,10 +374,24 @@ final class DockedPlayerPanel: NSPanel {
             }; t.tolerance = 0.015; RunLoop.main.add(t, forMode: .common); timer = t
         }
     }
-    func hide() { window?.orderOut(nil); model.visible = false; timer?.invalidate(); timer = nil }
+    func hide() {
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor); self.outsideClickMonitor = nil }
+        window?.orderOut(nil); model.visible = false; timer?.invalidate(); timer = nil
+    }
     func windowShouldClose(_ sender: NSWindow) -> Bool { hide(); return false }
     func windowDidChangeOcclusionState(_ notification: Notification) { model.visible = window?.occlusionState.contains(.visible) == true; updateSpectrumTimer() }
-    private func showHelp() {
+    @objc private func showSettings(_ sender: NSButton) {
+        let menu = NSMenu(title: "Settings")
+        let shortcuts = menu.addItem(withTitle: "Shortcuts…", action: #selector(showHelp), keyEquivalent: "")
+        shortcuts.target = self
+        let sources = menu.addItem(withTitle: "Sources…", action: #selector(manageSources), keyEquivalent: "")
+        sources.target = self
+        menu.addItem(.separator())
+        let quit = menu.addItem(withTitle: "Quit OmaGAWD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        menu.popUp(positioning: nil, at: NSPoint(x: sender.bounds.maxX - menu.size.width, y: sender.bounds.minY - 4), in: sender)
+    }
+    @objc private func showHelp() {
         let alert = NSAlert(); alert.messageText = "OmaGAWD shortcuts"
         alert.informativeText = "⌘⌥O — Show / hide from any app\nP / L — Playlist / library\n⌘F or Control-F — Clear filters and search\nTab / Shift-Tab — Artist → Album → Songs\nArrows / Space — Browse / select\nReturn / double-click — Play\nOption-click / Option-Return — Add to queue\nDelete — Remove from queue\nOption-↑ / ↓ — Reorder queue\nEscape — Hide\n\nMedia keys and Control Centre control playback.\(hotKeyWarning.map { "\n\n" + $0 } ?? "")"
         alert.beginSheetModal(for: window!)
@@ -373,7 +401,7 @@ final class DockedPlayerPanel: NSPanel {
         if !folder { panel.allowedContentTypes = [.audio] }
         panel.beginSheetModal(for: sourcesWindow ?? window!) { [weak self] result in if result == .OK { self?.model.addSources(panel.urls); self?.refreshSources() } }
     }
-    func manageSources() {
+    @objc func manageSources() {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 350), styleMask: [.titled,.closable], backing: .buffered, defer: false)
         panel.title = "Music sources"; panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: .darkAqua); sourcesWindow = panel
         refreshSources(); panel.center(); panel.makeKeyAndOrderFront(nil)

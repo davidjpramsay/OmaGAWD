@@ -35,6 +35,7 @@ import OmaCore
     private var failureObserver: NSObjectProtocol?
     private var periodic: Any?
     private var generation = 0
+    private var remoteTargets: [(MPRemoteCommand, Any)] = []
     init() {
         player.volume = UserDefaults.standard.object(forKey: "volume") == nil ? 0.7 : UserDefaults.standard.float(forKey: "volume")
         queue.shuffle = UserDefaults.standard.bool(forKey: "shuffle")
@@ -45,17 +46,35 @@ import OmaCore
         periodic = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { guard let self else { return }; if self.visible { self.onTick?() } }
         }
-        let commands = MPRemoteCommandCenter.shared()
-        commands.playCommand.addTarget { [weak self] _ in Task { @MainActor in self?.resume() }; return .success }
-        commands.pauseCommand.addTarget { [weak self] _ in Task { @MainActor in self?.pause() }; return .success }
-        commands.togglePlayPauseCommand.addTarget { [weak self] _ in Task { @MainActor in self?.toggle() }; return .success }
-        commands.nextTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.next() }; return .success }
-        commands.previousTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.previous() }; return .success }
-        commands.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            Task { @MainActor in self?.seek(e.positionTime) }; return .success
-        }
+        configureRemoteCommands()
     }
+    private func configureRemoteCommands() {
+        let commands = MPRemoteCommandCenter.shared()
+        func register(_ command: MPRemoteCommand, action: @escaping @MainActor (PlayerModel) -> Void) {
+            command.isEnabled = true
+            let target = command.addTarget { [weak self] _ in
+                guard let self else { return .commandFailed }
+                Task { @MainActor in action(self) }
+                return .success
+            }
+            remoteTargets.append((command, target))
+        }
+        register(commands.playCommand) { $0.resume() }
+        register(commands.pauseCommand) { $0.pause() }
+        register(commands.togglePlayPauseCommand) { $0.toggle() }
+        register(commands.stopCommand) { $0.stop() }
+        register(commands.nextTrackCommand) { $0.next() }
+        register(commands.previousTrackCommand) { $0.previous() }
+        commands.changePlaybackPositionCommand.isEnabled = true
+        let seekTarget = commands.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            let position = event.positionTime
+            Task { @MainActor in self.seek(position) }
+            return .success
+        }
+        remoteTargets.append((commands.changePlaybackPositionCommand, seekTarget))
+    }
+
     func start() {
         account = Keychain.load()
         if !sources.isEmpty { loadLocal() }
@@ -153,9 +172,20 @@ import OmaCore
     func toggleShuffle() { queue.shuffle.toggle(); UserDefaults.standard.set(queue.shuffle, forKey: "shuffle"); onTick?() }
     func cycleRepeat() { queue.repeatMode = queue.repeatMode == .off ? .all : queue.repeatMode == .all ? .one : .off; UserDefaults.standard.set(queue.repeatMode.rawValue, forKey: "repeat"); onTick?() }
     private func updateNowPlaying() {
-        guard let song = queue.song else { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil; return }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [MPMediaItemPropertyTitle: song.title, MPMediaItemPropertyArtist: song.artist, MPMediaItemPropertyAlbumTitle: song.album, MPMediaItemPropertyPlaybackDuration: duration, MPNowPlayingInfoPropertyElapsedPlaybackTime: position, MPNowPlayingInfoPropertyPlaybackRate: playing ? 1 : 0]
-        MPNowPlayingInfoCenter.default().playbackState = playing ? .playing : .paused
+        let center = MPNowPlayingInfoCenter.default()
+        guard let song = queue.song else {
+            center.playbackState = .stopped
+            center.nowPlayingInfo = nil
+            return
+        }
+        center.nowPlayingInfo = [MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue, MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0, MPMediaItemPropertyTitle: song.title, MPMediaItemPropertyArtist: song.artist, MPMediaItemPropertyAlbumTitle: song.album, MPMediaItemPropertyPlaybackDuration: duration, MPNowPlayingInfoPropertyElapsedPlaybackTime: position, MPNowPlayingInfoPropertyPlaybackRate: playing ? 1 : 0]
+        center.playbackState = stopped ? .stopped : (playing ? .playing : .paused)
     }
-    func shutdown() { scanTask?.cancel(); stop(); if let periodic { player.removeTimeObserver(periodic) } }
+    func shutdown() {
+        scanTask?.cancel(); stop()
+        for (command, target) in remoteTargets { command.removeTarget(target) }
+        remoteTargets.removeAll()
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        if let periodic { player.removeTimeObserver(periodic); self.periodic = nil }
+    }
 }

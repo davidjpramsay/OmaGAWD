@@ -1,5 +1,6 @@
 import XCTest
 import AVFoundation
+import MediaPlayer
 @testable import OmaGAWD
 
 final class RegressionTests: XCTestCase {
@@ -27,6 +28,12 @@ final class RegressionTests: XCTestCase {
         let model = PlayerModel()
         defer { model.shutdown() }
         model.player.volume = 0
+        let commands = MPRemoteCommandCenter.shared()
+        XCTAssertTrue(commands.playCommand.isEnabled)
+        XCTAssertTrue(commands.pauseCommand.isEnabled)
+        XCTAssertTrue(commands.togglePlayPauseCommand.isEnabled)
+        XCTAssertTrue(commands.nextTrackCommand.isEnabled)
+        XCTAssertTrue(commands.previousTrackCommand.isEnabled)
         for useToggle in [false, true] {
             model.replace(songs)
             if useToggle { model.toggle() } else { model.pause() }
@@ -36,11 +43,13 @@ final class RegressionTests: XCTestCase {
             }
             XCTAssertEqual(model.player.currentItem?.status, .readyToPlay)
             XCTAssertFalse(model.playing)
+            XCTAssertEqual(MPNowPlayingInfoCenter.default().playbackState, .paused)
             XCTAssertEqual(model.position, 0, accuracy: 0.1)
             model.resume()
             try await Task.sleep(for: .milliseconds(400))
             XCTAssertTrue(model.playing)
             model.stop()
+            XCTAssertEqual(MPNowPlayingInfoCenter.default().playbackState, .stopped)
         }
     }
 }
