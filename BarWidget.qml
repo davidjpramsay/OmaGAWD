@@ -31,7 +31,7 @@ UI.BarWidget {
         // Match the other status icons; reuse the macOS llama artwork.
         opticalSize: Style.bar.iconCanvas
         iconComponent: Component {
-            DancingLlama { playing: player.playing }
+            DancingLlama { playing: player.playing; danceEnabled: false }
         }
         onPressed: function(mouseButton) {
             if (mouseButton === Qt.LeftButton)

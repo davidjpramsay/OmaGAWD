@@ -15,7 +15,12 @@ Rectangle {
         spacing: Style.space(7)
         RowLayout {
             spacing: Style.space(10)
-            Image { source: Qt.resolvedUrl("assets/llama.png"); Layout.preferredWidth: Style.space(16); Layout.preferredHeight: Style.space(16); sourceSize: Qt.size(48, 48); Accessible.name: "OmaGAWD llama" }
+            DancingLlama {
+                objectName: "receiverLlama"
+                Layout.preferredWidth: Style.space(16)
+                Layout.preferredHeight: Style.space(16)
+                playing: app.opened && app.playing
+            }
             AmpText { text: "OMAGAWD"; font.bold: true; font.letterSpacing: 2 }
             Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
             AmpText { text: app.current && app.current.source === "local" ? "LOCAL" : app.selectedLibrary === "local" && !app.current ? "LOCAL" : "JELLYFIN"; font.pixelSize: Style.font.caption; opacity: 0.55 }

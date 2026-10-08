@@ -4,10 +4,11 @@ import QtQuick.Effects
 Item {
     id: root
     property bool playing: false
+    property bool danceEnabled: true
     property real tilt: 0
     property real bounce: 0
-    readonly property bool dancing: playing && visible
-    Accessible.name: playing ? "OmaGAWD dancing llama" : "OmaGAWD llama"
+    readonly property bool dancing: danceEnabled && playing && visible
+    Accessible.name: dancing ? "OmaGAWD dancing llama" : "OmaGAWD llama"
 
     onDancingChanged: if (!dancing) { tilt = 0; bounce = 0 }
 

@@ -32,7 +32,14 @@ Item {
             llama.visible = true
             wait(100)
             verify(llama.bounce < 0)
+            llama.danceEnabled = false
+            wait(30)
+            verify(llama.playing)
+            verify(!llama.dancing)
+            compare(llama.tilt, 0)
+            compare(llama.bounce, 0)
             llama.playing = false
+            llama.danceEnabled = true
         }
     }
 }
