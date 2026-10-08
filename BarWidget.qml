@@ -29,23 +29,22 @@ UI.BarWidget {
         bar: root.bar
         tooltipText: "OmaGAWD · Music"
         slotSize: Style.bar.statusSlot
-        // The tall ears fill the canvas; compensate to match neighboring glyphs.
-        opticalSize: Math.round(Style.bar.iconCanvas * 0.75)
+        // Match the other status icons; reuse the macOS llama artwork.
+        opticalSize: Style.bar.iconCanvas
         iconComponent: Component {
             Item {
                 Image {
                     id: llama
                     anchors.fill: parent
-                    source: Qt.resolvedUrl("assets/llama-symbolic.svg")
-                    sourceSize: Qt.size(32, 32)
+                    source: Qt.resolvedUrl("assets/llama.png")
+                    sourceSize: Qt.size(40, 40)
                     fillMode: Image.PreserveAspectFit
                     visible: false
                 }
                 MultiEffect {
                     anchors.fill: parent
                     source: llama
-                    colorization: 1
-                    colorizationColor: player.playing ? Color.accent : (root.bar ? root.bar.barForeground : Color.foreground)
+                    saturation: player.playing ? 0 : -1
                 }
             }
         }
