@@ -24,6 +24,8 @@ Choose **Sources… → + Files / + Folder** for local music, or **Connect to Je
 
 Browse Artist → Album → Song, search across metadata, play a selection, or append it without interrupting playback. The queue supports duplicates, multiple selection, removal, reordering, clear, shuffle, and repeat off/all/one. Transport includes play/pause, stop, previous/next, seek, and volume. Media keys and Control Centre use macOS Now Playing. **PL** collapses the music desk to a small receiver. Escape or the menu bar button hides the panel while playback continues; **Quit** exits.
 
+The header llama alternates between running man and side shuffle every ten seconds of playback. It rests when playback pauses or stops, and respects macOS Reduce Motion. The menu bar uses a 16-point SVG llama with the system's monochrome tint.
+
 | Shortcut | Action |
 | --- | --- |
 | Command–Option–O | Show/hide globally; conflicts are reported in Shortcuts |
@@ -45,7 +47,7 @@ Browse Artist → Album → Song, search across metadata, play a selection, or a
 - Remote audio is supplied directly to AVFoundation through authenticated byte-range requests; the app does not download the full library or retain whole audio responses in memory.
 - Tokens stay in headers, never audio URLs. API and audio redirects are refused. TLS certificate validation uses the system defaults. HTTP is accepted for explicitly selected servers, including public hosts, and sends credentials without encryption. Prefer HTTPS.
 - API responses are limited to 8 MiB; remote library scans to 100,000 tracks / 64 MiB. Local scans stop at 100,000 matching files. Metadata decoding uses AVFoundation, rather than the Linux port's ffprobe metadata-byte limit.
-- FFT uses a reusable buffer and runs only while the player panel is visible and audio is playing. The display refreshes at 20 Hz only in that state. No idle animation timer or network polling.
+- FFT uses a reusable buffer and runs only while the player panel is visible and audio is playing. The spectrum and cached llama poses share a 30 Hz display timer only in that state. No idle animation timer or network polling.
 - Removing a source never deletes its files. Preferences store source paths, volume, shuffle, and repeat. Queue contents are session-only, matching the original player.
 
 ## Format and distribution limits
@@ -62,7 +64,7 @@ Maintainers can create a universal signed release with `SIGNING_IDENTITY="Develo
 ./script/test_macos.sh
 ```
 
-Runs the Swift queue/filter/URL tests and M4A/missing-source/pause-during-loading regressions, builds the app, creates a disposable loopback Jellyfin fixture, and checks real AVFoundation local and remote playback, pause, seek, PCM spectrum, queue edits, hidden-spectrum shutdown, and redirect rejection. Fixture audio is muted. The fixture needs Python 3 only for tests; the application does not. The script replaces the running development app and writes `dist/smoke-test.txt`. No real account credentials are used or saved.
+Runs the Swift queue/filter/URL tests, dance timing tests, and M4A/missing-source/pause-during-loading regressions, builds the app, creates a disposable loopback Jellyfin fixture, and checks real AVFoundation local and remote playback, pause, seek, PCM spectrum, queue edits, dance rotation, hidden-animation shutdown, and redirect rejection. Fixture audio is muted. The fixture needs Python 3 only for tests; the application does not. The script replaces the running development app and writes `dist/smoke-test.txt`. No real account credentials are used or saved.
 
 Manually checked on the development Mac: rendered player and source windows; Command-F clears and filters; Tab cycles all three lists; Option-Return appends; P/L change panes; Option-Down reorders; Delete removes; Escape hides; Command-Option-O shows the player again.
 

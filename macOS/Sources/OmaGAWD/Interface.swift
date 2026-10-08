@@ -47,13 +47,34 @@ final class SourceStack: NSStackView { override var isFlipped: Bool { true } }
 
 final class SpectrumView: NSView {
     var levels = [Float](repeating: 0, count: 16) { didSet { needsDisplay = true } }
+    private var palette: [(lit: CGColor, dim: CGColor)]?
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        palette = nil; needsDisplay = true
+    }
     override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        if palette == nil {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                palette = [NSColor.systemGreen, .systemYellow, .systemOrange].map {
+                    let color = $0.usingColorSpace(.deviceRGB)!
+                    return (color.withAlphaComponent(0.95).cgColor, color.withAlphaComponent(0.12).cgColor)
+                }
+            }
+        }
         let pitch = bounds.width / 16, height = bounds.height / 12
-        for band in 0..<16 { for bar in 0..<12 {
-            let color: NSColor = bar > 9 ? .systemOrange : bar > 6 ? .systemYellow : .systemGreen
-            color.withAlphaComponent(Float(bar) < levels[band] * 12 ? 0.95 : 0.12).setFill()
-            NSRect(x: CGFloat(band) * pitch, y: CGFloat(bar) * height, width: max(1, pitch - 2), height: max(1, height - 1)).fill()
-        } }
+        // Six cached colours and six batched fills replace 192 dynamic colour
+        // resolutions per frame; the bar geometry and thresholds stay identical.
+        for (index, bars) in [0..<7, 7..<10, 10..<12].enumerated() {
+            var lit: [CGRect] = [], dim: [CGRect] = []
+            for band in 0..<16 { for bar in bars {
+                let rect = CGRect(x: CGFloat(band) * pitch, y: CGFloat(bar) * height,
+                                  width: max(1, pitch - 2), height: max(1, height - 1))
+                if Float(bar) < levels[band] * 12 { lit.append(rect) } else { dim.append(rect) }
+            } }
+            context.setFillColor(palette![index].dim); context.fill(dim)
+            context.setFillColor(palette![index].lit); context.fill(lit)
+        }
     }
 }
 final class MusicTable: NSTableView {
@@ -91,6 +112,7 @@ final class DockedPlayerPanel: NSPanel {
     let elapsed = label("0:00", size: 28, color: .systemBlue)
     let stateLabel = label("STOPPED", size: 10, color: .secondaryLabelColor)
     let total = label("0:00", size: 10, color: .secondaryLabelColor)
+    let dancingLlama = DancingLlamaView()
     let spectrum = SpectrumView()
     let seek = NSSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
     let volume = NSSlider(value: 0.7, minValue: 0, maxValue: 1, target: nil, action: nil)
@@ -149,8 +171,8 @@ final class DockedPlayerPanel: NSPanel {
         settings.setAccessibilityLabel("Settings")
         settings.widthAnchor.constraint(equalToConstant: 26).isActive = true
         settings.heightAnchor.constraint(equalToConstant: 22).isActive = true
-        let branding = row([label("🦙  O M A G A W D", size: 13), spacer(), settings])
-        branding.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        let branding = row([dancingLlama, label("O M A G A W D", size: 13), spacer(), settings], spacing: 10)
+        branding.heightAnchor.constraint(equalToConstant: DancingLlamaView.canvasSize.height).isActive = true
         spectrum.heightAnchor.constraint(equalToConstant: 30).isActive = true
         let left = column([elapsed, stateLabel, spectrum], spacing: 5); left.widthAnchor.constraint(equalToConstant: 122).isActive = true
         let right = column([titleLabel, detailLabel, formatLabel], spacing: 12)
@@ -364,19 +386,23 @@ final class DockedPlayerPanel: NSPanel {
         window.setFrame(NSRect(x: available.maxX - size.width, y: available.maxY - size.height, width: size.width, height: size.height), display: true)
     }
     private func updateSpectrumTimer() {
+        dancingLlama.setPlaybackState(playing: model.playing, stopped: model.stopped, visible: model.visible,
+                                     reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         if !model.visible || !model.playing { timer?.invalidate(); timer = nil; return }
         if timer == nil {
-            let t = Timer(timeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+            let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
-                guard let self, self.model.playing else { return }
-                let levels = self.model.spectrum.read(); self.spectrum.levels = zip(self.spectrum.levels, levels).map { max($1, $0 - 0.07) }
+                guard let self, self.model.visible, self.model.playing else { return }
+                let levels = self.model.spectrum.read(); self.spectrum.levels = zip(self.spectrum.levels, levels).map { max($1, $0 - 0.07 * 20 / 30) }
+                self.dancingLlama.setPlaybackState(playing: true, stopped: false, visible: true,
+                                                 reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
                 }
-            }; t.tolerance = 0.015; RunLoop.main.add(t, forMode: .common); timer = t
+            }; t.tolerance = 0.005; RunLoop.main.add(t, forMode: .common); timer = t
         }
     }
     func hide() {
         if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor); self.outsideClickMonitor = nil }
-        window?.orderOut(nil); model.visible = false; timer?.invalidate(); timer = nil
+        window?.orderOut(nil); model.visible = false; updateSpectrumTimer()
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { hide(); return false }
     func windowDidChangeOcclusionState(_ notification: Notification) { model.visible = window?.occlusionState.contains(.visible) == true; updateSpectrumTimer() }

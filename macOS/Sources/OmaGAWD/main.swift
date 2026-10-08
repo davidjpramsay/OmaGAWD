@@ -20,15 +20,25 @@ import Carbon
         model = PlayerModel(); controller = PlayerWindow(model: model)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = status.button {
-            let image = NSImage(size: NSSize(width: 20, height: 20))
-            for name in ["MenuBarIcon", "MenuBarIcon@2x"] {
-                if let url = Bundle.main.url(forResource: name, withExtension: "png"),
-                   let data = try? Data(contentsOf: url), let representation = NSBitmapImageRep(data: data) {
-                    representation.size = image.size
-                    image.addRepresentation(representation)
+            let iconHeight: CGFloat = 16
+            let image: NSImage
+            if let url = Bundle.main.url(forResource: "MenuBarIcon", withExtension: "svg"),
+               let vector = NSImage(contentsOf: url), vector.size.height > 0 {
+                // Keep the SVG's proportions and let AppKit render at screen scale.
+                vector.size = NSSize(width: iconHeight * vector.size.width / vector.size.height, height: iconHeight)
+                image = vector
+            } else {
+                image = NSImage(size: NSSize(width: iconHeight, height: iconHeight))
+                for name in ["MenuBarIcon", "MenuBarIcon@2x"] {
+                    if let url = Bundle.main.url(forResource: name, withExtension: "png"),
+                       let data = try? Data(contentsOf: url), let representation = NSBitmapImageRep(data: data) {
+                        representation.size = image.size
+                        image.addRepresentation(representation)
+                    }
                 }
             }
-            image.isTemplate = false
+            // Use the system menu bar tint, including dark mode and selection.
+            image.isTemplate = true
             if image.representations.isEmpty { button.title = "🦙" } else { button.image = image }
             button.toolTip = "OmaGAWD — ⌘⌥O"; button.setAccessibilityLabel("OmaGAWD"); button.target = self; button.action = #selector(toggle)
         }
@@ -42,7 +52,7 @@ import Carbon
         if result != noErr { controller.hotKeyWarning = "Command–Option–O is already in use. The menu bar button remains available."; model.message = controller.hotKeyWarning!; controller.reload() }
         controller.show(near: status.button)
         if let i = CommandLine.arguments.firstIndex(of: "--smoke-test"), CommandLine.arguments.count > i + 3 {
-            Task { await smokeTest(model: model, fixture: CommandLine.arguments[i + 1], port: CommandLine.arguments[i + 2], report: CommandLine.arguments[i + 3]) }; return
+            Task { await smokeTest(model: model, controller: controller, fixture: CommandLine.arguments[i + 1], port: CommandLine.arguments[i + 2], report: CommandLine.arguments[i + 3]) }; return
         }
         model.start()
         if let i = CommandLine.arguments.firstIndex(of: "--test-audio"), CommandLine.arguments.indices.contains(i + 1) {
