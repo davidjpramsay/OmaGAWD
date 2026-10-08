@@ -8,10 +8,13 @@ import tempfile
 os.chdir(Path(__file__).resolve().parents[1])
 workspace = tempfile.TemporaryDirectory(prefix='omagawd-qml-')
 root = Path(workspace.name)
-for file in ['Library.qml', 'TextList.qml', 'AmpText.qml', 'AmpButton.qml']:
+for file in ['Library.qml', 'TextList.qml', 'AmpText.qml', 'AmpButton.qml', 'DancingLlama.qml']:
     shutil.copy(file, root / file)
 (root / 'tests/qml').mkdir(parents=True, exist_ok=True)
-shutil.copy('tests/qml/tst_library.qml', root / 'tests/qml')
+for test in Path('tests/qml').glob('tst_*.qml'):
+    shutil.copy(test, root / 'tests/qml')
+(root / 'assets').mkdir()
+shutil.copy('assets/llama.png', root / 'assets')
 commons = root / 'qs/Commons'
 commons.mkdir(parents=True, exist_ok=True)
 (commons / 'qmldir').write_text('module qs.Commons\nsingleton Color 1.0 Color.qml\nsingleton Style 1.0 Style.qml\n')
