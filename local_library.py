@@ -12,6 +12,7 @@ import time
 EXTENSIONS = {'.mp3', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.aiff', '.aif', '.alac', '.wma', '.ape', '.wv', '.m4b'}
 
 
+MAX_LOCAL_TRACKS = 100_000
 MAX_PROBE_BYTES = 2 * 1024 * 1024
 
 
@@ -97,14 +98,19 @@ class LocalLibrary:
 
     def scan(self):
         files = set()
+        def include(path):
+            files.add(path.resolve())
+            if len(files) > MAX_LOCAL_TRACKS:
+                raise ValueError(f'Local library exceeds {MAX_LOCAL_TRACKS:,} tracks. Choose smaller music folders.')
+
         for value in self.roots:
             root = Path(value)
             if root.is_dir():
                 for directory, _, names in os.walk(root, followlinks=False):
                     for name in names:
                         path = Path(directory) / name
-                        if path.suffix.lower() in EXTENSIONS: files.add(path.resolve())
-            elif root.is_file(): files.add(root)
+                        if path.suffix.lower() in EXTENSIONS: include(path)
+            elif root.is_file(): include(root)
         songs, skipped = [], 0
         for path in sorted(files):
             try:

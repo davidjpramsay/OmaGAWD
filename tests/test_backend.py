@@ -17,6 +17,8 @@ class FakeMpv:
         self.send('loadfile', url, 'replace')
     def send(self, *args):
         self.commands.append(args)
+    def set_meter(self, enabled):
+        self.meter_enabled = enabled
     def close(self):
         pass
 

@@ -43,6 +43,7 @@ class StreamTests(unittest.TestCase):
         try:
             with patch('backend.subprocess.Popen', side_effect=lambda args, **kwargs: real_popen(args + ['--ao=null'], **kwargs)):
                 player.handle({'cmd': 'add', 'ids': ['1']})
+                player.handle({'cmd': 'visibility', 'visible': True})
                 player.handle({'cmd': 'play', 'index': 0})
             deadline = time.monotonic() + 8
             while time.monotonic() < deadline:

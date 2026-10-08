@@ -36,7 +36,7 @@ Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Style.space(22)
                         levels: app.levels
-                        playing: app.playing
+                        playing: app.opened && app.playing
                     }
                 }
                 Rectangle { width: 1; Layout.fillHeight: true; color: Style.normalBorderFor(Color.foreground, Color.accent) }

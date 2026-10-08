@@ -13,7 +13,13 @@ Item {
     property var manifest: null
     property bool opened: false
     property bool optionHeld: false
-    onOpenedChanged: if (!opened) optionHeld = false
+    onOpenedChanged: {
+        if (!opened) { optionHeld = false; levels = Array(16).fill(0) }
+        syncVisibility()
+    }
+    function syncVisibility() {
+        if (ready) bridge.write(JSON.stringify({cmd: "visibility", visible: opened}) + "\n")
+    }
     property bool playlistOpen: false
     readonly property bool browsingPlaylist: opened && playlistOpen && tab === "queue"
     onBrowsingPlaylistChanged: if (browsingPlaylist) Qt.callLater(function() {
@@ -88,12 +94,12 @@ Item {
         return Math.floor(s / 60).toString().padStart(2, "0") + ":" + (s % 60).toString().padStart(2, "0")
     }
     function receive(data) {
-        if (data.type === "ready") ready = true
+        if (data.type === "ready") { ready = true; syncVisibility() }
         else if (data.type === "state") state = data
         else if (data.type === "local_sources") { hasLocalSources = data.available; localSources = data.paths || [] }
         else if (data.type === "profile") { savedUsername = data.username; serverUrl = data.url }
         else if (data.type === "remembered") remembered = data.value
-        else if (data.type === "meter" && playing) levels = data.levels
+        else if (data.type === "meter" && opened && playing) levels = data.levels
         else if (data.type === "busy") busy = data.value
         else if (data.type === "error") error = data.message
         else if (data.type === "connected") {

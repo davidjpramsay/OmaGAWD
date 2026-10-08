@@ -37,10 +37,21 @@ Rectangle {
     property string emptyText: "Nothing here yet"
     readonly property bool listFocused: list.activeFocus
     function focusList() {
+        if (!playlistKeys) {
+            const selectedIndex = rows.findIndex(row => selected.indexOf(row.key) >= 0)
+            const cursorIndex = rows.findIndex(row => row.key === cursorKey)
+            list.currentIndex = selectedIndex >= 0 ? selectedIndex : cursorIndex >= 0 ? cursorIndex : rows.length ? 0 : -1
+        }
         if (list.count > 0 && list.currentIndex < 0) list.currentIndex = 0
         rememberCursor()
         list.forceActiveFocus(Qt.TabFocusReason)
+        if (!playlistKeys && list.currentIndex >= 0) {
+            navigated(rows[list.currentIndex].key, 0)
+            list.positionViewAtIndex(list.currentIndex, ListView.Contain)
+        }
     }
+    // Keyboard browsing selects; unlike a click, it must never toggle a filter off.
+    signal navigated(string key, int modifiers)
     signal chosen(string key, int modifiers)
     signal activated(string key)
     color: Qt.darker(Color.background, 1.15)
@@ -62,7 +73,17 @@ Rectangle {
             keyNavigationEnabled: true
             activeFocusOnTab: true
             Keys.onPressed: function(event) {
-                if (!root.playlistKeys) return
+                if (!root.playlistKeys) {
+                    if (event.key !== Qt.Key_Up && event.key !== Qt.Key_Down && event.key !== Qt.Key_Home && event.key !== Qt.Key_End) return
+                    if (count) {
+                        currentIndex = event.key === Qt.Key_Home ? 0 : event.key === Qt.Key_End ? count - 1 : Math.max(0, Math.min(count - 1, currentIndex + (event.key === Qt.Key_Up ? -1 : 1)))
+                        root.cursorKey = root.rows[currentIndex].key
+                        root.navigated(root.cursorKey, event.modifiers)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    }
+                    event.accepted = true
+                    return
+                }
                 const key = currentItem ? currentItem.modelData.key : ""
                 if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && key) {
                     root.removeRequested(key)

@@ -18,7 +18,7 @@ See the [macOS guide](macOS/README.md) for installation, shortcuts, format suppo
 
 Use a direct Jellyfin URL; audio redirects are blocked.
 
-Safety limits: 8 MiB per API response; 100,000 tracks / 64 MiB per Jellyfin library scan; 2 MiB of metadata per local file.
+Safety limits: 8 MiB per API response; 100,000 tracks per local scan or 100,000 tracks / 64 MiB per Jellyfin scan; 2 MiB of metadata per local file.
 
 <img src="preview.png" alt="OmaGAWD playing music with its frequency visualizer and library" width="420">
 
@@ -29,14 +29,15 @@ cd OmaGAWD && ./scripts/install.sh
 
 Requires Omarchy/Quickshell, mpv, Python 3 with python-gobject, libsecret (`secret-tool`), ffmpeg (`ffprobe`), and zenity.
 
-Open the llama icon. Choose music from the source menu. **Manage sources…** adds or removes local sources without deleting files.
+Open the llama icon. Choose music from the source menu. **?** shows keyboard shortcuts. Volume, shuffle, and repeat are remembered; the queue is session-only. Spectrum analysis stops while hidden or paused. **Manage sources…** adds or removes local sources without deleting files.
 
 | Shortcut | Action |
 |---|---|
 | P / L | Playlist / library |
 | ⌘F / Ctrl+F | Clear filters and focus search |
-| Tab / Shift+Tab | Cycle Artist → Album → Songs |
-| Arrows / Space | Browse / select |
+| Tab / Shift+Tab | Cycle Artist → Album → Songs; update child lists |
+| Arrows / Home / End | Select and update child lists without playing |
+| Space | Select / toggle filter |
 | Return / double-click | Play |
 | Option/Alt-click or Option/Alt+Return | Add to queue without interrupting playback |
 | Delete | Remove from queue |

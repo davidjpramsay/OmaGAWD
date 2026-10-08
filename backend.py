@@ -5,6 +5,7 @@ import math
 import os
 import random
 import signal
+import select
 import socket
 import subprocess
 import sys
@@ -156,13 +157,15 @@ class Mpv:
         meter_path = self.temp.name + '/spectrum.pipe'
         os.mkfifo(meter_path, 0o600)
         self.meter_fd = os.open(meter_path, os.O_RDWR | os.O_NONBLOCK)
+        self.meter_graph = '@meter:lavfi=[' + filter_graph(meter_path) + ']'
+        self.meter_enabled = False
         self.meter_stop = threading.Event()
         self.spectrum = [0.0] * 16
         self.meter_thread = threading.Thread(target=self.read_spectrum, daemon=True)
         self.meter_thread.start()
         self.proxy = None
         self.proc = subprocess.Popen(['/usr/bin/python3', os.path.join(os.path.dirname(__file__), 'process_guard.py'), str(os.getpid()), 'mpv', '--no-config', '--idle=yes', '--no-video', '--no-terminal',
-                                      '--audio-display=no', '--af=@meter:lavfi=[' + filter_graph(meter_path) + ']',
+                                      '--audio-display=no',
                                       '--input-ipc-server=' + path],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.sock = socket.socket(socket.AF_UNIX)
@@ -196,13 +199,22 @@ class Mpv:
         with self.lock:
             self.sock.sendall((json.dumps({'command': command}) + '\n').encode())
 
+    def set_meter(self, enabled):
+        if enabled == self.meter_enabled:
+            return
+        self.send('af', 'add' if enabled else 'remove', self.meter_graph if enabled else '@meter')
+        self.meter_enabled = enabled
+        self.spectrum = [0.0] * 16
+
     def query_meter(self):
         self.callback({'request_id': 900, 'spectrum': list(self.spectrum)})
 
     def read_spectrum(self):
         pending = ''
         frame = [0.0] * 16
-        while not self.meter_stop.wait(0.02):
+        while not self.meter_stop.is_set():
+            if not select.select([self.meter_fd], [], [], .5)[0]:
+                continue
             try:
                 raw = os.read(self.meter_fd, 65536)
             except BlockingIOError:
@@ -220,7 +232,8 @@ class Mpv:
                     if 0 <= index < 16:
                         frame[index] = level(value)
                         if index == 15:
-                            self.spectrum = frame[:]
+                            if self.meter_enabled:
+                                self.spectrum = frame[:]
 
     def read(self):
         try:
@@ -256,9 +269,11 @@ class Mpv:
 
 
 class Player:
-    def __init__(self, emit, mpv_factory=Mpv, store=None, local=None):
+    def __init__(self, emit, mpv_factory=Mpv, store=None, local=None, preferences=None):
         self.emit, self.mpv_factory = emit, mpv_factory
         self.local = local
+        self.preferences = preferences
+        self.visible = False
         self.store, self.remembered = store, False
         self.username, self.folder = "", ""
         self.lock = threading.RLock()
@@ -268,9 +283,14 @@ class Player:
         self.index, self.position, self.duration = -1, 0, 0
         self.paused, self.idle, self.shuffle, self.repeat = True, True, False, 'off'
         self.volume, self.bitrate, self.generation = 70, 0, 0
+        if preferences:
+            saved = preferences.load()
+            self.volume, self.shuffle, self.repeat = saved['volume'], saved['shuffle'], saved['repeat']
         self.work = ThreadPoolExecutor(max_workers=1)
 
     def state(self):
+        if self.mpv:
+            self.mpv.set_meter(self.visible and not self.idle and not self.paused)
         self.emit({'type': 'state', 'queue': self.queue, 'index': self.index, 'position': self.position,
                    'duration': self.duration, 'paused': self.paused, 'idle': self.idle,
                    'shuffle': self.shuffle, 'repeat': self.repeat, 'volume': self.volume, 'bitrate': self.bitrate})
@@ -523,8 +543,13 @@ class Player:
     def handle(self, c):
         with self.lock:
             cmd = c.get('cmd')
+            if cmd == 'visibility':
+                self.visible = c.get('visible') is True
+                if self.mpv:
+                    self.mpv.set_meter(self.visible and not self.idle and not self.paused)
+                return
             if cmd == 'meter':
-                if self.mpv and not self.idle and not self.paused:
+                if self.mpv and self.visible and not self.idle and not self.paused:
                     self.mpv.query_meter()
                 return
             if cmd in ('local_add', 'local_remove', 'choose_files', 'choose_folder') or (cmd == 'library' and c.get('folder') == 'local'):
@@ -604,13 +629,21 @@ class Player:
             elif cmd == 'seek' and self.mpv and not self.idle:
                 self.mpv.send('seek', max(0, min(float(c['seconds']), self.duration)), 'absolute')
             elif cmd == 'volume':
-                self.volume = max(0, min(100, float(c['value'])))
+                value = float(c['value'])
+                if not math.isfinite(value):
+                    raise ValueError('Volume must be finite.')
+                self.volume = max(0, min(100, value))
                 if self.mpv:
                     self.mpv.send('set_property', 'volume', self.volume)
             elif cmd == 'shuffle':
                 self.shuffle = not self.shuffle
             elif cmd == 'repeat':
                 self.repeat = {'off': 'all', 'all': 'one', 'one': 'off'}[self.repeat]
+            if cmd in ('volume', 'shuffle', 'repeat') and self.preferences:
+                try:
+                    self.preferences.save(self.volume, self.shuffle, self.repeat)
+                except OSError:
+                    self.emit({'type': 'error', 'message': 'Playback settings changed but could not be saved.'})
             self.state()
 
     @staticmethod
@@ -669,7 +702,8 @@ def main():
     signal.signal(signal.SIGTERM, terminate)
     guard_parent(os.getppid())
     from local_library import LocalLibrary
-    player = Player(emit, store=SessionStore(), local=LocalLibrary())
+    from preferences import Preferences
+    player = Player(emit, store=SessionStore(), local=LocalLibrary(), preferences=Preferences())
     from mpris import Mpris
     media = Mpris(player)
     emit({'type': 'local_sources', 'available': bool(player.local.roots), 'paths': player.local.roots})

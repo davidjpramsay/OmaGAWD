@@ -14,6 +14,7 @@ Rectangle {
         background: Rectangle { color: action.highlighted ? Style.hoverFill : "transparent"; radius: Style.cornerRadius }
     }
     readonly property bool editingText: server.activeFocus || username.activeFocus || password.activeFocus || search.activeFocus
+    property string helpReturnTab: "library"
     property string artist: ""
     property string album: ""
     property var selectedSongs: []
@@ -94,6 +95,14 @@ Rectangle {
             AmpButton { text: "LIBRARY"; hint: "Library (L)"; lit: app.tab === "library"; onClicked: app.tab = "library" }
             Item { Layout.fillWidth: true }
             AmpButton {
+                objectName: "shortcutsButton"
+                text: "?"; hint: "Keyboard shortcuts"; lit: app.tab === "shortcuts"
+                onClicked: {
+                    if (app.tab === "shortcuts") app.tab = root.helpReturnTab
+                    else { root.helpReturnTab = app.tab; app.tab = "shortcuts" }
+                }
+            }
+            AmpButton {
                 id: accountButton
                 text: app.selectedLibrary === "local" ? (app.hasLocalSources ? "Local Music ▾" : "Sources ▾") : app.connected ? "Jellyfin ▾" : "Sources ▾"
                 hint: "Choose music source or add local files"
@@ -134,6 +143,43 @@ Rectangle {
             }
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+        Controls.ScrollView {
+            visible: app.tab === "shortcuts"
+            Layout.fillWidth: true; Layout.fillHeight: true
+            contentWidth: availableWidth
+            clip: true
+            ColumnLayout {
+                width: parent.width
+                spacing: Style.space(10)
+                AmpText { text: "KEYBOARD SHORTCUTS"; font.bold: true; Layout.fillWidth: true }
+                Repeater {
+                    model: [
+                        ["P / L", "Playlist / library (outside text fields)"],
+                        ["⌘F / Ctrl+F", "Clear filters and focus search"],
+                        ["Tab / Shift+Tab", "Cycle Artist → Album → Songs"],
+                        ["↑ / ↓ / Home / End", "Select and update child lists; never plays"],
+                        ["Space / click", "Select or toggle an artist/album filter"],
+                        ["Return / double-click", "Replace queue and play; in playlist, play row"],
+                        ["Option+Return / Option-click", "Add library row without interrupting music"],
+                        ["Shift+↑/↓ / Shift-click", "Select a range of songs or queue entries"],
+                        ["Ctrl-click", "Toggle individual songs or queue entries"],
+                        ["⌘A / Ctrl+A", "Select all playlist entries"],
+                        ["Delete / Backspace", "Remove selected playlist entries"],
+                        ["Option+↑/↓", "Move the current playlist entry"],
+                        ["Escape", "Hide player; keep playing"],
+                        ["Media keys", "Play/pause, previous, next, even while hidden"]
+                    ]
+                    delegate: ColumnLayout {
+                        required property var modelData
+                        Layout.fillWidth: true; spacing: Style.space(2)
+                        AmpText { text: modelData[0]; color: Color.accent; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                        AmpText { text: modelData[1]; Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.7 }
+                    }
+                }
+                AmpText { text: "Suggested global binding: Super+Alt+O (Command+Option+O on Mac keys). Configure it in Omarchy."; Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.7 }
+                AmpButton { text: "Back"; onClicked: app.tab = root.helpReturnTab }
+            }
+        }
         ColumnLayout {
             visible: app.tab === "sources"
             Layout.fillWidth: true; Layout.fillHeight: true
@@ -317,6 +363,7 @@ Rectangle {
                     addHeld: app.optionHeld || false
                     onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.artist === key)) }
                     heading: "ARTIST"; rows: root.artistRows; selected: [root.artist]
+                    onNavigated: function(key) { if (root.artist !== key) { root.artist = key; root.album = ""; root.selectedSongs = [] } }
                     emptyText: app.busy ? "Reading library…" : app.selectedLibrary === "local" && !app.songs.length ? "Add local files or a folder" : "No matching artists"
                     onChosen: function(key) { root.artist = root.artist === key ? "" : key; root.album = ""; root.selectedSongs = [] }
                 }
@@ -328,6 +375,7 @@ Rectangle {
                     addHeld: app.optionHeld || false
                     onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.albumId === key)) }
                     heading: "ALBUM"; rows: root.albumRows; selected: [root.album]
+                    onNavigated: function(key) { if (root.album !== key) { root.album = key; root.selectedSongs = [] } }
                     emptyText: "No matching albums"
                     onChosen: function(key) { root.album = root.album === key ? "" : key; root.selectedSongs = [] }
                 }
@@ -338,6 +386,7 @@ Rectangle {
                     addHeld: app.optionHeld || false
                     onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.id === key)) }
                     heading: "SONG"; rows: root.songRows; selected: root.selectedSongs
+                    onNavigated: function(key, modifiers) { root.selectedSongs = root.select(root.selectedSongs, key, modifiers & Qt.ShiftModifier, root.songRows) }
                     emptyText: "No matching songs"
                     onChosen: function(key, modifiers) { root.selectedSongs = root.select(root.selectedSongs, key, modifiers, root.songRows) }
                     onActivated: function(key) { root.playMusic(app.songs.filter(s => s.id === key)) }
