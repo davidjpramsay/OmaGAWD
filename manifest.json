@@ -4,7 +4,7 @@
   "name": "OmaGAWD",
   "version": "0.5.0",
   "author": "David",
-  "description": "A theme-aware, Winamp-inspired Jellyfin and local music receiver",
+  "description": "Winamp soul. Omarchy fit. Badass llama dance moves. Stream Jellyfin or play local music in a compact player that follows your theme, with a real frequency spectrum, keyboard control, and remembered playlists. Tab and arrows browse; Return plays; Alt+Return adds without skipping a beat. The player llama switches between running man and side shuffle while your music plays.",
   "kinds": [
     "bar-widget"
   ],
