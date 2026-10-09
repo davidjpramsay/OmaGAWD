@@ -5,6 +5,7 @@ import qs.Commons
 Rectangle {
     id: root
     property string heading: ""
+    property real detailFraction: 0.35
     property bool playlistKeys: false
     property string cursorKey: ""
     signal removeRequested(string key)
@@ -37,10 +38,21 @@ Rectangle {
     property string emptyText: "Nothing here yet"
     readonly property bool listFocused: list.activeFocus
     function focusList() {
+        if (!playlistKeys) {
+            const selectedIndex = rows.findIndex(row => selected.indexOf(row.key) >= 0)
+            const cursorIndex = rows.findIndex(row => row.key === cursorKey)
+            list.currentIndex = selectedIndex >= 0 ? selectedIndex : cursorIndex >= 0 ? cursorIndex : rows.length ? 0 : -1
+        }
         if (list.count > 0 && list.currentIndex < 0) list.currentIndex = 0
         rememberCursor()
         list.forceActiveFocus(Qt.TabFocusReason)
+        if (!playlistKeys && list.currentIndex >= 0) {
+            navigated(rows[list.currentIndex].key, 0)
+            list.positionViewAtIndex(list.currentIndex, ListView.Contain)
+        }
     }
+    // Keyboard browsing selects; unlike a click, it must never toggle a filter off.
+    signal navigated(string key, int modifiers)
     signal chosen(string key, int modifiers)
     signal activated(string key)
     color: Qt.darker(Color.background, 1.15)
@@ -62,7 +74,17 @@ Rectangle {
             keyNavigationEnabled: true
             activeFocusOnTab: true
             Keys.onPressed: function(event) {
-                if (!root.playlistKeys) return
+                if (!root.playlistKeys) {
+                    if (event.key !== Qt.Key_Up && event.key !== Qt.Key_Down && event.key !== Qt.Key_Home && event.key !== Qt.Key_End) return
+                    if (count) {
+                        currentIndex = event.key === Qt.Key_Home ? 0 : event.key === Qt.Key_End ? count - 1 : Math.max(0, Math.min(count - 1, currentIndex + (event.key === Qt.Key_Up ? -1 : 1)))
+                        root.cursorKey = root.rows[currentIndex].key
+                        root.navigated(root.cursorKey, event.modifiers)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    }
+                    event.accepted = true
+                    return
+                }
                 const key = currentItem ? currentItem.modelData.key : ""
                 if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && key) {
                     root.removeRequested(key)
@@ -95,11 +117,21 @@ Rectangle {
                 border.color: Color.accent
                 Rectangle { visible: root.playing === modelData.key; width: Style.space(2); height: parent.height; color: Color.accent }
                 AmpText {
+                    objectName: "rowLabel-" + modelData.key
                     anchors.left: parent.left; anchors.right: duration.left; anchors.verticalCenter: parent.verticalCenter
                     anchors.leftMargin: Style.space(10); anchors.rightMargin: Style.space(8)
                     text: modelData.label; color: root.playing === modelData.key ? Color.accent : Color.foreground
                 }
-                AmpText { id: duration; anchors.right: parent.right; anchors.rightMargin: Style.space(10); anchors.verticalCenter: parent.verticalCenter; text: showAdd ? "+" : modelData.detail || ""; color: showAdd ? Color.accent : Color.foreground; font.pixelSize: Style.font.caption; opacity: showAdd ? 1 : 0.5 }
+                AmpText {
+                    id: duration
+                    objectName: "rowDetail-" + modelData.key
+                    anchors.right: parent.right; anchors.rightMargin: Style.space(10); anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(implicitWidth, Math.max(0, parent.width - Style.space(28)) * root.detailFraction)
+                    horizontalAlignment: Text.AlignRight
+                    text: showAdd ? "+" : modelData.detail || ""
+                    color: showAdd ? Color.accent : Color.foreground
+                    font.pixelSize: Style.font.caption; opacity: showAdd ? 1 : 0.5
+                }
                 MouseArea {
                     id: mouse; anchors.fill: parent; hoverEnabled: true
                     onClicked: function(event) {

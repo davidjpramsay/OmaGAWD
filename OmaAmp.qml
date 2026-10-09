@@ -13,7 +13,13 @@ Item {
     property var manifest: null
     property bool opened: false
     property bool optionHeld: false
-    onOpenedChanged: if (!opened) optionHeld = false
+    onOpenedChanged: {
+        if (!opened) { optionHeld = false; levels = Array(16).fill(0) }
+        syncVisibility()
+    }
+    function syncVisibility() {
+        if (ready) bridge.write(JSON.stringify({cmd: "visibility", visible: opened}) + "\n")
+    }
     property bool playlistOpen: false
     readonly property bool browsingPlaylist: opened && playlistOpen && tab === "queue"
     onBrowsingPlaylistChanged: if (browsingPlaylist) Qt.callLater(function() {
@@ -25,6 +31,7 @@ Item {
     property var levels: Array(16).fill(0)
     onPlayingChanged: if (!playing) levels = Array(16).fill(0)
     property bool connected: false
+    property bool restoreRetry: false
     property bool busy: false
     property double lastLibraryCheck: 0
     readonly property bool browsingLibrary: opened && playlistOpen && tab === "library"
@@ -34,7 +41,7 @@ Item {
         if (!browsingLibrary || !ready || busy || Date.now() - lastLibraryCheck < 15000) return
         lastLibraryCheck = Date.now()
         busy = true
-        send({cmd: "library", folder: library.currentFolder})
+        send(restoreRetry && selectedLibrary !== "radio" ? {cmd: "restore"} : {cmd: "library", folder: library.currentFolder})
     }
     Timer {
         interval: 60000
@@ -47,6 +54,23 @@ Item {
     property string savedUsername: ""
     property string serverUrl: ""
     property bool remembered: false
+    property var radioResults: []
+    property bool radioBusy: false
+    property string radioError: ""
+    property bool radioMore: false
+    property int radioOffset: 0
+    property int radioRequest: 0
+    signal radioSaved(string stationId)
+    function searchRadio(fields, offset) {
+        radioRequest++
+        radioBusy = true; radioError = ""
+        if (!offset) { radioResults = []; radioMore = false }
+        send({cmd: "radio_search", fields: fields, offset: offset || 0, request: radioRequest})
+    }
+    function cancelRadioSearch() {
+        radioRequest++; radioBusy = false; radioResults = []; radioMore = false; radioError = ""
+        if (ready) send({cmd: "radio_cancel", request: radioRequest})
+    }
     property string selectedLibrary: "local"
     property bool hasLocalSources: false
     property var localSources: []
@@ -88,17 +112,23 @@ Item {
         return Math.floor(s / 60).toString().padStart(2, "0") + ":" + (s % 60).toString().padStart(2, "0")
     }
     function receive(data) {
-        if (data.type === "ready") ready = true
+        if (data.type === "ready") { ready = true; syncVisibility() }
+        else if (data.type === "radio_results" && data.request >= radioRequest) { radioRequest = data.request; radioResults = data.songs; radioMore = data.more; radioOffset = data.offset }
+        else if (data.type === "radio_busy" && data.request >= radioRequest) { radioRequest = data.request; radioBusy = data.value }
+        else if (data.type === "radio_error" && data.request === radioRequest) radioError = data.message
+        else if (data.type === "radio_saved") radioSaved(data.id)
         else if (data.type === "state") state = data
+        else if (data.type === "restore_retry") restoreRetry = data.value
+        else if (data.type === "remote_libraries") remoteLibraries = data.libraries
         else if (data.type === "local_sources") { hasLocalSources = data.available; localSources = data.paths || [] }
         else if (data.type === "profile") { savedUsername = data.username; serverUrl = data.url }
         else if (data.type === "remembered") remembered = data.value
-        else if (data.type === "meter" && playing) levels = data.levels
+        else if (data.type === "meter" && opened && playing) levels = data.levels
         else if (data.type === "busy") busy = data.value
         else if (data.type === "error") error = data.message
         else if (data.type === "connected") {
             connected = true; username = data.username; remoteLibraries = data.libraries
-            if (!data.preserveLocal) { selectedLibrary = data.folder || ""; songs = [] }
+            if (!data.preserveLocal && !data.preserveRadio) { selectedLibrary = data.folder || ""; songs = [] }
             tab = "library"
         } else if (data.type === "library") {
             selectedLibrary = data.folder || ""
@@ -106,7 +136,7 @@ Item {
             if (JSON.stringify(songs) !== JSON.stringify(data.songs)) songs = data.songs
         }
         else if (data.type === "picker_closed") { opened = true; showLibrary() }
-        else if (data.type === "disconnected") { connected = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
+        else if (data.type === "disconnected") { connected = false; restoreRetry = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
     }
     Timer {
         interval: 66; repeat: true
@@ -130,7 +160,7 @@ Item {
             }
         }
         onExited: {
-            root.ready = false; root.busy = false
+            root.ready = false; root.busy = false; root.restoreRetry = false
             root.connected = false; root.remembered = false; root.remoteLibraries = []; root.songs = []
             root.lastLibraryCheck = 0
             root.state = {queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0}

@@ -20,7 +20,8 @@ UI.BarWidget {
         id: player
         bar: root.bar
         anchorItem: button
-        hostWidget: root
+        // The player owns its popup. The bar marks only popups owned by the
+        // outer widget, so this keeps the llama free of an open-panel underline.
     }
 
     UI.BarIconButton {
@@ -29,15 +30,15 @@ UI.BarWidget {
         bar: root.bar
         tooltipText: "OmaGAWD · Music"
         slotSize: Style.bar.statusSlot
-        // The tall ears fill the canvas; compensate to match neighboring glyphs.
-        opticalSize: Math.round(Style.bar.iconCanvas * 0.75)
+        // Match the other status icons; reuse the macOS llama artwork.
+        opticalSize: Style.bar.iconCanvas
         iconComponent: Component {
             Item {
                 Image {
                     id: llama
                     anchors.fill: parent
-                    source: Qt.resolvedUrl("assets/llama-symbolic.svg")
-                    sourceSize: Qt.size(32, 32)
+                    source: Qt.resolvedUrl("assets/llama.svg")
+                    sourceSize: Qt.size(64, 64)
                     fillMode: Image.PreserveAspectFit
                     visible: false
                 }

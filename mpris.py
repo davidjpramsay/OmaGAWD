@@ -84,6 +84,10 @@ class Mpris:
                             'xesam:artist': V('as', [track['artist']]),
                             'xesam:album': V('s', track['album']),
                             'mpris:length': V('x', microseconds(track['duration']))}
+            if track and track.get('source') == 'radio':
+                metadata.pop('mpris:length', None)
+                metadata['xesam:title'] = V('s', p.radio_title or track['title'])
+                metadata['xesam:album'] = V('s', track['title'])
             return {'PlaybackStatus': V('s', 'Stopped' if p.idle else 'Paused' if p.paused else 'Playing'),
                     'Metadata': V('a{sv}', metadata), 'Volume': V('d', p.volume / 100),
                     'Position': V('x', microseconds(p.position)),

@@ -5,6 +5,7 @@ import qs.Commons
 Rectangle {
     id: root
     required property var app
+    readonly property bool radio: !!app.current && app.current.source === "radio"
     implicitHeight: content.implicitHeight + Style.space(20)
     color: Color.background
     border.color: Style.normalBorderFor(Color.foreground, Color.accent)
@@ -15,10 +16,18 @@ Rectangle {
         spacing: Style.space(7)
         RowLayout {
             spacing: Style.space(10)
-            Image { source: Qt.resolvedUrl("assets/omaamp.svg"); Layout.preferredWidth: Style.space(16); Layout.preferredHeight: Style.space(16); sourceSize: Qt.size(48, 48); Accessible.name: "OmaGAWD llama" }
+            DancingLlama {
+                objectName: "receiverLlama"
+                Layout.preferredWidth: Style.space(40)
+                Layout.preferredHeight: Style.space(34)
+                playing: app.playing
+                stopped: app.state.idle
+                reduceMotion: app.state.reduceMotion || false
+                visible: app.opened
+            }
             AmpText { text: "OMAGAWD"; font.bold: true; font.letterSpacing: 2 }
             Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
-            AmpText { text: app.current && app.current.source === "local" ? "LOCAL" : app.selectedLibrary === "local" && !app.current ? "LOCAL" : "JELLYFIN"; font.pixelSize: Style.font.caption; opacity: 0.55 }
+            AmpText { text: root.radio || (!app.current && app.selectedLibrary === "radio") ? "RADIO" : app.current && app.current.source === "local" ? "LOCAL" : app.selectedLibrary === "local" && !app.current ? "LOCAL" : "JELLYFIN"; font.pixelSize: Style.font.caption; opacity: 0.55 }
             AmpButton { text: "−"; hint: "Hide player (music keeps playing)"; implicitHeight: Style.space(22); onClicked: app.close() }
         }
         Rectangle {
@@ -30,20 +39,20 @@ Rectangle {
                 ColumnLayout {
                     Layout.preferredWidth: Style.space(90)
                     spacing: Style.space(5)
-                    AmpText { text: app.time(app.state.position); font.pixelSize: Style.font.display; color: Color.accent; font.letterSpacing: 2 }
+                    AmpText { text: root.radio ? "LIVE" : app.time(app.state.position); font.pixelSize: Style.font.display; color: Color.accent; font.letterSpacing: 2 }
                     AmpText { text: app.state.idle ? "■  STOPPED" : app.state.paused ? "Ⅱ  PAUSED" : "▶  STREAMING"; color: Color.accent; font.pixelSize: Style.font.caption }
                     Visualizer {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Style.space(22)
                         levels: app.levels
-                        playing: app.playing
+                        playing: app.opened && app.playing
                     }
                 }
                 Rectangle { width: 1; Layout.fillHeight: true; color: Style.normalBorderFor(Color.foreground, Color.accent) }
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: Style.space(5)
-                    AmpText { visible: !!app.current; Layout.fillWidth: true; text: app.current ? app.current.title : ""; font.pixelSize: Style.font.body; color: Color.accent }
-                    AmpText { visible: !!app.current; Layout.fillWidth: true; text: app.current ? app.current.artist + " / " + app.current.album : ""; opacity: 0.8 }
+                    AmpText { visible: !!app.current; Layout.fillWidth: true; textFormat: Text.PlainText; text: app.current ? root.radio ? (app.state.radioTitle || app.current.title) : app.current.title : ""; font.pixelSize: Style.font.body; color: Color.accent }
+                    AmpText { visible: !!app.current; Layout.fillWidth: true; textFormat: Text.PlainText; text: app.current ? root.radio ? app.current.title + " / " + app.current.artist : app.current.artist + " / " + app.current.album : ""; opacity: 0.8 }
                     RowLayout {
                         visible: !!app.current
                         Layout.fillWidth: true
@@ -64,7 +73,7 @@ Rectangle {
                         }
                         AmpText {
                             Layout.fillWidth: true
-                            text: "/   " + (app.current ? app.time(app.current.duration) : "00:00") + "   /   ORIGINAL AUDIO"
+                            text: root.radio ? "/   LIVE RADIO" : "/   " + (app.current ? app.time(app.current.duration) : "00:00") + "   /   ORIGINAL AUDIO"
                             font.pixelSize: Style.font.caption
                         }
                     }
@@ -78,8 +87,10 @@ Rectangle {
             }
         }
         RowLayout {
+            objectName: "seekRow"
+            visible: !root.radio
             spacing: Style.space(10)
-            AmpText { text: app.time(app.state.position); font.pixelSize: Style.font.caption; opacity: 0.6 }
+            AmpText { text: root.radio ? "LIVE" : app.time(app.state.position); font.pixelSize: Style.font.caption; opacity: 0.6 }
             AmpSlider {
                 Layout.fillWidth: true; from: 0; to: Math.max(1, app.state.duration); value: app.state.position
                 enabled: !app.state.idle && app.state.duration > 0
