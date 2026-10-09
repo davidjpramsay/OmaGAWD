@@ -1,0 +1,33 @@
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>OmaGAWD</title>
+        <item>
+            <title>0.2.2</title>
+            <pubDate>Fri, 09 Oct 2026 22:31:20 +0800</pubDate>
+            <link>https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.2.2-beta.1</link>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[# OmaGAWD 0.2.2 beta
+
+- Check for Updates is available from the player's gear menu and the OmaGAWD application menu.
+- Download, verify, install and restart the app without replacing it manually.
+- Add a fourth llama dance: big hip pops, a sideways wiggle and planted hooves. The twerk joins the ten-second rotation after running man, side shuffle and head banging.
+- Update checks are manual by default. Background checks, unattended installation and system profiling are disabled.
+- Updates and the macOS release feed are signed; the app and installer are Apple notarized.
+- Explain why local-network access is needed when connecting to your chosen Jellyfin server.
+
+Your queue and playback position are kept when the app restarts. Playback starts paused.
+]]></description>
+            <enclosure url="https://github.com/davidjpramsay/OmaGAWD/releases/download/macos-v0.2.2-beta.1/OmaGAWD-0.2.2-macOS-universal.dmg" length="2992358" type="application/octet-stream" sparkle:edSignature="TAXlj5OlLLNnIc5wc6HutxTON+T+OH2TjOURossZkd4f2Zoq4jIW1A0asZOZH4fe6vHuOrCiPS3plVDW15teCw=="/>
+        </item>
+    </channel>
+</rss>
+<!-- sparkle-signatures:
+edSignature: tUqKaJMzCiEmjpNH5+TvCkbOC/pVH6ze7MoHdOse1rnx9cyxch8ynVSHAgVcP43pH89bqag/k2hSIklvkAGHAA==
+length: 1999
+-->
