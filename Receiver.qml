@@ -17,9 +17,12 @@ Rectangle {
             spacing: Style.space(10)
             DancingLlama {
                 objectName: "receiverLlama"
-                Layout.preferredWidth: Style.space(16)
-                Layout.preferredHeight: Style.space(16)
-                playing: app.opened && app.playing
+                Layout.preferredWidth: Style.space(40)
+                Layout.preferredHeight: Style.space(34)
+                playing: app.playing
+                stopped: app.state.idle
+                reduceMotion: app.state.reduceMotion || false
+                visible: app.opened
             }
             AmpText { text: "OMAGAWD"; font.bold: true; font.letterSpacing: 2 }
             Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }

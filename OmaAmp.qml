@@ -31,6 +31,7 @@ Item {
     property var levels: Array(16).fill(0)
     onPlayingChanged: if (!playing) levels = Array(16).fill(0)
     property bool connected: false
+    property bool restoreRetry: false
     property bool busy: false
     property double lastLibraryCheck: 0
     readonly property bool browsingLibrary: opened && playlistOpen && tab === "library"
@@ -40,7 +41,7 @@ Item {
         if (!browsingLibrary || !ready || busy || Date.now() - lastLibraryCheck < 15000) return
         lastLibraryCheck = Date.now()
         busy = true
-        send({cmd: "library", folder: library.currentFolder})
+        send(restoreRetry ? {cmd: "restore"} : {cmd: "library", folder: library.currentFolder})
     }
     Timer {
         interval: 60000
@@ -96,6 +97,8 @@ Item {
     function receive(data) {
         if (data.type === "ready") { ready = true; syncVisibility() }
         else if (data.type === "state") state = data
+        else if (data.type === "restore_retry") restoreRetry = data.value
+        else if (data.type === "remote_libraries") remoteLibraries = data.libraries
         else if (data.type === "local_sources") { hasLocalSources = data.available; localSources = data.paths || [] }
         else if (data.type === "profile") { savedUsername = data.username; serverUrl = data.url }
         else if (data.type === "remembered") remembered = data.value
@@ -112,7 +115,7 @@ Item {
             if (JSON.stringify(songs) !== JSON.stringify(data.songs)) songs = data.songs
         }
         else if (data.type === "picker_closed") { opened = true; showLibrary() }
-        else if (data.type === "disconnected") { connected = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
+        else if (data.type === "disconnected") { connected = false; restoreRetry = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
     }
     Timer {
         interval: 66; repeat: true
@@ -136,7 +139,7 @@ Item {
             }
         }
         onExited: {
-            root.ready = false; root.busy = false
+            root.ready = false; root.busy = false; root.restoreRetry = false
             root.connected = false; root.remembered = false; root.remoteLibraries = []; root.songs = []
             root.lastLibraryCheck = 0
             root.state = {queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0}

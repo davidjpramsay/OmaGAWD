@@ -24,7 +24,7 @@ class FeatureTests(unittest.TestCase):
             try:
                 self.assertEqual((restored.volume, restored.shuffle, restored.repeat), (37, True, 'one'))
                 self.assertEqual(restored.queue, [])
-                self.assertEqual(set(json.loads(prefs.path.read_text())), {'volume', 'shuffle', 'repeat'})
+                self.assertEqual(set(json.loads(prefs.path.read_text())), {'volume', 'shuffle', 'repeat', 'reduceMotion'})
             finally:
                 restored.close()
 
@@ -116,14 +116,16 @@ class FeatureTests(unittest.TestCase):
             with patch('backend.subprocess.Popen', side_effect=silent_process):
                 engine = Mpv(events.append)
             try:
-                engine.load(str(audio), [])
+                engine.load(str(audio), [], start=3)
+                positions = lambda: [e['data'] for e in events if e.get('name') == 'time-pos' and isinstance(e.get('data'), (int, float))]
+                self.assertTrue(wait_for(lambda: bool(positions())))
+                self.assertGreaterEqual(positions()[0], 2.9, 'Saved position was not restored')
                 engine.set_meter(True)
                 self.assertTrue(wait_for(lambda: max(engine.spectrum) > .1), 'Real spectrum did not start')
                 engine.set_meter(False)
                 engine.send('get_property', 'af')
                 self.assertTrue(wait_for(lambda: any(e.get('data') == [] for e in events)), 'Analysis filter remained installed')
                 self.assertEqual(engine.spectrum, [0.0] * 16)
-                positions = lambda: [e['data'] for e in events if e.get('name') == 'time-pos' and isinstance(e.get('data'), (int, float))]
                 self.assertTrue(wait_for(lambda: bool(positions())))
                 before = positions()[-1]
                 self.assertTrue(wait_for(lambda: positions()[-1] > before + .15), 'Playback stopped while hidden')

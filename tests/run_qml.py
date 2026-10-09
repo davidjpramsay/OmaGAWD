@@ -14,7 +14,9 @@ for file in ['Library.qml', 'TextList.qml', 'AmpText.qml', 'AmpButton.qml', 'Dan
 for test in Path('tests/qml').glob('tst_*.qml'):
     shutil.copy(test, root / 'tests/qml')
 (root / 'assets').mkdir()
-shutil.copy('assets/llama.png', root / 'assets')
+for asset in ['llama.png', 'llama-dances.png', 'llama-standing.png']:
+    shutil.copy(Path('assets') / asset, root / 'assets')
+shutil.copy('LlamaDanceClock.js', root)
 commons = root / 'qs/Commons'
 commons.mkdir(parents=True, exist_ok=True)
 (commons / 'qmldir').write_text('module qs.Commons\nsingleton Color 1.0 Color.qml\nsingleton Style 1.0 Style.qml\n')

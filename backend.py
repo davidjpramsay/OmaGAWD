@@ -21,6 +21,7 @@ from session_store import SessionStore
 from spectrum import filter_graph, level
 from stream_proxy import StreamProxy
 from process_guard import guard_parent
+from playback_store import identity
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -185,7 +186,7 @@ class Mpv:
         for n, prop in enumerate(['time-pos', 'duration', 'pause', 'idle-active', 'audio-bitrate']):
             self.send('observe_property', n, prop)
 
-    def load(self, url, headers):
+    def load(self, url, headers, start=0):
         if headers:
             if self.proxy is None:
                 self.proxy = StreamProxy()
@@ -193,7 +194,10 @@ class Mpv:
         elif self.proxy:
             self.proxy.route = None
         self.send('set_property', 'http-header-fields', [])
-        self.send('loadfile', url, 'replace')
+        if start > 0:
+            self.send('loadfile', url, 'replace', -1, {'start': str(start)})
+        else:
+            self.send('loadfile', url, 'replace')
 
     def send(self, *command):
         with self.lock:
@@ -269,11 +273,18 @@ class Mpv:
 
 
 class Player:
-    def __init__(self, emit, mpv_factory=Mpv, store=None, local=None, preferences=None):
+    def __init__(self, emit, mpv_factory=Mpv, store=None, local=None, preferences=None, playback_store=None):
         self.emit, self.mpv_factory = emit, mpv_factory
         self.local = local
         self.preferences = preferences
+        self.reduce_motion = False
         self.visible = False
+        self.playback_store = playback_store
+        self.queue_identity = None
+        self.session_pending = False
+        self.session_folder = None
+        self.checkpoint_at = time.monotonic()
+        self.session_warning = False
         self.store, self.remembered = store, False
         self.username, self.folder = "", ""
         self.lock = threading.RLock()
@@ -286,14 +297,43 @@ class Player:
         if preferences:
             saved = preferences.load()
             self.volume, self.shuffle, self.repeat = saved['volume'], saved['shuffle'], saved['repeat']
+            self.reduce_motion = saved['reduceMotion']
+        if playback_store:
+            saved = playback_store.load()
+            if saved:
+                self.queue, self.index, self.position = saved['queue'], saved['index'], saved['position']
+                self.duration = self.queue[self.index]['duration'] if self.index >= 0 else 0
+                self.queue_identity, self.session_folder = saved['library'], saved['folder']
+                self.session_pending = not saved['idle'] and self.index >= 0
+                self.idle, self.paused = saved['idle'], True
+                if self.local:
+                    self.local.prefer_local = saved['folder'] == 'local'
         self.work = ThreadPoolExecutor(max_workers=1)
 
+    def session_snapshot(self):
+        folder = 'local' if self.local and self.local.prefer_local else self.folder or self.session_folder or 'local'
+        return {'queue': [dict(row) for row in self.queue], 'index': self.index, 'position': self.position,
+                'idle': self.idle, 'folder': folder, 'library': self.queue_identity if any(s.get('source') != 'local' for s in self.queue) else None}
+
+    def checkpoint(self):
+        if not self.playback_store: return
+        try:
+            error = self.playback_store.take_error()
+            if self.playback_store.save(self.session_snapshot()): self.checkpoint_at = time.monotonic()
+            if error: raise error
+        except (OSError, ValueError):
+            if not self.session_warning:
+                self.emit({'type': 'error', 'message': 'Could not save the playback session. Check file permissions or free space.'})
+                self.session_warning = True
+
     def state(self):
+        if not self.paused and not self.idle and time.monotonic() - self.checkpoint_at >= 5:
+            self.checkpoint()
         if self.mpv:
             self.mpv.set_meter(self.visible and not self.idle and not self.paused)
         self.emit({'type': 'state', 'queue': self.queue, 'index': self.index, 'position': self.position,
                    'duration': self.duration, 'paused': self.paused, 'idle': self.idle,
-                   'shuffle': self.shuffle, 'repeat': self.repeat, 'volume': self.volume, 'bitrate': self.bitrate})
+                   'shuffle': self.shuffle, 'repeat': self.repeat, 'volume': self.volume, 'bitrate': self.bitrate, 'reduceMotion': self.reduce_motion})
 
     def discard_engine(self):
         old, self.mpv = self.mpv, None
@@ -339,10 +379,14 @@ class Player:
                     self.emit({'type': 'error', 'message': 'Cannot stream this track. Check the connection and Jellyfin playback permissions.'})
                     self.state()
 
-    def play(self, index):
+    def play(self, index, resume=False):
         if not 0 <= index < len(self.queue):
             return
         track = self.queue[index]
+        if track.get('source') != 'local' and self.queue_identity and self.queue_identity != identity(self.client):
+            self.emit({'type': 'error', 'message': 'This playlist belongs to a different Jellyfin account. Reconnect to that account or replace the playlist.'})
+            return
+        start = self.position if resume and index == self.index else 0
         if track.get('source') == 'local':
             if not os.path.isfile(track['path']):
                 if self.mpv: self.mpv.send('stop')
@@ -356,9 +400,10 @@ class Player:
         else:
             return
         engine = self.engine()
-        engine.load(url, headers)
+        engine.load(url, headers, start=start)
         engine.send('set_property', 'pause', False)
-        self.index, self.position = index, 0
+        self.index, self.position = index, start
+        self.session_pending = False
         self.duration = self.queue[index]['duration']
         self.paused, self.idle = False, False
 
@@ -378,9 +423,11 @@ class Player:
                 if self.mpv:
                     self.mpv.send('stop')
                 self.idle, self.paused = True, True
+                self.checkpoint()
                 self.state()
                 return
         self.play(target)
+        self.checkpoint()
         self.state()
 
     def network(self, command, generation):
@@ -395,6 +442,9 @@ class Player:
                         self.load_local(generation)
                     saved = self.store.load() if self.store else None
                     if not saved:
+                        with self.lock:
+                            if generation != self.generation: return
+                            self.emit({'type': 'restore_retry', 'value': False})
                         if self.local and not self.local.prefer_local: self.load_local(generation)
                         return
                     with self.lock:
@@ -411,7 +461,7 @@ class Player:
                     client.login(command['username'], command.pop('password', ''))
                 stage = 'libraries'
                 libraries = client.libraries()
-                preferred = saved.get('folder', '') if command['cmd'] == 'restore' else ''
+                preferred = (self.session_folder if self.session_folder not in (None, 'local') else saved.get('folder', '')) if command['cmd'] == 'restore' else ''
                 folder = next((item['id'] for item in libraries if item['id'] == preferred),
                               libraries[0]['id'] if libraries else '')
                 with self.lock:
@@ -427,21 +477,28 @@ class Player:
                             self.remembered = True
                         except RuntimeError as exc:
                             self.emit({'type': 'error', 'message': str(exc)})
+                    self.emit({'type': 'restore_retry', 'value': False})
                     self.emit({'type': 'remembered', 'value': self.remembered})
                     self.emit({'type': 'connected', 'libraries': libraries, 'username': command['username'], 'folder': folder,
                                'preserveLocal': bool(self.local and self.local.prefer_local and command['cmd'] == 'restore')})
                 stage = 'library'
                 if self.local and self.local.prefer_local and command['cmd'] == 'restore':
+                    with self.lock:
+                        if generation == self.generation: self.state()
                     return
                 songs = client.songs(folder) if libraries else []
             else:
                 client = self.client
                 if not client:
                     raise ValueError('Connect to Jellyfin first.')
-                folder = command.get('folder', self.folder)
-                songs = client.songs(folder)
+                libraries = client.libraries()
+                requested = command.get('folder', self.folder)
+                folder = next((item['id'] for item in libraries if item['id'] == requested), libraries[0]['id'] if libraries else '')
+                songs = client.songs(folder) if folder else []
             with self.lock:
                 if generation == self.generation:
+                    if command['cmd'] == 'library':
+                        self.emit({'type': 'remote_libraries', 'libraries': libraries})
                     self.songs = songs
                     if self.local:
                         self.local.prefer_local = False
@@ -452,6 +509,8 @@ class Player:
                     changed = folder != self.folder
                     self.folder = folder
                     self.emit({'type': 'library', 'songs': songs, 'folder': folder})
+                    self.session_folder = folder
+                    self.checkpoint()
                     if changed and self.store and self.remembered:
                         try:
                             self.store.save(client, self.username, folder)
@@ -462,6 +521,7 @@ class Player:
             with self.lock:
                 if generation != self.generation:
                     return
+                if command['cmd'] == 'restore': self.emit({'type': 'restore_retry', 'value': True})
                 if isinstance(exc, urllib.error.HTTPError):
                     exc.close()
                     if exc.code in (401, 403) and stage == 'restore':
@@ -496,6 +556,8 @@ class Player:
             self.songs = songs
             self.local.prefer_local = True
             self.emit({'type': 'library', 'folder': 'local', 'songs': songs})
+            self.session_folder = 'local'
+            self.checkpoint()
             try:
                 self.local.save()
             except (OSError, RuntimeError):
@@ -575,12 +637,19 @@ class Player:
                     self.work.submit(self.revoke, old)
             elif cmd == 'add':
                 ids = set(c.get('ids', []))
-                self.queue = self.queue + [dict(s, key=str(uuid.uuid4())) for s in self.songs if s['id'] in ids]
+                selected = [dict(s, key=str(uuid.uuid4())) for s in self.songs if s['id'] in ids]
+                if any(s.get('source') != 'local' for s in selected):
+                    if self.queue_identity and self.queue_identity != identity(self.client):
+                        self.emit({'type': 'error', 'message': 'Replace the playlist before adding music from a different Jellyfin account.'})
+                        return
+                    self.queue_identity = identity(self.client)
+                self.queue = self.queue + selected
             elif cmd == 'replace_play':
                 ids = set(c.get('ids', []))
                 selection = [dict(s, key=str(uuid.uuid4())) for s in self.songs if s['id'] in ids]
                 if selection and (self.client or all(s.get('source') == 'local' for s in selection)):
                     self.queue = selection
+                    self.queue_identity = identity(self.client) if any(s.get("source") != "local" for s in selection) else None
                     self.play(0)
             elif cmd == 'remove':
                 keys = set(c.get('keys', []))
@@ -589,6 +658,7 @@ class Player:
                 self.queue = [s for s in self.queue if s['key'] not in keys]
                 self.index = next((i for i, s in enumerate(self.queue) if s['key'] == current), -1)
                 if current in keys:
+                    self.session_pending = False
                     if self.mpv:
                         self.mpv.send('stop')
                     self.idle, self.paused = True, True
@@ -609,12 +679,13 @@ class Player:
                 if self.mpv:
                     self.mpv.send('stop')
                 self.queue, self.index = [], -1
+                self.queue_identity, self.session_pending = None, False
                 self.position, self.duration, self.paused, self.idle = 0, 0, True, True
             elif cmd == 'play':
-                self.play(int(c.get('index', max(0, self.index))))
+                self.play(int(c.get('index', max(0, self.index))), resume=self.session_pending)
             elif cmd == 'pause':
-                if self.idle:
-                    self.play(max(0, self.index))
+                if self.idle or self.session_pending or self.mpv is None:
+                    self.play(max(0, self.index), resume=self.session_pending)
                 elif self.mpv:
                     self.paused = not self.paused
                     self.mpv.send('set_property', 'pause', self.paused)
@@ -622,12 +693,18 @@ class Player:
                 if self.mpv:
                     self.mpv.send('stop')
                 self.idle, self.paused, self.position = True, True, 0
+                self.session_pending = False
             elif cmd == 'next':
                 self.next_track()
             elif cmd == 'previous':
                 self.play(max(0, self.index - 1))
-            elif cmd == 'seek' and self.mpv and not self.idle:
-                self.mpv.send('seek', max(0, min(float(c['seconds']), self.duration)), 'absolute')
+            elif cmd == 'seek' and not self.idle:
+                value = float(c['seconds'])
+                if not math.isfinite(value): raise ValueError('Seek must be finite.')
+                self.position = max(0, min(value, self.duration))
+                if self.mpv: self.mpv.send('seek', self.position, 'absolute')
+            elif cmd == 'reduce_motion':
+                self.reduce_motion = c.get('value') is True
             elif cmd == 'volume':
                 value = float(c['value'])
                 if not math.isfinite(value):
@@ -639,11 +716,13 @@ class Player:
                 self.shuffle = not self.shuffle
             elif cmd == 'repeat':
                 self.repeat = {'off': 'all', 'all': 'one', 'one': 'off'}[self.repeat]
-            if cmd in ('volume', 'shuffle', 'repeat') and self.preferences:
+            if cmd in ('volume', 'shuffle', 'repeat', 'reduce_motion') and self.preferences:
                 try:
-                    self.preferences.save(self.volume, self.shuffle, self.repeat)
+                    self.preferences.save(self.volume, self.shuffle, self.repeat, self.reduce_motion)
                 except OSError:
                     self.emit({'type': 'error', 'message': 'Playback settings changed but could not be saved.'})
+            if cmd in ('add', 'replace_play', 'remove', 'move', 'clear', 'play', 'pause', 'stop', 'next', 'previous', 'seek', 'logout'):
+                self.checkpoint()
             self.state()
 
     @staticmethod
@@ -667,6 +746,7 @@ class Player:
             self.mpv.send('stop')
             self.mpv.send('set_property', 'http-header-fields', [])
         self.client, self.songs, self.queue = None, [], []
+        self.queue_identity, self.session_folder, self.session_pending = None, None, False
         self.username, self.folder = "", ""
         self.index, self.position, self.duration, self.bitrate = -1, 0, 0, 0
         self.idle, self.paused = True, True
@@ -674,6 +754,10 @@ class Player:
     def close(self):
         self.generation += 1
         with self.lock:
+            if self.playback_store:
+                try: self.playback_store.close(self.session_snapshot())
+                except (OSError, ValueError): pass
+                self.playback_store = None
             self.discard_engine()
         self.work.shutdown(wait=True, cancel_futures=False)
         if self.client and not self.remembered:
@@ -690,10 +774,10 @@ def main():
         with output_lock:
             kind = data.get('type')
             if kind == 'disconnected':
-                for stale in ('connected', 'profile', 'remembered', 'library'):
+                for stale in ('connected', 'profile', 'remembered', 'library', 'remote_libraries', 'restore_retry'):
                     snapshot.pop(stale, None)
             if kind == 'connected': snapshot.pop('disconnected', None)
-            if kind in ('state', 'local_sources', 'profile', 'remembered', 'connected', 'disconnected', 'library', 'busy'):
+            if kind in ('state', 'local_sources', 'profile', 'remembered', 'connected', 'disconnected', 'library', 'remote_libraries', 'restore_retry', 'busy'):
                 snapshot.pop(kind, None)
                 snapshot[kind] = data
             print(json.dumps(data, separators=(',', ':')), flush=True)
@@ -703,12 +787,14 @@ def main():
     guard_parent(os.getppid())
     from local_library import LocalLibrary
     from preferences import Preferences
-    player = Player(emit, store=SessionStore(), local=LocalLibrary(), preferences=Preferences())
+    from playback_store import PlaybackStore
+    player = Player(emit, store=SessionStore(), local=LocalLibrary(), preferences=Preferences(), playback_store=PlaybackStore())
     from mpris import Mpris
     media = Mpris(player)
     emit({'type': 'local_sources', 'available': bool(player.local.roots), 'paths': player.local.roots})
     if player.local.warning:
         emit({'type': 'error', 'message': player.local.warning})
+    player.state()
     emit({'type': 'ready'})
     player.handle({'cmd': 'restore'})
     try:

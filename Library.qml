@@ -77,9 +77,9 @@ Rectangle {
     Connections {
         target: app
         function onSongsChanged() {
-            if (!app.songs.some(s => s.artist === root.artist)) root.artist = ""
-            if (!app.songs.some(s => s.albumId === root.album)) root.album = ""
-            root.selectedSongs = root.selectedSongs.filter(id => app.songs.some(s => s.id === id))
+            if (!root.filtered.some(s => s.artist === root.artist)) root.artist = ""
+            if (!root.artistSongs.some(s => s.albumId === root.album)) root.album = ""
+            root.selectedSongs = root.selectedSongs.filter(id => root.albumSongs.some(s => s.id === id))
         }
     }
     ColumnLayout {
@@ -177,6 +177,22 @@ Rectangle {
                     }
                 }
                 AmpText { text: "Suggested global binding: Super+Alt+O (Command+Option+O on Mac keys). Configure it in Omarchy."; Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.7 }
+                Controls.CheckBox {
+                    objectName: "reduceMotionToggle"
+                    text: "Reduce motion"
+                    checked: app.state.reduceMotion || false
+                    implicitHeight: Style.space(28)
+                    contentItem: AmpText { text: parent.text; leftPadding: Style.space(26); verticalAlignment: Text.AlignVCenter }
+                    indicator: Rectangle {
+                        width: Style.space(16); height: width
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: parent.checked ? Style.selectedFill : Style.normalFill
+                        border.color: parent.checked ? Color.accent : Style.normalBorderFor(Color.foreground, Color.accent)
+                        radius: Style.cornerRadius
+                        AmpText { anchors.centerIn: parent; text: "✓"; visible: parent.parent.checked; color: Color.accent; font.pixelSize: Style.font.caption }
+                    }
+                    onToggled: app.send({cmd: "reduce_motion", value: checked})
+                }
                 AmpButton { text: "Back"; onClicked: app.tab = root.helpReturnTab }
             }
         }

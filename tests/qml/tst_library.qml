@@ -118,8 +118,26 @@ Item {
             const image = grabImage(library)
             compare(image.width, library.width)
             compare(image.height, library.height)
+            const reduce = findChild(library, "reduceMotionToggle")
+            verify(reduce !== null)
+            mouseClick(reduce)
+            compare(fakeApp.commands[0], {cmd: "reduce_motion", value: true})
             mouseClick(button)
             compare(fakeApp.tab, "library")
+        }
+        function test_refresh_validates_child_selection() {
+            library.artist = "A"
+            library.album = "a1"
+            library.selectedSongs = ["1"]
+            fakeApp.songs = [
+                {id: "1", artist: "B", albumId: "a1", album: "First", title: "One", duration: 1},
+                {id: "2", artist: "A", albumId: "a2", album: "Second", title: "Two", duration: 1}
+            ]
+            wait(30)
+            compare(library.artist, "A")
+            compare(library.album, "")
+            compare(library.selectedSongs.length, 0)
+            compare(library.songRows.length, 1)
         }
         function test_queue_navigation() {
             fakeApp.state = {queue: [{key: "q1", artist: "A", title: "One", duration: 1}, {key: "q2", artist: "B", title: "Two", duration: 1}]}

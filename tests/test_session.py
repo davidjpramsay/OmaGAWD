@@ -50,10 +50,26 @@ class SessionTests(unittest.TestCase):
         p = Player(lambda event: None, FakeMpv, store)
         p.client = Jellyfin('https://example.com')
         p.remembered, p.username, p.folder = True, 'david', 'first'
-        with patch.object(Jellyfin, 'songs', return_value=[]):
+        with patch.object(Jellyfin, 'songs', return_value=[]), patch.object(Jellyfin, 'libraries', return_value=[{'id': 'first'}, {'id': 'second'}]):
             p.network({'cmd': 'library', 'folder': 'second'}, 0)
             p.network({'cmd': 'library', 'folder': 'second'}, 0)
         store.save.assert_called_once_with(p.client, 'david', 'second')
+        p.close()
+
+    def test_refresh_rediscovers_folders_and_falls_back_without_changing_queue(self):
+        events = []
+        p = Player(events.append, FakeMpv)
+        p.client = Jellyfin('https://example.com')
+        p.remembered, p.folder = True, 'removed'
+        queue = p.queue = [{'id': 'one', 'key': 'one'}]
+        p.position = 42
+        with patch.object(Jellyfin, 'libraries', return_value=[{'id': 'first', 'name': 'New Music'}]), patch.object(Jellyfin, 'songs', return_value=[]) as songs:
+            p.network({'cmd': 'library', 'folder': 'removed'}, 0)
+            songs.assert_called_once_with('first')
+        self.assertEqual(p.folder, 'first')
+        self.assertIs(p.queue, queue)
+        self.assertEqual(p.position, 42)
+        self.assertIn({'type': 'remote_libraries', 'libraries': [{'id': 'first', 'name': 'New Music'}]}, events)
         p.close()
 
     def test_successful_login_is_saved(self):

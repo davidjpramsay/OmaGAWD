@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "david.omaamp",
   "name": "OmaGAWD",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "David",
   "description": "A theme-aware, Winamp-inspired Jellyfin and local music receiver",
   "kinds": [

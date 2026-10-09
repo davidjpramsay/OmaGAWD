@@ -29,7 +29,7 @@ cd OmaGAWD && ./scripts/install.sh
 
 Requires Omarchy/Quickshell, mpv, Python 3 with python-gobject, libsecret (`secret-tool`), ffmpeg (`ffprobe`), and zenity.
 
-Open the llama icon; the llama inside the player dances while playing. Choose music from the source menu. **?** shows keyboard shortcuts. Volume, shuffle, and repeat are remembered; the queue is session-only. Spectrum analysis stops while hidden or paused. **Manage sources…** adds or removes local sources without deleting files.
+Open the llama icon; the player’s llama alternates running-man and side-shuffle dances. Choose music from the source menu. **?** shows shortcuts and **Reduce motion**. Volume, shuffle, repeat, queue, and playback position are remembered; restart restores paused. Spectrum analysis stops while hidden or paused. **Manage sources…** adds or removes local sources without deleting files.
 
 | Shortcut | Action |
 |---|---|

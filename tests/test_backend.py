@@ -12,7 +12,8 @@ from backend import Jellyfin, Player
 class FakeMpv:
     def __init__(self, callback):
         self.commands = []
-    def load(self, url, headers):
+    def load(self, url, headers, start=0):
+        self.start = start
         self.send('set_property', 'http-header-fields', headers)
         self.send('loadfile', url, 'replace')
     def send(self, *args):
@@ -137,9 +138,11 @@ class QueueTests(unittest.TestCase):
         self.assertTrue(self.p.idle)
     def test_stale_network_response_is_ignored(self):
         self.p.generation = 2
-        with patch.object(Jellyfin, 'songs', return_value=[song(9)]):
+        before = list(self.messages)
+        with patch.object(Jellyfin, 'songs', return_value=[song(9)]), patch.object(Jellyfin, 'libraries', return_value=[{'id': 'first'}]):
             self.p.network({'cmd': 'library'}, 1)
         self.assertEqual(len(self.p.songs), 3)
+        self.assertEqual(self.messages, before)
 
     def test_library_denial_is_not_reported_as_bad_password(self):
         import urllib.error

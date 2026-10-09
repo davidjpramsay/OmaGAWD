@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import qs.Commons
 import qs.Ui as UI
@@ -31,7 +32,22 @@ UI.BarWidget {
         // Match the other status icons; reuse the macOS llama artwork.
         opticalSize: Style.bar.iconCanvas
         iconComponent: Component {
-            DancingLlama { playing: player.playing; danceEnabled: false }
+            Item {
+                Image {
+                    id: llama
+                    anchors.fill: parent
+                    source: Qt.resolvedUrl("assets/llama.svg")
+                    sourceSize: Qt.size(64, 64)
+                    fillMode: Image.PreserveAspectFit
+                    visible: false
+                }
+                MultiEffect {
+                    anchors.fill: parent
+                    source: llama
+                    colorization: 1
+                    colorizationColor: player.playing ? Color.accent : (root.bar ? root.bar.barForeground : Color.foreground)
+                }
+            }
         }
         onPressed: function(mouseButton) {
             if (mouseButton === Qt.LeftButton)

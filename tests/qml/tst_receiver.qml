@@ -26,26 +26,25 @@ Item {
         function test_header_follows_playback_and_visibility() {
             const llama = findChild(receiver, "receiverLlama")
             verify(llama !== null)
-            compare(llama.tilt, 0)
+            verify(!llama.dancing)
             app.state = Object.assign({}, app.state, {idle: false, paused: false})
+            app.current = {title: "Sample track", artist: "Sample artist", album: "Sample album", key: "sample"}
             wait(100)
             verify(llama.dancing)
-            verify(Math.abs(llama.tilt) > 0.1)
-            verify(llama.bounce < 0)
+            verify(llama.frameIndex > 0)
             const frame = grabImage(receiver)
             compare(frame.width, 460)
             verify(frame.height > 100)
+            frame.save("/tmp/omagawd-receiver-preview.png")
             app.state = Object.assign({}, app.state, {paused: true})
             wait(30)
-            compare(llama.tilt, 0)
-            compare(llama.bounce, 0)
+            verify(!llama.dancing)
             app.state = Object.assign({}, app.state, {paused: false})
             wait(100)
             verify(llama.dancing)
             app.close()
             wait(30)
-            compare(llama.tilt, 0)
-            compare(llama.bounce, 0)
+            verify(!llama.dancing)
         }
     }
 }
