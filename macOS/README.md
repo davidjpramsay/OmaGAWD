@@ -4,13 +4,13 @@ Native Swift menu bar port of OmaGAWD. Requires macOS 14 or later. AppKit render
 
 ## Download
 
-Download the signed and notarized [macOS 0.2.1 beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.2.1-beta.1), including in-app updates, radio discovery and all three llama dances. Open the DMG, drag OmaGAWD to Applications, and launch it. The universal app supports Apple silicon and Intel on macOS 14 or later.
+Download the signed and notarized [macOS 0.2.2 beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.2.2-beta.1), including in-app updates, radio discovery and all four llama dances. Open the DMG, drag OmaGAWD to Applications, and launch it. The universal app supports Apple silicon and Intel on macOS 14 or later.
 
 ## Updates
 
 Choose **Check for Updates…** from the player's gear menu or the **OmaGAWD** application menu. Sparkle checks the macOS release feed, offers available updates, and downloads, verifies, installs and restarts the app when you approve the update. Checks are manual by default; background checks and unattended installation are disabled. The feed and downloads are signed with the app's update key, and published apps are Developer ID signed and notarized. The updater sends no music library, account credentials or system profile.
 
-Version 0.2.0 and earlier need one manual download of 0.2.1 to gain the updater. Install the app in Applications before updating. Queue and playback position survive a restart; playback resumes paused.
+Version 0.2.0 and earlier need one manual download of 0.2.2 to gain the updater. Install the app in Applications before updating. Queue and playback position survive a restart; playback resumes paused.
 
 ## Build and open
 

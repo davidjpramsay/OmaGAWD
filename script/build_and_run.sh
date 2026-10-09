@@ -29,8 +29,8 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>OmaGAWD</string>
 <key>CFBundleIconFile</key><string>OmaGAWD.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.1</string>
-<key>CFBundleVersion</key><string>5</string>
+<key>CFBundleShortVersionString</key><string>0.2.2</string>
+<key>CFBundleVersion</key><string>6</string>
 <key>SUFeedURL</key><string>https://raw.githubusercontent.com/davidjpramsay/OmaGAWD/main/macOS/updates/appcast.xml</string>
 <key>SUPublicEDKey</key><string>EzFhESUgTxUaAol4RkNAGyt4LoUsgD6sGWGx4wO9s4Q=</string>
 <key>SUEnableAutomaticChecks</key><false/>
@@ -42,6 +42,7 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>LSUIElement</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSLocalNetworkUsageDescription</key><string>OmaGAWD connects to the Jellyfin server you choose on your local network to browse and play your music.</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 </dict></plist>
 PLIST
