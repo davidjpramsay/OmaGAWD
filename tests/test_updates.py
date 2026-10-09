@@ -63,6 +63,8 @@ class ReleaseChecks(unittest.TestCase):
                 (installed / '.git').mkdir()
                 run.return_value.stdout = b'git@github.com:davidjpramsay/OmaGAWD.git\n'
                 self.assertTrue(updates.managed_install(installed, home))
+                run.return_value.stdout = b'https://github.com/davidjpramsay/omagawd.git\n'
+                self.assertTrue(updates.managed_install(installed, home))
                 self.assertFalse(updates.managed_install(Path(home) / 'preview', home))
                 run.return_value.stdout = b'https://github.com/someone/fork.git\n'
                 self.assertFalse(updates.managed_install(installed, home))

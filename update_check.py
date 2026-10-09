@@ -12,8 +12,8 @@ RELEASES = 'https://api.github.com/repos/davidjpramsay/OmaGAWD/releases?per_page
 MAX_BYTES = 1024 * 1024
 MAX_NOTES = 16000
 VERSION = re.compile(r'(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})')
-ORIGINS = {'https://github.com/davidjpramsay/OmaGAWD.git', 'https://github.com/davidjpramsay/OmaGAWD',
-           'git@github.com:davidjpramsay/OmaGAWD.git', 'ssh://git@github.com/davidjpramsay/OmaGAWD.git'}
+ORIGINS = {'https://github.com/davidjpramsay/omagawd.git', 'https://github.com/davidjpramsay/omagawd',
+           'git@github.com:davidjpramsay/omagawd.git', 'ssh://git@github.com/davidjpramsay/omagawd.git'}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -36,7 +36,7 @@ def managed_install(directory, home=None):
     try:
         result = subprocess.run(['/usr/bin/git', '-C', str(directory), 'config', '--get', 'remote.origin.url'],
                                 capture_output=True, timeout=3, check=True)
-        return len(result.stdout) < 1024 and result.stdout.decode().strip() in ORIGINS
+        return len(result.stdout) < 1024 and result.stdout.decode().strip().lower() in ORIGINS
     except (OSError, ValueError, subprocess.SubprocessError):
         return False
 
