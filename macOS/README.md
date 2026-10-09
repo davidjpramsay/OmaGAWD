@@ -1,10 +1,16 @@
 # OmaGAWD for macOS
 
-Native Swift menu bar port of OmaGAWD. Requires macOS 14 or later. AppKit renders the interface; AVFoundation plays local files, Jellyfin streams, and live radio; Accelerate computes the real 16-band spectrum. No third-party packages, Python process, mpv, browser runtime, or polling server runs with the app.
+Native Swift menu bar port of OmaGAWD. Requires macOS 14 or later. AppKit renders the interface; AVFoundation plays local files, Jellyfin streams, and live radio; Accelerate computes the real 16-band spectrum. Sparkle handles signed app updates. No Python process, mpv, browser runtime, or polling server runs with the app.
 
 ## Download
 
-Download the signed and notarized [macOS 0.2.0 beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.2.0-beta.1), including radio discovery and all three llama dances. Open the DMG, drag OmaGAWD to Applications, and launch it. The universal app supports Apple silicon and Intel on macOS 14 or later.
+Download the signed and notarized [macOS 0.2.1 beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.2.1-beta.1), including in-app updates, radio discovery and all three llama dances. Open the DMG, drag OmaGAWD to Applications, and launch it. The universal app supports Apple silicon and Intel on macOS 14 or later.
+
+## Updates
+
+Choose **Check for Updates…** from the player's gear menu or the **OmaGAWD** application menu. Sparkle checks the macOS release feed, offers available updates, and downloads, verifies, installs and restarts the app when you approve the update. Checks are manual by default; background checks and unattended installation are disabled. The feed and downloads are signed with the app's update key, and published apps are Developer ID signed and notarized. The updater sends no music library, account credentials or system profile.
+
+Version 0.2.0 and earlier need one manual download of 0.2.1 to gain the updater. Install the app in Applications before updating. Queue and playback position survive a restart; playback resumes paused.
 
 ## Build and open
 
@@ -64,9 +70,11 @@ Local formats: MP3, AAC/M4A, ALAC, FLAC, WAV, AIFF, CAF, and audio MP4, subject 
 
 Radio accepts direct MP3/AAC streams and HLS links supported by AVFoundation. PLS/M3U/XSPF playlist files and sign-in streams are unsupported. Song titles depend on station metadata. The live-radio spectrum uses Apple's mixed-output audio tap on macOS 27 or later; older systems can play radio and animate the llama but may not expose stream PCM for the spectrum. Local and Jellyfin spectrum support is unchanged. See Apple's [mixed-output tap description](https://developer-rno.apple.com/streaming/Whats-new-HLS.pdf).
 
-The development build script ad-hoc signs the app for local use. Published DMGs are Developer ID signed and Apple notarized. App Store sandboxing, automatic updates, and launch-at-login are not configured.
+The development build script ad-hoc signs the app for local use. Published DMGs are Developer ID signed and Apple notarized. App Store sandboxing and launch-at-login are not configured. [Sparkle 2.10.0](https://github.com/sparkle-project/Sparkle) is pinned in SwiftPM; its license is included in the application bundle.
 
 Maintainers can create a universal signed release with `SIGNING_IDENTITY="Developer ID Application: …" NOTARY_PROFILE="your-profile" ./script/release_macos.sh`. Packaging stages the app at `dist/release/OmaGAWD.app` without replacing the running development bundle. This requires a Developer ID certificate/private key and saved notarytool credentials; the script verifies and staples the app and DMG before producing a SHA-256 file. It does not publish automatically. To run the muted playback checks against that exact bundle, use `OMAGAWD_TEST_BUNDLE="$PWD/dist/release/OmaGAWD.app" ./script/test_macos.sh --existing-bundle`.
+
+After packaging, run `./script/generate_macos_appcast.sh macos-vVERSION-beta.N` with the release tag. This generates and signs `macOS/updates/appcast.xml` from the notarized DMG using the `com.davidjpramsay.OmaGAWD.sparkle` signing key in macOS Keychain. The private key must remain available for future releases; never commit or publish it. Upload the DMG to that GitHub release before merging the appcast into main, then verify the published feed and archive signatures. Keep macOS releases marked prerelease so the Omarchy release track remains independent.
 
 ## Verification
 

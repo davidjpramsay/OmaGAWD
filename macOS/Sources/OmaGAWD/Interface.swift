@@ -115,6 +115,7 @@ final class DockedPlayerPanel: NSPanel {
 }
 
 @MainActor final class PlayerWindow: NSWindowController, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+    var updates: AppUpdates?
     let model: PlayerModel
     let titleLabel = label("Your records. One little receiver.", size: 16, color: .systemBlue)
     let detailLabel = label("Jellyfin + local music", color: .secondaryLabelColor)
@@ -483,6 +484,7 @@ final class DockedPlayerPanel: NSPanel {
         let sources = menu.addItem(withTitle: "Sources…", action: #selector(manageSources), keyEquivalent: "")
         sources.target = self
         menu.addItem(.separator())
+        if let updates { menu.addItem(updates.menuItem()); menu.addItem(.separator()) }
         let quit = menu.addItem(withTitle: "Quit OmaGAWD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         menu.popUp(positioning: nil, at: NSPoint(x: sender.bounds.maxX - menu.size.width, y: sender.bounds.minY - 4), in: sender)

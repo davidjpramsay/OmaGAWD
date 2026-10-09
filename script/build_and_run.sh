@@ -13,7 +13,9 @@ swift build "${BUILD_ARGS[@]}"
 BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 BUNDLE="$ROOT_DIR/dist/OmaGAWD.app"
 if [[ "$MODE" == "--package" ]]; then BUNDLE="$ROOT_DIR/dist/release/OmaGAWD.app"; fi
-mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
+mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources" "$BUNDLE/Contents/Frameworks"
+ditto "$ROOT_DIR/macOS/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$BUNDLE/Contents/Frameworks/Sparkle.framework"
+cp "$ROOT_DIR/macOS/.build/artifacts/sparkle/Sparkle/LICENSE" "$BUNDLE/Contents/Resources/Sparkle-LICENSE.txt"
 cp "$BIN_DIR/OmaGAWD" "$BUNDLE/Contents/MacOS/OmaGAWD"
 cp "$ROOT_DIR/macOS/Resources/OmaGAWD.icns" "$ROOT_DIR/macOS/Resources/MenuBarIcon.png" "$ROOT_DIR/macOS/Resources/MenuBarIcon@2x.png" "$BUNDLE/Contents/Resources/"
 cp "$ROOT_DIR/assets/llama.svg" "$BUNDLE/Contents/Resources/MenuBarIcon.svg"
@@ -27,8 +29,15 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>OmaGAWD</string>
 <key>CFBundleIconFile</key><string>OmaGAWD.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.0</string>
-<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleShortVersionString</key><string>0.2.1</string>
+<key>CFBundleVersion</key><string>5</string>
+<key>SUFeedURL</key><string>https://raw.githubusercontent.com/davidjpramsay/OmaGAWD/main/macOS/updates/appcast.xml</string>
+<key>SUPublicEDKey</key><string>EzFhESUgTxUaAol4RkNAGyt4LoUsgD6sGWGx4wO9s4Q=</string>
+<key>SUEnableAutomaticChecks</key><false/>
+<key>SUAllowsAutomaticUpdates</key><false/>
+<key>SUEnableSystemProfiling</key><false/>
+<key>SUVerifyUpdateBeforeExtraction</key><true/>
+<key>SURequireSignedFeed</key><true/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
