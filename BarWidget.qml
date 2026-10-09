@@ -20,7 +20,8 @@ UI.BarWidget {
         id: player
         bar: root.bar
         anchorItem: button
-        hostWidget: root
+        // The player owns its popup. The bar marks only popups owned by the
+        // outer widget, so this keeps the llama free of an open-panel underline.
     }
 
     UI.BarIconButton {

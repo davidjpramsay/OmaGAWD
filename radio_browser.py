@@ -31,7 +31,7 @@ class RadioBrowser:
             if value.strip(): params[key] = value.strip()
         for mirror in self.mirrors:
             try:
-                request = urllib.request.Request(mirror + '/json/stations/search?' + urllib.parse.urlencode(params), headers={'User-Agent': 'OmaGAWD/0.7.1', 'Accept': 'application/json', 'Accept-Encoding': 'identity'})
+                request = urllib.request.Request(mirror + '/json/stations/search?' + urllib.parse.urlencode(params), headers={'User-Agent': 'OmaGAWD/0.7.2', 'Accept': 'application/json', 'Accept-Encoding': 'identity'})
                 with self.opener.open(request, timeout=5) as response:
                     if response.headers.get('Content-Encoding', 'identity').lower() != 'identity': raise ValueError('Encoded radio response')
                     raw = bytearray(); deadline = time.monotonic() + 10
