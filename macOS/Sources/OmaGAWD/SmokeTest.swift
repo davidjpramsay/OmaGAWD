@@ -53,6 +53,18 @@ import OmaCore
             let output = URL(fileURLWithPath: report).deletingLastPathComponent()
             try firstHeadPose?.write(to: output.appendingPathComponent("head-bang-runtime-1.png"))
             try secondHeadPose?.write(to: output.appendingPathComponent("head-bang-runtime-2.png"))
+            await settle(10); controller.show()
+            for _ in 0..<60 {
+                if !model.visible { controller.show() }
+                if controller.dancingLlama.currentDance == .twerk { break }
+                await settle(0.05)
+            }
+            try check(controller.dancingLlama.currentDance == .twerk, "Twerk joins the fourth ten-second dance slot")
+            let firstTwerkPose = llamaSnapshot(); await settle(0.18)
+            let secondTwerkPose = llamaSnapshot()
+            try check(firstTwerkPose != nil && secondTwerkPose != nil && firstTwerkPose != secondTwerkPose, "Twerk renders moving hindquarters")
+            try firstTwerkPose?.write(to: output.appendingPathComponent("twerk-runtime-1.png"))
+            try secondTwerkPose?.write(to: output.appendingPathComponent("twerk-runtime-2.png"))
         }
         model.pause(); await settle(0.2); let paused = model.position; await settle(0.3)
         try check(abs(model.position - paused) < 0.1, "Pause holds position")

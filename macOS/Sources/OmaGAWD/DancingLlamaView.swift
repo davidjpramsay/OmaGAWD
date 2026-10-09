@@ -1,12 +1,12 @@
 import AppKit
 
 enum LlamaDance: Int, CaseIterable {
-    case runningMan, sideShuffle, headBang
+    case runningMan, sideShuffle, headBang, twerk
 
     static let frameCount = 50
     // Six complete phrases per ten-second turn: 20% quicker than the old loop.
     static let phraseDuration: TimeInterval = 5.0 / 3.0
-    var title: String { ["Running man", "Side shuffle", "Head banging"][rawValue] }
+    var title: String { ["Running man", "Side shuffle", "Head banging", "Twerk"][rawValue] }
 
     func frame(at time: TimeInterval) -> Int {
         let position = max(0, time).truncatingRemainder(dividingBy: Self.phraseDuration)
@@ -21,6 +21,7 @@ enum LlamaDance: Int, CaseIterable {
         case .runningMan: return phase + 0.10 * sin(2 * phase) + 0.04 * sin(phase)
         case .sideShuffle: return phase + 0.07 * sin(2 * phase) - 0.04 * sin(phase)
         case .headBang: return phase + 0.08 * sin(2 * phase) + 0.03 * sin(phase)
+        case .twerk: return phase + 0.08 * sin(2 * phase) - 0.03 * sin(phase)
         }
     }
 }
@@ -139,7 +140,7 @@ final class DancingLlamaView: NSView {
                             y: (size.height - 731 * scale) / 2 - 174 * scale - 1)
         context.scaleBy(x: scale, y: scale)
 
-        if let dance {
+        if let dance, dance != .twerk {
             let side = sin(phase)
             let shift: CGPoint
             let rotation: CGFloat
@@ -156,7 +157,7 @@ final class DancingLlamaView: NSView {
                 shift = CGPoint(x: 100 * side, y: 32 * bounce * bounce)
                 rotation = -0.12 * side
                 stretch = CGSize(width: 1, height: 1 - 0.045 * side * side)
-            case .headBang:
+            case .headBang, .twerk:
                 // Keep the torso and hooves anchored; the neck supplies the beat.
                 shift = .zero; rotation = 0; stretch = CGSize(width: 1, height: 1)
             }
@@ -187,17 +188,7 @@ final class DancingLlamaView: NSView {
 
             // Keep the familiar emoji's head, neck, coat and tail. The curved belly
             // mask replaces the original legs so knees can actually bend.
-            let body = CGMutablePath()
-            body.move(to: CGPoint(x: 0, y: 1024))
-            body.addLine(to: CGPoint(x: 1024, y: 1024))
-            body.addLine(to: CGPoint(x: 1024, y: 480))
-            body.addLine(to: CGPoint(x: 782, y: 480))
-            body.addCurve(to: CGPoint(x: 602, y: 408), control1: CGPoint(x: 765, y: 389), control2: CGPoint(x: 690, y: 416))
-            body.addCurve(to: CGPoint(x: 389, y: 414), control1: CGPoint(x: 525, y: 380), control2: CGPoint(x: 449, y: 385))
-            body.addCurve(to: CGPoint(x: 278, y: 520), control1: CGPoint(x: 329, y: 415), control2: CGPoint(x: 297, y: 459))
-            body.addLine(to: CGPoint(x: 0, y: 520))
-            body.closeSubpath()
-            context.addPath(body)
+            context.addPath(bodyMask())
             context.clip()
             if dance == .headBang {
                 context.addRect(CGRect(x: 0, y: 0, width: 1024, height: 1024))
@@ -205,11 +196,63 @@ final class DancingLlamaView: NSView {
                 context.clip(using: .evenOdd)
             }
         }
-        glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024))
+        if dance == .twerk { drawTwerk(context, phase: phase) }
+        else { glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024)) }
         NSGraphicsContext.restoreGraphicsState()
         let image = NSImage(size: size)
         image.addRepresentation(bitmap)
         return image
+    }
+
+    private static func bodyMask() -> CGPath {
+        let body = CGMutablePath()
+        body.move(to: CGPoint(x: 0, y: 1024))
+        body.addLine(to: CGPoint(x: 1024, y: 1024))
+        body.addLine(to: CGPoint(x: 1024, y: 480))
+        body.addLine(to: CGPoint(x: 782, y: 480))
+        body.addCurve(to: CGPoint(x: 602, y: 408), control1: CGPoint(x: 765, y: 389), control2: CGPoint(x: 690, y: 416))
+        body.addCurve(to: CGPoint(x: 389, y: 414), control1: CGPoint(x: 525, y: 380), control2: CGPoint(x: 449, y: 385))
+        body.addCurve(to: CGPoint(x: 278, y: 520), control1: CGPoint(x: 329, y: 415), control2: CGPoint(x: 297, y: 459))
+        body.addLine(to: CGPoint(x: 0, y: 520))
+        body.closeSubpath()
+        return body
+    }
+
+    static func twerkMotion(at phase: Double) -> (transform: CGAffineTransform, bounce: CGFloat) {
+        // Four rounded hip pops per phrase, with an alternating sideways wiggle.
+        let bounce = CGFloat((1 - cos(4 * phase)) / 2)
+        let angle = -0.18 + 0.64 * bounce
+        let transform = CGAffineTransform(translationX: 455, y: 490)
+            .rotated(by: angle)
+            .scaledBy(x: 1 + 0.055 * CGFloat(sin(2 * phase)), y: 1 - 0.08 * bounce)
+            .translatedBy(x: -455, y: -490)
+        return (transform, bounce)
+    }
+
+    private static func drawTwerk(_ context: CGContext, phase: Double) {
+        let motion = twerkMotion(at: phase)
+        let frontFar = CGPoint(x: 470, y: 438), frontNear = CGPoint(x: 424, y: 446)
+        let rearFar = CGPoint(x: 641, y: 438), rearNear = CGPoint(x: 709, y: 447)
+        let step = phase / (2 * .pi)
+        // Hooves stay on the floor. Only the rear hips and knees absorb the pops.
+        for (hip, near, rear) in [(frontFar, false, false), (rearFar, false, true),
+                                   (frontNear, true, false), (rearNear, true, true)] {
+            drawLeg(context, hip: rear ? hip.applying(motion.transform) : hip,
+                    step: step, near: near, dance: .twerk,
+                    plantedFoot: CGPoint(x: hip.x + (near ? 10 : -10), y: 188))
+        }
+        context.saveGState()
+        context.concatenate(motion.transform)
+        context.addPath(bodyMask()); context.clip()
+        context.clip(to: CGRect(x: 425, y: 0, width: 599, height: 1024))
+        glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024))
+        context.restoreGState()
+        // The shoulder overlap hides the hinge, leaving the head and front steady.
+        context.saveGState()
+        context.addPath(bodyMask()); context.clip()
+        context.clip(to: CGRect(x: 0, y: 0, width: 510, height: 1024))
+        glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024))
+        context.restoreGState()
     }
 
     private static func headMask(base: CGFloat) -> CGPath {
@@ -256,7 +299,8 @@ final class DancingLlamaView: NSView {
         return (height * lift - 12 * compression, lift, compression)
     }
 
-    private static func drawLeg(_ context: CGContext, hip: CGPoint, step: Double, near: Bool, dance: LlamaDance) {
+    private static func drawLeg(_ context: CGContext, hip: CGPoint, step: Double, near: Bool, dance: LlamaDance,
+                                plantedFoot: CGPoint? = nil) {
         let progress = step.truncatingRemainder(dividingBy: 1)
         func ease(_ value: Double) -> CGFloat {
             let value = min(1, max(0, value))
@@ -299,9 +343,14 @@ final class DancingLlamaView: NSView {
             footX = near ? 8 : -8
             kneeX = -22 * dip
             kneeY -= 18 * dip
+        case .twerk:
+            let bounce = twerkMotion(at: step * 2 * .pi).bounce
+            let rear = hip.x > 550
+            kneeX = rear ? -65 - 35 * bounce : 25
+            kneeY = (hip.y + footY) / 2 - (rear ? 24 + 18 * bounce : 0)
         }
         let knee = CGPoint(x: hip.x + kneeX, y: kneeY)
-        let foot = CGPoint(x: hip.x + footX, y: footY)
+        let foot = plantedFoot ?? CGPoint(x: hip.x + footX, y: footY)
         context.saveGState()
         context.setLineCap(.round)
         context.setLineJoin(.round)
