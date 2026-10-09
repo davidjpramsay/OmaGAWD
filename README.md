@@ -17,8 +17,7 @@ Your queue, playback position, volume, shuffle, and repeat are remembered. Resta
 ## Omarchy
 
 ```sh
-git clone https://github.com/davidjpramsay/OmaGAWD.git
-cd OmaGAWD && ./scripts/install.sh
+omarchy plugin add https://github.com/davidjpramsay/OmaGAWD.git --enable
 ```
 
 Requires Omarchy/Quickshell, mpv, Python 3 with python-gobject, libsecret (`secret-tool`), ffmpeg (`ffprobe`), and zenity. Use a direct Jellyfin URL; audio redirects are blocked. No pip/npm dependencies.
@@ -47,7 +46,7 @@ Suggested global binding: **Super+Alt+O** (Command+Option+O on Mac keys), if fre
 omarchy-shell shell summon david.omaamp '{}'
 ```
 
-Update with `omarchy plugin update david.omaamp --yes`. Remove with `omarchy plugin remove david.omaamp`. The script-installed launcher/icon live at `~/.local/share/applications/omaamp.desktop` and `~/.local/share/icons/hicolor/scalable/apps/omaamp.svg`; remove those separately. Music, saved sources, playback settings, and keyring sign-in remain.
+The **↑** notice shows available OmaGAWD releases; **? → Updates** checks manually and opens the normal updater after saving playback. Updating pauses music. You can also update with `omarchy plugin update david.omaamp`. Remove with `omarchy plugin remove david.omaamp`. The script-installed launcher/icon live at `~/.local/share/applications/omaamp.desktop` and `~/.local/share/icons/hicolor/scalable/apps/omaamp.svg`; remove those separately. Music, saved sources, playback settings, and keyring sign-in remain.
 
 Spectrum analysis stops while hidden or paused. Server-playlist sync, file drag-and-drop, playlist import/export are not implemented. Radio accepts direct public HTTP(S) stream links; PLS/M3U playlist-file links are unsupported. Safety limits: 8 MiB per API response, 100,000 tracks per local scan or 100,000 tracks / 64 MiB per Jellyfin scan, 2 MiB of metadata per local file, 2 MiB per radio-directory response, and 1,000 saved stations/search results.
 

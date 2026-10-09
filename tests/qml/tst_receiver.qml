@@ -11,6 +11,9 @@ Item {
         property string selectedLibrary: "local"
         property var current: null
         property var levels: []
+        property var updateInfo: ({})
+        property bool updateOpened: false
+        function showUpdates() { updateOpened = true }
         property var state: ({queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0})
         readonly property bool playing: !state.idle && !state.paused
         function time(seconds) { return "00:00" }
@@ -23,6 +26,15 @@ Item {
     TestCase {
         name: "ReceiverPlaybackAnimation"
         when: windowShown
+        function test_update_notice_is_independent_of_playback() {
+            app.updateInfo = {available: true, latest: "0.8.0"}
+            const button = findChild(receiver, "updateAvailableButton")
+            verify(button.visible)
+            button.clicked()
+            verify(app.updateOpened)
+            app.updateInfo = {available: false}
+            verify(!button.visible)
+        }
         function test_radio_render_has_live_clock_and_no_seek_bar() {
             app.opened = true
             app.current = {source: "radio", title: "Omarchy", artist: "Community", album: "Cliamp Radio", key: "station"}

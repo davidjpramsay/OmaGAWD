@@ -29,6 +29,15 @@ Item {
         property bool radioMore: false
         property int radioOffset: 100
         property string radioError: ""
+        property var updateInfo: ({})
+        property bool updateChecking: false
+        property bool updateInstalling: false
+        property bool updateTerminalOpened: false
+        property string updateError: ""
+        function showUpdates() { tab = "updates" }
+        function checkUpdates(force) { send({cmd: "check_update", force: force}) }
+        function installUpdate() { send({cmd: "install_update"}) }
+        function viewUpdateRelease() { send({cmd: "view_release"}) }
         signal radioSaved(string stationId)
         function searchRadio(fields, offset) { send({cmd: "radio_search", fields: fields, offset: offset}); radioBusy = true }
         function cancelRadioSearch() { radioResults = []; radioMore = false; radioBusy = false; radioError = "" }
@@ -53,6 +62,8 @@ Item {
             fakeApp.tab = "library"
             fakeApp.selectedLibrary = "local"
             fakeApp.busy = false
+            fakeApp.updateInfo = {}; fakeApp.updateError = ""
+            fakeApp.updateChecking = false; fakeApp.updateInstalling = false; fakeApp.updateTerminalOpened = false
             library.radioTab = "saved"
             library.radioAdding = false
             fakeApp.cancelRadioSearch()
@@ -64,6 +75,31 @@ Item {
             fakeApp.commands = []
             library.focusSearch()
             wait(30)
+        }
+        function test_update_notice_notes_and_explicit_action() {
+            const initialQueue = JSON.stringify(fakeApp.state.queue)
+            fakeApp.tab = "shortcuts"
+            fakeApp.updateInfo = {current: "0.7.2", latest: "0.8.0", available: true, managed: true, notes: "<b>Sample release</b>\nUpdates now appear in OmaGAWD.\n".repeat(20), url: "https://github.com/davidjpramsay/OmaGAWD/releases/tag/omarchy-v0.8.0"}
+            findChild(library, "openUpdates").clicked()
+            compare(fakeApp.tab, "updates")
+            wait(30)
+            verify(findChild(library, "updateStatus").text.indexOf("0.8.0") >= 0)
+            compare(findChild(library, "updateNotes").textFormat, Text.PlainText)
+            verify(findChild(library, "installUpdate").enabled)
+            grabImage(library).save("/tmp/omagawd-updates.png")
+            findChild(library, "installUpdate").clicked()
+            compare(fakeApp.commands[0].cmd, "install_update")
+            fakeApp.updateTerminalOpened = true
+            verify(!findChild(library, "installUpdate").enabled)
+            fakeApp.updateTerminalOpened = false; fakeApp.updateInfo = Object.assign({}, fakeApp.updateInfo, {managed: false})
+            verify(!findChild(library, "installUpdate").enabled)
+            fakeApp.updateChecking = true
+            verify(!findChild(library, "checkUpdates").enabled)
+            fakeApp.updateChecking = false; fakeApp.updateError = "Offline"
+            findChild(library, "checkUpdates").clicked()
+            compare(fakeApp.commands[1].cmd, "check_update")
+            compare(fakeApp.commands[1].force, true)
+            compare(JSON.stringify(fakeApp.state.queue), initialQueue)
         }
         function test_radio_navigation_search_and_append() {
             fakeApp.selectedLibrary = "radio"

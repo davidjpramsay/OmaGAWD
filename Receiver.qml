@@ -27,6 +27,13 @@ Rectangle {
             }
             AmpText { text: "OMAGAWD"; font.bold: true; font.letterSpacing: 2 }
             Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+            AmpButton {
+                objectName: "updateAvailableButton"
+                visible: !!app.updateInfo && !!app.updateInfo.available
+                text: "↑"; hint: "Update available: " + ((app.updateInfo || {}).latest || "")
+                lit: true; implicitHeight: Style.space(22)
+                onClicked: app.showUpdates()
+            }
             AmpText { text: root.radio || (!app.current && app.selectedLibrary === "radio") ? "RADIO" : app.current && app.current.source === "local" ? "LOCAL" : app.selectedLibrary === "local" && !app.current ? "LOCAL" : "JELLYFIN"; font.pixelSize: Style.font.caption; opacity: 0.55 }
             AmpButton { text: "−"; hint: "Hide player (music keeps playing)"; implicitHeight: Style.space(22); onClicked: app.close() }
         }

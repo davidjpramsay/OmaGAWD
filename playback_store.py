@@ -116,6 +116,17 @@ class PlaybackStore:
             error, self.error = self.error, None
             return error
 
+    def flush(self, data):
+        if not self.save(data):
+            raise OSError('Playback store is closed')
+        with self.lock:
+            pending = self.pending
+        if pending:
+            pending.result()
+        error = self.take_error()
+        if error:
+            raise error
+
     def write(self, data):
         safe = validate(data)
         payload = json.dumps(safe, allow_nan=False, separators=(',', ':')).encode()
