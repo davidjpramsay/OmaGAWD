@@ -172,6 +172,39 @@ Item {
             compare(findChild(library, "radioCountry").text, "")
             verify(findChild(library, "librarySearch").activeFocus)
         }
+        function test_discovery_long_metadata_keeps_station_names_visible() {
+            fakeApp.selectedLibrary = "radio"
+            library.radioTab = "discover"
+            fakeApp.radioResults = [
+                {id: "radio:long", title: "Sample Trap Radio", artist: "hiphop,trap,turnup is real,us-rap,hiphop,trap,latin music,pop,dance,electronic", album: "Radio", source: "radio", country: "The United States of America", duration: 0},
+                {id: "radio:second", title: "Sample Bass Radio", artist: "drum and bass,dubstep,edm,electro,house,progressive,trap", album: "Radio", source: "radio", country: "A deliberately enormous country name that cannot fit", duration: 0},
+                {id: "radio:no-country", title: "Sample Global Radio", artist: "trap,hiphop,turnup,pop,dance", album: "Radio", source: "radio", country: "", duration: 0}
+            ]
+            library.cycleLists(false)
+            wait(30)
+            const label = findChild(library, "rowLabel-radio:long")
+            const detail = findChild(library, "rowDetail-radio:long")
+            verify(label !== null && detail !== null)
+            compare(detail.text, "United States")
+            compare(findChild(library, "rowDetail-radio:no-country").text, "")
+            compare(findChild(library, "selectedRadioGenres"), null)
+            verify(label.width > library.width * 0.5)
+            verify(label.x >= 0)
+            verify(detail.width < library.width * 0.3)
+            grabImage(library).save("/tmp/omagawd-discovery-clean.png")
+            const previousWidth = library.parent.width
+            try {
+                library.parent.width = 360
+                wait(30)
+                verify(label.width > library.width * 0.5)
+                verify(detail.width < library.width * 0.3)
+                verify(label.x + label.width < detail.x)
+            } finally { library.parent.width = previousWidth }
+            const results = fakeApp.radioResults
+            findChild(library, "librarySearch").text = "turnup"
+            fakeApp.radioResults = results
+            compare(library.filtered.length, 2)
+        }
         function test_cascade_and_reverse() {
             library.cycleLists(false)
             compare(library.artist, "A")

@@ -5,6 +5,7 @@ import qs.Commons
 Rectangle {
     id: root
     property string heading: ""
+    property real detailFraction: 0.35
     property bool playlistKeys: false
     property string cursorKey: ""
     signal removeRequested(string key)
@@ -116,11 +117,21 @@ Rectangle {
                 border.color: Color.accent
                 Rectangle { visible: root.playing === modelData.key; width: Style.space(2); height: parent.height; color: Color.accent }
                 AmpText {
+                    objectName: "rowLabel-" + modelData.key
                     anchors.left: parent.left; anchors.right: duration.left; anchors.verticalCenter: parent.verticalCenter
                     anchors.leftMargin: Style.space(10); anchors.rightMargin: Style.space(8)
                     text: modelData.label; color: root.playing === modelData.key ? Color.accent : Color.foreground
                 }
-                AmpText { id: duration; anchors.right: parent.right; anchors.rightMargin: Style.space(10); anchors.verticalCenter: parent.verticalCenter; text: showAdd ? "+" : modelData.detail || ""; color: showAdd ? Color.accent : Color.foreground; font.pixelSize: Style.font.caption; opacity: showAdd ? 1 : 0.5 }
+                AmpText {
+                    id: duration
+                    objectName: "rowDetail-" + modelData.key
+                    anchors.right: parent.right; anchors.rightMargin: Style.space(10); anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(implicitWidth, Math.max(0, parent.width - Style.space(28)) * root.detailFraction)
+                    horizontalAlignment: Text.AlignRight
+                    text: showAdd ? "+" : modelData.detail || ""
+                    color: showAdd ? Color.accent : Color.foreground
+                    font.pixelSize: Style.font.caption; opacity: showAdd ? 1 : 0.5
+                }
                 MouseArea {
                     id: mouse; anchors.fill: parent; hoverEnabled: true
                     onClicked: function(event) {

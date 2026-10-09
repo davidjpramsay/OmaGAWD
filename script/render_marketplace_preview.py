@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import subprocess
 import tempfile
+import argparse
 
 os.environ.update(QT_QPA_PLATFORM='offscreen', QT_QPA_PLATFORMTHEME='generic',
                   QT_QUICK_CONTROLS_STYLE='Basic', QT_QUICK_BACKEND='software')
@@ -38,12 +39,19 @@ def dance_gif():
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--radio', action='store_true')
+    args = parser.parse_args()
+    output = ROOT / 'assets/radio-preview.png' if args.radio else ROOT / 'preview.png'
     with tempfile.TemporaryDirectory(prefix='omagawd-art-') as directory:
         modules = Path(directory) / 'qs'
         for name in ('Commons','Ui'): (modules / name).mkdir(parents=True)
         (modules/'Commons/qmldir').write_text('module qs.Commons\nsingleton Color 1.0 Color.qml\nsingleton Style 1.0 Style.qml\n')
         (modules/'Commons/Color.qml').write_text('pragma Singleton\nimport QtQuick\nQtObject { property color foreground: "#c0caf5"; property color background: "#1a1b26"; property color accent: "#7aa2f7"; property color urgent: "#f7768e" }')
-        (modules/'Commons/Style.qml').write_text('pragma Singleton\nimport QtQuick\nQtObject { property var font: ({family: "monospace", bodySmall: 13, body: 14, caption: 11, title: 16, display: 32}); property int cornerRadius: 0; property color normalFill: "#24283b"; property color selectedFill: "#333a53"; property color hoverFill: "#292e42"; property color pressedFill: "#333a53"; function space(n) { return n } function normalBorderFor(a,b) { return "#545c7e" } }')
+        style = 'pragma Singleton\nimport QtQuick\nQtObject { property var font: ({family: "monospace", bodySmall: 13, body: 14, caption: 11, title: 16, display: 32}); property int cornerRadius: 0; property color normalFill: "#24283b"; property color selectedFill: "#333a53"; property color hoverFill: "#292e42"; property color pressedFill: "#333a53"; function space(n) { return n } function normalBorderFor(a,b) { return "#545c7e" } }'
+        if args.radio:
+            style = style.replace('display: 32', 'display: 24')
+        (modules/'Commons/Style.qml').write_text(style)
         (modules/'Ui/qmldir').write_text('module qs.Ui\nTextField 1.0 TextField.qml\nPanelToolTip 1.0 PanelToolTip.qml\n')
         (modules/'Ui/TextField.qml').write_text('import QtQuick\nimport QtQuick.Controls as C\nimport qs.Commons\nC.TextField { property real verticalPadding: 5; property bool password: false; implicitHeight: 30; font.family: "monospace"; font.pixelSize: 13; color: Color.foreground; placeholderTextColor: "#737aa2"; background: Rectangle { color: Style.normalFill; border.color: "#545c7e" } }')
         (modules/'Ui/PanelToolTip.qml').write_text('import QtQuick.Controls as C\nC.ToolTip {}')
@@ -51,13 +59,13 @@ def main():
         engine = QQmlApplicationEngine()
         engine.warnings.connect(lambda errors: print('\n'.join(error.toString() for error in errors), file=sys.stderr))
         engine.addImportPath(directory)
-        engine.load(QUrl.fromLocalFile(str(ROOT/'script/marketplace_preview.qml')))
+        engine.load(QUrl.fromLocalFile(str(ROOT / 'script' / ('radio_preview.qml' if args.radio else 'marketplace_preview.qml'))))
         if not engine.rootObjects(): raise RuntimeError('Preview failed to load')
         failures = []
         def capture():
             try:
                 image = engine.rootObjects()[0].grabWindow()
-                if image.isNull() or not image.save(str(ROOT/'preview.png')):
+                if image.isNull() or not image.save(str(output)):
                     raise RuntimeError('Could not save preview')
             except Exception as exc:
                 failures.append(exc)
@@ -66,7 +74,7 @@ def main():
         QTimer.singleShot(400, capture)
         application.exec()
         if failures: raise failures[0]
-    dance_gif()
+    if not args.radio: dance_gif()
 
 
 if __name__ == '__main__': main()

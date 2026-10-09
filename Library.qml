@@ -18,6 +18,11 @@ Rectangle {
     readonly property bool radioMode: app.selectedLibrary === "radio"
     property string radioTab: "saved"
     property bool radioAdding: false
+    function radioCountryLabel(value) {
+        if (/^(the )?united states( of america)?$/i.test(value || "")) return "United States"
+        if (/^(the )?united kingdom( of great britain and northern ireland)?$/i.test(value || "")) return "United Kingdom"
+        return value || ""
+    }
     function radioFields() { return {name: search.text, genre: radioGenre.text, country: radioCountry.text, language: radioLanguage.text} }
     function discoverRadio() { app.searchRadio(radioFields(), 0) }
     function radioEdited() { if (radioMode && radioTab === "discover" && app.cancelRadioSearch) app.cancelRadioSearch() }
@@ -450,7 +455,8 @@ Rectangle {
                 visible: root.radioMode && !root.radioAdding
                 Layout.fillWidth: true; Layout.fillHeight: true
                 heading: "STATION"
-                rows: root.filtered.map(s => ({key: s.id, label: s.title, detail: root.radioTab === "discover" && s.country ? s.country + " · " + s.artist : s.artist}))
+                detailFraction: 0.28
+                rows: root.filtered.map(s => ({key: s.id, label: s.title, detail: root.radioCountryLabel(s.country)}))
                 selected: [root.station]
                 playing: app.current && app.current.source === "radio" ? app.current.id : ""
                 addEnabled: true; addHeld: app.optionHeld || false
