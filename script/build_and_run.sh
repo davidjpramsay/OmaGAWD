@@ -11,8 +11,9 @@ BUILD_ARGS=(--package-path "$ROOT_DIR/macOS" -c "$CONFIG")
 if [[ "$MODE" == "--package" ]]; then BUILD_ARGS+=(--arch arm64 --arch x86_64); fi
 swift build "${BUILD_ARGS[@]}"
 BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
-BUNDLE="$ROOT_DIR/dist/OmaGAWD.app"
-if [[ "$MODE" == "--package" ]]; then BUNDLE="$ROOT_DIR/dist/release/OmaGAWD.app"; fi
+# Keep development and packaging copies out of Spotlight's app results.
+BUNDLE="$ROOT_DIR/dist/build.noindex/OmaGAWD.app"
+if [[ "$MODE" == "--package" ]]; then BUNDLE="$ROOT_DIR/dist/release.noindex/OmaGAWD.app"; fi
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources" "$BUNDLE/Contents/Frameworks"
 ditto "$ROOT_DIR/macOS/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$BUNDLE/Contents/Frameworks/Sparkle.framework"
 cp "$ROOT_DIR/macOS/.build/artifacts/sparkle/Sparkle/LICENSE" "$BUNDLE/Contents/Resources/Sparkle-LICENSE.txt"
