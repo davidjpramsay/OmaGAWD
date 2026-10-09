@@ -41,7 +41,7 @@ import Carbon
             // Use the system menu bar tint, including dark mode and selection.
             image.isTemplate = true
             if image.representations.isEmpty { button.title = "🦙" } else { button.image = image }
-            button.toolTip = "OmaGAWD — ⌘⌥O"; button.setAccessibilityLabel("OmaGAWD"); button.target = self; button.action = #selector(toggle)
+            button.toolTip = "OmaGAWD — ⌘⌥O"; button.setAccessibilityLabel("OmaGAWD"); button.target = self; button.action = #selector(toggle(_:))
         }
         var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
@@ -64,8 +64,8 @@ import Carbon
             }
         }
     }
-    @objc func toggle() { if controller.window?.isVisible == true { controller.hide() } else { controller.show(near: status.button) } }
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { controller.show(near: status.button); return true }
+    @objc func toggle(_ sender: NSStatusBarButton? = nil) { if controller.window?.isVisible == true { controller.hide() } else { controller.show(near: sender) } }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { controller.show(); return true }
     func applicationWillTerminate(_ notification: Notification) { if let hotKey { UnregisterEventHotKey(hotKey) }; if let handler { RemoveEventHandler(handler) }; model.shutdown() }
 }
 MainActor.assumeIsolated {

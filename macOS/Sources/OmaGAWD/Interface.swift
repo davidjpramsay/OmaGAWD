@@ -136,8 +136,11 @@ final class DockedPlayerPanel: NSPanel {
     var accountWindow: NSWindow?
     var sourcesWindow: NSWindow?
     var hotKeyWarning: String?
-    private weak var anchorButton: NSStatusBarButton?
+    private var placementScreenNumber: NSNumber?
+    private var positioning = false
     private var screenObserver: NSObjectProtocol?
+    private var spaceObserver: NSObjectProtocol?
+    private let workspaceNotifications = NSWorkspace.shared.notificationCenter
     init(model: PlayerModel) {
         self.model = model
         let panel = DockedPlayerPanel(contentRect: NSRect(x: 0, y: 0, width: 610, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -157,9 +160,19 @@ final class DockedPlayerPanel: NSPanel {
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.positionAtTopRight() }
         }
+        spaceObserver = workspaceNotifications.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if self?.window?.isVisible == true { self?.positionAtTopRight() } }
+        }
         reload()
     }
     required init?(coder: NSCoder) { fatalError() }
+    deinit {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        if let spaceObserver { workspaceNotifications.removeObserver(spaceObserver) }
+        timer?.invalidate()
+    }
     private func build() {
         guard let content = window?.contentView else { return }
         let settings = NSButton(image: NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")!, target: self, action: #selector(showSettings(_:)))
@@ -176,7 +189,14 @@ final class DockedPlayerPanel: NSPanel {
         spectrum.heightAnchor.constraint(equalToConstant: 30).isActive = true
         let left = column([elapsed, stateLabel, spectrum], spacing: 5); left.widthAnchor.constraint(equalToConstant: 122).isActive = true
         let right = column([titleLabel, detailLabel, formatLabel], spacing: 12)
+        // Long album names must truncate instead of setting the panel's minimum
+        // fitting width; AppKit otherwise grows it past its anchored display edge.
+        for text in [titleLabel, detailLabel, formatLabel] {
+            text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
+        right.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let display = row([left, right], spacing: 18)
+        display.distribution = .fill
         display.wantsLayer = true; display.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.22).cgColor
         display.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         // Keep the receiver at its content height; the library absorbs extra height.
@@ -302,6 +322,8 @@ final class DockedPlayerPanel: NSPanel {
         titleLabel.stringValue = model.queue.song?.title ?? "Your records. One little receiver."
         detailLabel.stringValue = model.queue.song.map { "\($0.artist) / \($0.album)" } ?? "Jellyfin + local music"
         formatLabel.stringValue = model.bitRate > 0 ? "\(Int(model.bitRate / 1000)) KBPS  /  ORIGINAL AUDIO" : "NATIVE AUDIO  /  macOS"
+        if titleLabel.toolTip != titleLabel.stringValue { titleLabel.toolTip = titleLabel.stringValue }
+        if detailLabel.toolTip != detailLabel.stringValue { detailLabel.toolTip = detailLabel.stringValue }
         elapsed.stringValue = clockText(model.position); total.stringValue = clockText(model.duration)
         stateLabel.stringValue = model.stopped ? "STOPPED" : model.playing ? (model.queue.song?.file == nil ? "▶ STREAMING" : "▶ PLAYING") : "PAUSED"
         seek.maxValue = max(1, model.duration); seek.doubleValue = model.position; seek.isEnabled = !model.stopped
@@ -369,7 +391,12 @@ final class DockedPlayerPanel: NSPanel {
     }
     func show(near button: NSStatusBarButton? = nil) {
         guard let window else { return }
-        if let button { anchorButton = button }
+        // Capture the user's display before activating our own panel. A retained
+        // status-item window can belong to a different display or full-screen Space.
+        let screens = NSScreen.screens
+        let index = PlayerPanelLayout.screenIndex(at: NSEvent.mouseLocation, frames: screens.map(\.frame))
+        let screen = index.map { screens[$0] } ?? button?.window?.screen ?? NSScreen.main
+        placementScreenNumber = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         positionAtTopRight()
         NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil); model.visible = true
         if outsideClickMonitor == nil {
@@ -382,15 +409,28 @@ final class DockedPlayerPanel: NSPanel {
         updateSpectrumTimer()
     }
     private func positionAtTopRight() {
-        guard let window, let screen = anchorButton?.window?.screen ?? window.screen ?? NSScreen.main else { return }
-        let available = screen.visibleFrame.insetBy(dx: 8, dy: 8)
+        let screen = NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber) == placementScreenNumber }
+            ?? window?.screen ?? NSScreen.main
+        guard let screen else { return }
+        layout(in: screen.visibleFrame)
+    }
+    func layout(in visibleFrame: NSRect) {
+        guard let window, !positioning else { return }
+        positioning = true; defer { positioning = false }
+        let available = PlayerPanelLayout.frame(in: visibleFrame)
         filterTablesHeight.constant = min(300, max(125, available.height * 0.26))
         // Size the receiver to its content instead of stretching rows to 320 points.
         let visibleRows = contentStack.arrangedSubviews.filter { !$0.isHidden }
         let compactHeight = visibleRows.reduce(CGFloat(24)) { $0 + $1.fittingSize.height }
             + CGFloat(max(0, visibleRows.count - 1)) * contentStack.spacing
-        let size = NSSize(width: min(610, available.width), height: compact ? min(compactHeight, available.height) : available.height)
-        window.setFrame(NSRect(x: available.maxX - size.width, y: available.maxY - size.height, width: size.width, height: size.height), display: true)
+        let frame = PlayerPanelLayout.frame(in: visibleFrame, compactHeight: compact ? compactHeight : nil)
+        window.maxSize = frame.size
+        window.setFrame(frame, display: true)
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+    func windowDidChangeScreen(_ notification: Notification) {
+        guard !positioning else { return }
+        positionAtTopRight()
     }
     private func updateSpectrumTimer() {
         dancingLlama.setPlaybackState(playing: model.playing, stopped: model.stopped, visible: model.visible,

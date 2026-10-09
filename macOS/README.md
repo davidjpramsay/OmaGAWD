@@ -14,7 +14,7 @@ From the repository root:
 ./script/build_and_run.sh --release
 ```
 
-The optimized application is `dist/OmaGAWD.app`. Move it to Applications if desired. Click the llama in the menu bar or press **Command–Option–O**. The player opens at the top right of that display, just below the menu bar. It has no title bar or window controls and cannot be dragged or resized. The expanded player fills the usable screen height; artist and album lists scale with the display height. Expanded and compact views share the same top-right anchor. The Codex Run action builds and launches a debug version. Swift 6 / Xcode Command Line Tools are needed to build, not to run the app. Builds target the current Mac's architecture.
+The optimized application is `dist/OmaGAWD.app`. Move it to Applications if desired. Click the llama in the menu bar or press **Command–Option–O**. The player opens at the top right of the display under the pointer, just below the menu bar, including over full-screen apps. It has no title bar or window controls and cannot be dragged or resized. Long track details truncate within the panel; hovering reveals the full text. The expanded player fills the usable screen height; artist and album lists scale with the display height. Expanded and compact views share the same top-right anchor and refit when the display or active Space changes. The Codex Run action builds and launches a debug version. Swift 6 / Xcode Command Line Tools are needed to build, not to run the app. Builds target the current Mac's architecture.
 
 Other modes: `--build` creates the debug bundle without launching; `--verify` launches and checks the process; `--debug` runs under LLDB; `--logs` and `--telemetry` open the application and stream its process logs.
 
