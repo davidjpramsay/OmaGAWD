@@ -9,8 +9,9 @@ Item {
     property var clock: Clock.create()
     property int currentDance: 0
     property int frameIndex: 0
+    property bool clockReady: false
     readonly property bool dancing: playing && !stopped && visible && !reduceMotion
-    readonly property string danceName: currentDance === 0 ? "Running man" : "Side shuffle"
+    readonly property string danceName: ["Running man", "Side shuffle", "Head banging", "Twerk"][currentDance]
     implicitWidth: 40
     implicitHeight: 34
     Accessible.name: dancing ? "OmaGAWD llama — " + danceName : "OmaGAWD llama"
@@ -25,10 +26,11 @@ Item {
         currentDance = next.dance
         frameIndex = next.frame
     }
-    onPlayingChanged: updatePlayback(Date.now() / 1000)
-    onStoppedChanged: updatePlayback(Date.now() / 1000)
-    onDancingChanged: updatePlayback(Date.now() / 1000)
-    Component.onCompleted: updatePlayback(Date.now() / 1000)
+    // Bound playback values can arrive before the component's JS context exists.
+    onPlayingChanged: if (clockReady) updatePlayback(Date.now() / 1000)
+    onStoppedChanged: if (clockReady) updatePlayback(Date.now() / 1000)
+    onDancingChanged: if (clockReady) updatePlayback(Date.now() / 1000)
+    Component.onCompleted: { clockReady = true; updatePlayback(Date.now() / 1000) }
 
     Image {
         anchors.fill: parent
@@ -39,7 +41,7 @@ Item {
     AnimatedSprite {
         anchors.fill: parent
         source: Qt.resolvedUrl("assets/llama-dances.png")
-        frameWidth: 120; frameHeight: 102; frameCount: 100
+        frameWidth: 120; frameHeight: 102; frameCount: 200
         running: false; paused: true; interpolate: false
         currentFrame: root.currentDance * 50 + root.frameIndex
         visible: root.dancing

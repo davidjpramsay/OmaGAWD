@@ -73,9 +73,11 @@ Window {
         Label { text: "TAB + ARROWS   browse\nRETURN         play\nALT + RETURN   add\nCMD / CTRL + F search\nP / L          playlist / library"; font.pixelSize: 13; lineHeight: 1.5; opacity: .8 }
         Label { text: "BADASS LLAMA\nDANCE MOVES."; color: Color.accent; font.pixelSize: 23; font.bold: true; lineHeight: 1.2 }
         Row {
-            spacing: 12
-            DancingLlama { width: 92; height: 78; stopped: false; playing: true; Component.onCompleted: clock = {elapsed: .6, playingSince: null} }
-            DancingLlama { width: 92; height: 78; stopped: false; playing: true; Component.onCompleted: clock = {elapsed: 10.6, playingSince: null} }
+            spacing: 8
+            DancingLlama { width: 72; height: 61; stopped: false; playing: true; Component.onCompleted: clock = {elapsed: .6, playingSince: null} }
+            DancingLlama { width: 72; height: 61; stopped: false; playing: true; Component.onCompleted: clock = {elapsed: 10.6, playingSince: null} }
+            DancingLlama { width: 72; height: 61; stopped: false; playing: true; Component.onCompleted: clock = {elapsed: 20.1, playingSince: null} }
+            DancingLlama { width: 72; height: 61; stopped: false; playing: true; Component.onCompleted: clock = {elapsed: 30.1, playingSince: null} }
         }
     }
     Rectangle {

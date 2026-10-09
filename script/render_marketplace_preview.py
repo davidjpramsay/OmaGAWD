@@ -19,15 +19,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def dance_gif():
     import cairo
-    from generate_llama_frames import SIZE, render, phase, Rsvg
+    from generate_llama_frames import SIZE, COUNT, DANCES, render, phase, Rsvg
     glyph = Rsvg.Handle.new_from_file(str(ROOT / 'assets/llama.svg'))
     with tempfile.TemporaryDirectory(prefix='omagawd-dances-') as directory:
-        for index in range(50):
-            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, SIZE[0]*2, SIZE[1])
+        for index in range(COUNT):
+            surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, SIZE[0]*DANCES, SIZE[1])
             context = cairo.Context(surface)
             context.set_source_rgb(26/255, 27/255, 38/255)
             context.paint()
-            for dance in range(2):
+            for dance in range(DANCES):
                 context.save()
                 context.translate(dance*SIZE[0], 0)
                 render(context, glyph, dance, phase(dance,index))

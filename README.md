@@ -6,9 +6,9 @@ Jellyfin, local music, and radio in a compact player that follows your Omarchy t
 
 <img src="preview.png" alt="OmaGAWD in Tokyo Night: music player, spectrum, library, keyboard shortcuts, and dancing llamas. Fictional sample music." width="920">
 
-**Running man + side shuffle.** The player llama dances while music plays; the bar icon stays still. Prefer less motion? Toggle **Reduce motion** under **?**.
+**Running man + side shuffle + head banging + twerk.** Four Mac-original routines rotate every ten seconds while music plays; the bar icon stays still. Prefer less motion? Toggle **Reduce motion** under **?**.
 
-<img src="assets/llama-dances.gif" alt="OmaGAWD llama demonstrating the running man and side shuffle" width="240">
+<img src="assets/llama-dances.gif" alt="OmaGAWD llama demonstrating running man, side shuffle, head banging and twerk" width="480">
 
 **Radio:** **Saved** starts with 14 Cliamp stations, including Omarchy, Lofi, and Synthwave. **Discover** searches [Radio Browser](https://www.radio-browser.info/) by name, genre, country, or language; select a result and **+ SAVE**. **+ STATION** accepts a name and direct audio stream link. **− FORGET** removes a saved station without touching the queue. Arrows browse, Return tunes in, Alt+Return appends. Live titles, spectrum, and llama dances work throughout; no Cliamp installation or account needed.
 
