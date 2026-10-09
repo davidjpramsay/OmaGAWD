@@ -10,9 +10,12 @@ public struct Song: Codable, Hashable, Sendable {
     public var track: Int
     public var disc: Int
     public var file: URL?
-    public init(id: String, title: String, artist: String = "Unknown artist", album: String = "Unknown album", albumID: String = "", duration: Double = 0, track: Int = 0, disc: Int = 0, file: URL? = nil) {
+    public var radioURL: URL?
+    public var isRadio: Bool { radioURL != nil }
+    public var requiresAccount: Bool { file == nil && radioURL == nil }
+    public init(id: String, title: String, artist: String = "Unknown artist", album: String = "Unknown album", albumID: String = "", duration: Double = 0, track: Int = 0, disc: Int = 0, file: URL? = nil, radioURL: URL? = nil) {
         self.id = id; self.title = title; self.artist = artist; self.album = album
-        self.albumID = albumID; self.duration = duration; self.track = track; self.disc = disc; self.file = file
+        self.albumID = albumID; self.duration = duration; self.track = track; self.disc = disc; self.file = file; self.radioURL = radioURL
     }
 }
 public struct QueueEntry: Identifiable, Codable, Sendable {
@@ -31,6 +34,10 @@ public struct PlayQueue: Sendable {
     public var song: Song? { index.map { entries[$0].song } }
     public mutating func append(_ songs: [Song]) { entries += songs.map(QueueEntry.init) }
     public mutating func replace(_ songs: [Song]) { entries = songs.map(QueueEntry.init); current = entries.first?.id }
+    public mutating func restore(_ saved: [QueueEntry], current: UUID?) {
+        entries = saved
+        self.current = current.flatMap { id in saved.contains { $0.id == id } ? id : nil } ?? saved.first?.id
+    }
     @discardableResult public mutating func remove(_ ids: Set<UUID>) -> Bool {
         let removedCurrent = current.map(ids.contains) ?? false
         let old = index ?? 0
@@ -53,6 +60,11 @@ public struct PlayQueue: Sendable {
     }
 }
 public enum LibraryFilter {
+    public static func validSelection(in songs: [Song], artist: String?, album: String?) -> (artist: String?, album: String?) {
+        if let artist, !songs.contains(where: { $0.artist == artist }) { return (nil, nil) }
+        let validAlbum = album.flatMap { id in songs.contains { $0.albumID == id && (artist == nil || $0.artist == artist) } ? id : nil }
+        return (artist, validAlbum)
+    }
     public static func songs(_ songs: [Song], query: String, artist: String? = nil, album: String? = nil) -> [Song] {
         songs.filter { (query.isEmpty || "\($0.artist) \($0.album) \($0.title)".localizedStandardContains(query)) && (artist == nil || $0.artist == artist) && (album == nil || $0.albumID == album) }
     }

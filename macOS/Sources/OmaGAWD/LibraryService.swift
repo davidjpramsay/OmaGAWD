@@ -7,7 +7,7 @@ enum MusicError: LocalizedError {
     case message(String)
     var errorDescription: String? { if case .message(let s) = self { return s }; return nil }
 }
-struct Account: Codable {
+struct Account: Codable, Sendable {
     let server: URL
     let user: String
     let username: String
@@ -17,13 +17,29 @@ struct Account: Codable {
 }
 enum Keychain {
     static let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.davidjpramsay.OmaGAWD", kSecAttrAccount as String: "jellyfin"]
-    static func load() -> Account? {
+    private static let worker = DispatchQueue(label: "OmaGAWD.keychain", qos: .userInitiated)
+    private static func perform<T>(_ operation: @escaping () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            worker.async { continuation.resume(with: Result(catching: operation)) }
+        }
+    }
+    static func load() async throws -> Account? {
+        try await perform { try loadSynchronously() }
+    }
+    private static func loadSynchronously() throws -> Account? {
         var q = query; q[kSecReturnData as String] = true; q[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }
-        return try? JSONDecoder().decode(Account.self, from: data)
+        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = item as? Data else {
+            throw MusicError.message("Could not read saved sign-in from Keychain (\(status)). Refresh to retry.")
+        }
+        return try JSONDecoder().decode(Account.self, from: data)
     }
-    static func save(_ account: Account) throws {
+    static func save(_ account: Account) async throws {
+        try await perform { try saveSynchronously(account) }
+    }
+    private static func saveSynchronously(_ account: Account) throws {
         let data = try JSONEncoder().encode(account)
         var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
@@ -32,7 +48,10 @@ enum Keychain {
         }
         guard status == errSecSuccess else { throw MusicError.message("Could not save sign-in to Keychain (\(status)).") }
     }
-    static func remove() throws {
+    static func remove() async throws {
+        try await perform { try removeSynchronously() }
+    }
+    private static func removeSynchronously() throws {
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw MusicError.message("Could not remove saved sign-in (\(status)).") }
     }

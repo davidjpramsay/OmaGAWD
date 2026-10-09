@@ -47,13 +47,34 @@ final class SourceStack: NSStackView { override var isFlipped: Bool { true } }
 
 final class SpectrumView: NSView {
     var levels = [Float](repeating: 0, count: 16) { didSet { needsDisplay = true } }
+    private var palette: [(lit: CGColor, dim: CGColor)]?
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        palette = nil; needsDisplay = true
+    }
     override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        if palette == nil {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                palette = [NSColor.systemGreen, .systemYellow, .systemOrange].map {
+                    let color = $0.usingColorSpace(.deviceRGB)!
+                    return (color.withAlphaComponent(0.95).cgColor, color.withAlphaComponent(0.12).cgColor)
+                }
+            }
+        }
         let pitch = bounds.width / 16, height = bounds.height / 12
-        for band in 0..<16 { for bar in 0..<12 {
-            let color: NSColor = bar > 9 ? .systemOrange : bar > 6 ? .systemYellow : .systemGreen
-            color.withAlphaComponent(Float(bar) < levels[band] * 12 ? 0.95 : 0.12).setFill()
-            NSRect(x: CGFloat(band) * pitch, y: CGFloat(bar) * height, width: max(1, pitch - 2), height: max(1, height - 1)).fill()
-        } }
+        // Six cached colours and six batched fills replace 192 dynamic colour
+        // resolutions per frame; the bar geometry and thresholds stay identical.
+        for (index, bars) in [0..<7, 7..<10, 10..<12].enumerated() {
+            var lit: [CGRect] = [], dim: [CGRect] = []
+            for band in 0..<16 { for bar in bars {
+                let rect = CGRect(x: CGFloat(band) * pitch, y: CGFloat(bar) * height,
+                                  width: max(1, pitch - 2), height: max(1, height - 1))
+                if Float(bar) < levels[band] * 12 { lit.append(rect) } else { dim.append(rect) }
+            } }
+            context.setFillColor(palette![index].dim); context.fill(dim)
+            context.setFillColor(palette![index].lit); context.fill(lit)
+        }
     }
 }
 final class MusicTable: NSTableView {
@@ -61,11 +82,21 @@ final class MusicTable: NSTableView {
     var removeSelection: (() -> Void)?
     var moveSelection: ((Int) -> Void)?
     override func keyDown(with event: NSEvent) {
+        if event.charactersIgnoringModifiers?.lowercased() == "a", !event.modifierFlags.intersection([.command, .control]).isEmpty {
+            if allowsMultipleSelection { selectAll(nil) } else if numberOfRows > 0 { selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }; return
+        }
         switch event.keyCode {
         case 36, 76: activate?(event.modifierFlags.contains(.option))
         case 51, 117: if let removeSelection { removeSelection() } else { super.keyDown(with: event) }
         case 126,125: if event.modifierFlags.contains(.option), let moveSelection { moveSelection(event.keyCode == 126 ? -1 : 1) } else { super.keyDown(with: event) }
         case 49: if selectedRow < 0 && numberOfRows > 0 { selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
+        case 115, 119:
+            if numberOfRows > 0 {
+                let row = event.keyCode == 115 ? 0 : numberOfRows - 1
+                if allowsMultipleSelection && event.modifierFlags.contains(.shift), selectedRow >= 0 { selectRowIndexes(IndexSet(integersIn: min(row, selectedRow)...max(row, selectedRow)), byExtendingSelection: false) }
+                else { selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
+                scrollRowToVisible(row)
+            }
         default: super.keyDown(with: event)
         }
     }
@@ -91,6 +122,7 @@ final class DockedPlayerPanel: NSPanel {
     let elapsed = label("0:00", size: 28, color: .systemBlue)
     let stateLabel = label("STOPPED", size: 10, color: .secondaryLabelColor)
     let total = label("0:00", size: 10, color: .secondaryLabelColor)
+    let dancingLlama = DancingLlamaView()
     let spectrum = SpectrumView()
     let seek = NSSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
     let volume = NSSlider(value: 0.7, minValue: 0, maxValue: 1, target: nil, action: nil)
@@ -103,19 +135,23 @@ final class DockedPlayerPanel: NSPanel {
     var artist: String?, album: String?
     var refreshing = false
     var libraryPane: NSView!, queuePane: NSView!, desk: NSView!
+    private(set) var radioPane: RadioPane!
     private var filterTablesHeight: NSLayoutConstraint!
     private var contentStack: NSStackView!
-    private var bottomControls: NSStackView!
     var playlist = false
     var compact = false
     var monitor: Any?
+    private var outsideClickMonitor: Any?
     var timer: Timer?
     var playButton: ActionButton!, shuffleButton: ActionButton!, repeatButton: ActionButton!, playlistButton: ActionButton!, libraryButton: ActionButton!
     var accountWindow: NSWindow?
     var sourcesWindow: NSWindow?
     var hotKeyWarning: String?
-    private weak var anchorButton: NSStatusBarButton?
+    private var placementScreenNumber: NSNumber?
+    private var positioning = false
     private var screenObserver: NSObjectProtocol?
+    private var spaceObserver: NSObjectProtocol?
+    private let workspaceNotifications = NSWorkspace.shared.notificationCenter
     init(model: PlayerModel) {
         self.model = model
         let panel = DockedPlayerPanel(contentRect: NSRect(x: 0, y: 0, width: 610, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -135,17 +171,43 @@ final class DockedPlayerPanel: NSPanel {
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.positionAtTopRight() }
         }
+        spaceObserver = workspaceNotifications.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if self?.window?.isVisible == true { self?.positionAtTopRight() } }
+        }
         reload()
     }
     required init?(coder: NSCoder) { fatalError() }
+    deinit {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        if let spaceObserver { workspaceNotifications.removeObserver(spaceObserver) }
+        timer?.invalidate()
+    }
     private func build() {
         guard let content = window?.contentView else { return }
-        let branding = row([label("🦙  O M A G A W D", size: 13), spacer()])
-        branding.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        let settings = NSButton(image: NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")!, target: self, action: #selector(showSettings(_:)))
+        settings.isBordered = false
+        settings.imageScaling = .scaleProportionallyDown
+        settings.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        settings.contentTintColor = .secondaryLabelColor
+        settings.toolTip = "Settings"
+        settings.setAccessibilityLabel("Settings")
+        settings.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        settings.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        let branding = row([dancingLlama, label("O M A G A W D", size: 13), spacer(), settings], spacing: 10)
+        branding.heightAnchor.constraint(equalToConstant: DancingLlamaView.canvasSize.height).isActive = true
         spectrum.heightAnchor.constraint(equalToConstant: 30).isActive = true
         let left = column([elapsed, stateLabel, spectrum], spacing: 5); left.widthAnchor.constraint(equalToConstant: 122).isActive = true
         let right = column([titleLabel, detailLabel, formatLabel], spacing: 12)
+        // Long album names must truncate instead of setting the panel's minimum
+        // fitting width; AppKit otherwise grows it past its anchored display edge.
+        for text in [titleLabel, detailLabel, formatLabel] {
+            text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
+        right.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let display = row([left, right], spacing: 18)
+        display.distribution = .fill
         display.wantsLayer = true; display.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.22).cgColor
         display.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         // Keep the receiver at its content height; the library absorbs extra height.
@@ -171,7 +233,7 @@ final class DockedPlayerPanel: NSPanel {
         search.placeholderString = "Search your collection  ⌘F"; search.delegate = self; search.setAccessibilityLabel("Search library")
         refreshButton = ActionButton("", help: "Refresh library — check for added or changed music") { [weak model] in
             guard let model, !model.busy else { return }
-            model.selectFolder(model.selectedFolder)
+            model.refreshLibrary()
         }
         refreshButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh library")
         refreshButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
@@ -190,11 +252,10 @@ final class DockedPlayerPanel: NSPanel {
         libraryPane = column([searchRow, filterTables, songScroll, add])
         let queueActions = row([ActionButton("− SELECTED") { [weak self] in self?.removeQueue() }, ActionButton("↑") { [weak self] in self?.moveQueue(-1) }, ActionButton("↓") { [weak self] in self?.moveQueue(1) }, spacer(), ActionButton("CLEAR") { [weak model] in model?.clear() }])
         queuePane = column([queueScroll, queueActions]); queuePane.isHidden = true
-        desk = column([tabs, libraryPane, queuePane]); desk.setContentHuggingPriority(.init(1), for: .vertical)
-        let bottom = row([ActionButton("Sources…") { [weak self] in self?.manageSources() }, spacer(), ActionButton("Shortcuts") { [weak self] in self?.showHelp() }, ActionButton("Quit") { NSApp.terminate(nil) }])
-        bottomControls = bottom
+        radioPane = RadioPane(player: model); radioPane.isHidden = true
+        desk = column([tabs, libraryPane, radioPane, queuePane]); desk.setContentHuggingPriority(.init(1), for: .vertical)
         footer.maximumNumberOfLines = 2; footer.lineBreakMode = .byWordWrapping
-        let root = column([branding, display, row([seek,total]), controls, desk, footer, bottom], spacing: 10)
+        let root = column([branding, display, row([seek,total]), controls, desk, footer], spacing: 10)
         contentStack = root
         root.translatesAutoresizingMaskIntoConstraints = false; content.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14), root.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14), root.topAnchor.constraint(equalTo: content.topAnchor, constant: 12), root.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12)])
@@ -227,7 +288,7 @@ final class DockedPlayerPanel: NSPanel {
         if tableView === artistTable { text = artists[row] }
         else if tableView === albumTable { text = albums[row].name }
         else if tableView === songTable { let s = visibleSongs[row]; text = "\(s.track > 0 ? String(format: "%02d  ", s.track) : "")\(s.title)    \(clockText(s.duration))" }
-        else { let e = model.queue.entries[row]; text = "\(e.id == model.queue.current ? "▶" : String(row + 1))  \(e.song.artist) — \(e.song.title)    \(clockText(e.song.duration))" }
+        else { let e = model.queue.entries[row]; text = "\(e.id == model.queue.current ? "▶" : String(row + 1))  \(e.song.artist) — \(e.song.title)    \(e.song.isRadio ? "LIVE" : clockText(e.song.duration))" }
         cell.textField?.stringValue = text; cell.toolTip = text
         cell.textField?.textColor = tableView === queueTable && model.queue.entries[row].id == model.queue.current ? .systemBlue : .labelColor
         return cell
@@ -241,11 +302,13 @@ final class DockedPlayerPanel: NSPanel {
     private func filter(reloadArtists: Bool = true, reloadAlbums: Bool = true) {
         refreshing = true; defer { refreshing = false }
         let matches = LibraryFilter.songs(model.songs, query: search.stringValue)
-        if reloadArtists { artists = Array(Set(matches.map(\.artist))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }; artistTable.reloadData(); if let artist, let i = artists.firstIndex(of: artist) { artistTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) } }
+        let selection = LibraryFilter.validSelection(in: matches, artist: artist, album: album)
+        artist = selection.artist; album = selection.album
+        if reloadArtists { artists = Array(Set(matches.map(\.artist))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }; artistTable.reloadData(); artistTable.deselectAll(nil); if let artist, let i = artists.firstIndex(of: artist) { artistTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) } }
         let artistSongs = matches.filter { artist == nil || $0.artist == artist }
         if reloadAlbums {
             var seen = Set<String>(); albums = artistSongs.filter { seen.insert($0.albumID).inserted }.map { ($0.albumID, $0.album) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            albumTable.reloadData(); if let album, let i = albums.firstIndex(where: { $0.id == album }) { albumTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) }
+            albumTable.reloadData(); albumTable.deselectAll(nil); if let album, let i = albums.firstIndex(where: { $0.id == album }) { albumTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) }
         }
         visibleSongs = artistSongs.filter { album == nil || $0.albumID == album }; songTable.reloadData()
     }
@@ -254,21 +317,37 @@ final class DockedPlayerPanel: NSPanel {
         filter(); queueTable.reloadData()
         queueTable.selectRowIndexes(IndexSet(model.queue.entries.indices.filter { selected.contains(model.queue.entries[$0].id) }), byExtendingSelection: false)
         source.removeAllItems(); source.addItem(withTitle: "Local Music"); source.lastItem?.representedObject = "local"
+        source.addItem(withTitle: "Radio"); source.lastItem?.representedObject = "radio"
         for folder in model.folders { source.addItem(withTitle: folder.name); source.lastItem?.representedObject = folder.id }
+        if model.selectedFolder != "local", model.selectedFolder != "radio", !model.folders.contains(where: { $0.id == model.selectedFolder }) {
+            source.addItem(withTitle: "Jellyfin library (unavailable)"); source.lastItem?.representedObject = model.selectedFolder
+            source.lastItem?.isEnabled = false
+        }
         source.menu?.addItem(.separator()); source.addItem(withTitle: model.account == nil ? "Connect to Jellyfin…" : "Jellyfin account…"); source.lastItem?.representedObject = "account"
+        if model.accountLoading { source.lastItem?.title = "Loading saved sign-in…"; source.lastItem?.isEnabled = false }
         if let item = source.itemArray.first(where: { ($0.representedObject as? String) == model.selectedFolder }) { source.select(item) }
         footer.stringValue = model.message; footer.textColor = model.error ? .systemOrange : .secondaryLabelColor
+        libraryPane.isHidden = playlist || model.selectedFolder == "radio"
+        radioPane.isHidden = playlist || model.selectedFolder != "radio"; radioPane.reload()
         playlistButton.title = "PLAYLIST \(model.queue.entries.count)"; source.isEnabled = !model.busy
-        refreshButton.isEnabled = !model.busy
+        refreshButton.isEnabled = !model.busy && !model.refreshingFolders
         tick()
     }
     func tick() {
         titleLabel.stringValue = model.queue.song?.title ?? "Your records. One little receiver."
-        detailLabel.stringValue = model.queue.song.map { "\($0.artist) / \($0.album)" } ?? "Jellyfin + local music"
-        formatLabel.stringValue = model.bitRate > 0 ? "\(Int(model.bitRate / 1000)) KBPS  /  ORIGINAL AUDIO" : "NATIVE AUDIO  /  macOS"
-        elapsed.stringValue = clockText(model.position); total.stringValue = clockText(model.duration)
-        stateLabel.stringValue = model.stopped ? "STOPPED" : model.playing ? (model.queue.song?.file == nil ? "▶ STREAMING" : "▶ PLAYING") : "PAUSED"
-        seek.maxValue = max(1, model.duration); seek.doubleValue = model.position; seek.isEnabled = !model.stopped
+        if model.queue.song?.isRadio == true {
+            detailLabel.stringValue = model.radioTitle.isEmpty ? model.queue.song!.artist : model.radioTitle
+            formatLabel.stringValue = model.bitRate > 0 ? "LIVE RADIO  /  \(Int(model.bitRate / 1000)) KBPS" : "LIVE RADIO"
+        } else {
+            detailLabel.stringValue = model.queue.song.map { "\($0.artist) / \($0.album)" } ?? "Jellyfin + local music"
+            formatLabel.stringValue = model.bitRate > 0 ? "\(Int(model.bitRate / 1000)) KBPS  /  ORIGINAL AUDIO" : "NATIVE AUDIO  /  macOS"
+        }
+        if titleLabel.toolTip != titleLabel.stringValue { titleLabel.toolTip = titleLabel.stringValue }
+        if detailLabel.toolTip != detailLabel.stringValue { detailLabel.toolTip = detailLabel.stringValue }
+        elapsed.stringValue = model.queue.song?.isRadio == true ? "LIVE" : clockText(model.position)
+        total.stringValue = model.queue.song?.isRadio == true ? "LIVE" : clockText(model.duration)
+        stateLabel.stringValue = model.stopped ? "STOPPED" : model.playing ? (model.queue.song?.isRadio == true ? "▶ RADIO" : model.queue.song?.file == nil ? "▶ STREAMING" : "▶ PLAYING") : "PAUSED"
+        seek.maxValue = max(1, model.duration); seek.doubleValue = model.position; seek.isEnabled = model.canSeek
         playButton.title = model.playing ? "Ⅱ" : "▶"
         shuffleButton.contentTintColor = model.queue.shuffle ? .systemBlue : nil
         repeatButton.title = model.queue.repeatMode == .one ? "RPT 1" : "RPT"
@@ -281,7 +360,7 @@ final class DockedPlayerPanel: NSPanel {
     @objc private func volumeChanged() { model.volume = volume.floatValue }
     @objc private func sourceChanged() {
         guard let id = source.selectedItem?.representedObject as? String else { return }
-        if id == "account" { showAccount(); reload() } else { artist = nil; album = nil; model.selectFolder(id) }
+        if id == "account" { showAccount(); reload() } else { artist = nil; album = nil; model.selectFolder(id); if id == "radio" { radioPane.focusStations() } }
     }
     @objc private func doubleClick(_ sender: MusicTable) { if sender === queueTable { model.play(sender.clickedRow) } else { activate(sender, append: NSEvent.modifierFlags.contains(.option)) } }
     private func activate(_ table: MusicTable?, append: Bool) {
@@ -298,21 +377,23 @@ final class DockedPlayerPanel: NSPanel {
         model.move(model.queue.entries[i].id, by: delta); queueTable.selectRowIndexes(IndexSet(integer: i + delta), byExtendingSelection: false); queueTable.scrollRowToVisible(i + delta)
     }
     func showPlaylist(_ value: Bool) {
-        if compact { toggleCompact() }; playlist = value; libraryPane.isHidden = value; queuePane.isHidden = !value
-        window?.makeFirstResponder(value ? queueTable : artistTable); tick()
+        if compact { toggleCompact() }; playlist = value; libraryPane.isHidden = value || model.selectedFolder == "radio"; radioPane.isHidden = value || model.selectedFolder != "radio"; queuePane.isHidden = !value
+        if !value && model.selectedFolder == "radio" { radioPane.focusStations() } else { window?.makeFirstResponder(value ? queueTable : artistTable) }; tick()
     }
     func toggleCompact() {
         compact.toggle(); desk.isHidden = compact
-        footer.isHidden = compact; bottomControls.isHidden = compact
+        footer.isHidden = compact
         positionAtTopRight()
     }
     private func handle(_ event: NSEvent) -> Bool {
         if event.keyCode == 53 { hide(); return true }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.charactersIgnoringModifiers?.lowercased() == "f", flags.contains(.command) || flags.contains(.control) {
+            if model.selectedFolder == "radio" { showPlaylist(false); radioPane.clearSearch(); return true }
             showPlaylist(false); search.stringValue = ""; artist = nil; album = nil; filter(); window?.makeFirstResponder(search); return true
         }
         if !playlist && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) {
+            if model.selectedFolder == "radio" { radioPane.cycleFocus(backward: flags.contains(.shift)); return true }
             let tables = [artistTable, albumTable, songTable]; let current = tables.firstIndex { $0 === window?.firstResponder }
             let next = current.map { ($0 + (flags.contains(.shift) ? 2 : 1)) % 3 } ?? (flags.contains(.shift) ? 2 : 0)
             let target = tables[next]
@@ -333,39 +414,82 @@ final class DockedPlayerPanel: NSPanel {
     }
     func show(near button: NSStatusBarButton? = nil) {
         guard let window else { return }
-        if let button { anchorButton = button }
+        // Capture the user's display before activating our own panel. A retained
+        // status-item window can belong to a different display or full-screen Space.
+        let screens = NSScreen.screens
+        let index = PlayerPanelLayout.screenIndex(at: NSEvent.mouseLocation, frames: screens.map(\.frame))
+        let screen = index.map { screens[$0] } ?? button?.window?.screen ?? NSScreen.main
+        placementScreenNumber = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         positionAtTopRight()
         NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil); model.visible = true
+        if outsideClickMonitor == nil {
+            // Global mouse monitors exclude this app, so menus, sheets and source
+            // windows remain interactive and the status button keeps its toggle.
+            outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+                self?.hide()
+            }
+        }
         updateSpectrumTimer()
     }
     private func positionAtTopRight() {
-        guard let window, let screen = anchorButton?.window?.screen ?? window.screen ?? NSScreen.main else { return }
-        let available = screen.visibleFrame.insetBy(dx: 8, dy: 8)
+        let screen = NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber) == placementScreenNumber }
+            ?? window?.screen ?? NSScreen.main
+        guard let screen else { return }
+        layout(in: screen.visibleFrame)
+    }
+    func layout(in visibleFrame: NSRect) {
+        guard let window, !positioning else { return }
+        positioning = true; defer { positioning = false }
+        let available = PlayerPanelLayout.frame(in: visibleFrame)
         filterTablesHeight.constant = min(300, max(125, available.height * 0.26))
         // Size the receiver to its content instead of stretching rows to 320 points.
         let visibleRows = contentStack.arrangedSubviews.filter { !$0.isHidden }
         let compactHeight = visibleRows.reduce(CGFloat(24)) { $0 + $1.fittingSize.height }
             + CGFloat(max(0, visibleRows.count - 1)) * contentStack.spacing
-        let size = NSSize(width: min(610, available.width), height: compact ? min(compactHeight, available.height) : available.height)
-        window.setFrame(NSRect(x: available.maxX - size.width, y: available.maxY - size.height, width: size.width, height: size.height), display: true)
+        let frame = PlayerPanelLayout.frame(in: visibleFrame, compactHeight: compact ? compactHeight : nil)
+        window.maxSize = frame.size
+        window.setFrame(frame, display: true)
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+    func windowDidChangeScreen(_ notification: Notification) {
+        guard !positioning else { return }
+        positionAtTopRight()
     }
     private func updateSpectrumTimer() {
+        dancingLlama.setPlaybackState(playing: model.playing, stopped: model.stopped, visible: model.visible,
+                                     reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         if !model.visible || !model.playing { timer?.invalidate(); timer = nil; return }
         if timer == nil {
-            let t = Timer(timeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+            let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
-                guard let self, self.model.playing else { return }
-                let levels = self.model.spectrum.read(); self.spectrum.levels = zip(self.spectrum.levels, levels).map { max($1, $0 - 0.07) }
+                guard let self, self.model.visible, self.model.playing else { return }
+                let levels = self.model.spectrum.read(); self.spectrum.levels = zip(self.spectrum.levels, levels).map { max($1, $0 - 0.07 * 20 / 30) }
+                self.dancingLlama.setPlaybackState(playing: true, stopped: false, visible: true,
+                                                 reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
                 }
-            }; t.tolerance = 0.015; RunLoop.main.add(t, forMode: .common); timer = t
+            }; t.tolerance = 0.005; RunLoop.main.add(t, forMode: .common); timer = t
         }
     }
-    func hide() { window?.orderOut(nil); model.visible = false; timer?.invalidate(); timer = nil }
+    func hide() {
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor); self.outsideClickMonitor = nil }
+        window?.orderOut(nil); model.visible = false; updateSpectrumTimer()
+    }
     func windowShouldClose(_ sender: NSWindow) -> Bool { hide(); return false }
     func windowDidChangeOcclusionState(_ notification: Notification) { model.visible = window?.occlusionState.contains(.visible) == true; updateSpectrumTimer() }
-    private func showHelp() {
+    @objc private func showSettings(_ sender: NSButton) {
+        let menu = NSMenu(title: "Settings")
+        let shortcuts = menu.addItem(withTitle: "Shortcuts…", action: #selector(showHelp), keyEquivalent: "")
+        shortcuts.target = self
+        let sources = menu.addItem(withTitle: "Sources…", action: #selector(manageSources), keyEquivalent: "")
+        sources.target = self
+        menu.addItem(.separator())
+        let quit = menu.addItem(withTitle: "Quit OmaGAWD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        menu.popUp(positioning: nil, at: NSPoint(x: sender.bounds.maxX - menu.size.width, y: sender.bounds.minY - 4), in: sender)
+    }
+    @objc private func showHelp() {
         let alert = NSAlert(); alert.messageText = "OmaGAWD shortcuts"
-        alert.informativeText = "⌘⌥O — Show / hide from any app\nP / L — Playlist / library\n⌘F or Control-F — Clear filters and search\nTab / Shift-Tab — Artist → Album → Songs\nArrows / Space — Browse / select\nReturn / double-click — Play\nOption-click / Option-Return — Add to queue\nDelete — Remove from queue\nOption-↑ / ↓ — Reorder queue\nEscape — Hide\n\nMedia keys and Control Centre control playback.\(hotKeyWarning.map { "\n\n" + $0 } ?? "")"
+        alert.informativeText = "⌘⌥O — Show / hide from any app\nP / L — Playlist / library\n⌘F or Control-F — Clear filters and search\nTab / Shift-Tab — Cycle lists or radio search fields\nArrows / Space — Browse / select\nHome / End — First / last row\n⌘A — Select all songs or queue entries\nReturn / double-click — Play\nOption-click / Option-Return — Add to queue\nDelete — Remove from queue\nOption-↑ / ↓ — Reorder queue\nEscape — Hide\n\nMedia keys and Control Centre control playback.\(hotKeyWarning.map { "\n\n" + $0 } ?? "")"
         alert.beginSheetModal(for: window!)
     }
     private func choose(folder: Bool) {
@@ -373,7 +497,7 @@ final class DockedPlayerPanel: NSPanel {
         if !folder { panel.allowedContentTypes = [.audio] }
         panel.beginSheetModal(for: sourcesWindow ?? window!) { [weak self] result in if result == .OK { self?.model.addSources(panel.urls); self?.refreshSources() } }
     }
-    func manageSources() {
+    @objc func manageSources() {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 350), styleMask: [.titled,.closable], backing: .buffered, defer: false)
         panel.title = "Music sources"; panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: .darkAqua); sourcesWindow = panel
         refreshSources(); panel.center(); panel.makeKeyAndOrderFront(nil)
@@ -401,7 +525,14 @@ final class DockedPlayerPanel: NSPanel {
         let connect = ActionButton(model.account == nil ? "Connect" : "Sign out") {}
         connect.perform = { [weak self, weak connect, weak panel] in
             guard let self else { return }
-            if self.model.account != nil { self.model.disconnect(); panel?.close(); return }
+            if self.model.account != nil {
+                connect?.isEnabled = false; status.stringValue = "Signing out…"
+                Task {
+                    do { try await self.model.disconnect(); panel?.close() }
+                    catch { status.stringValue = error.localizedDescription; status.textColor = .systemOrange; connect?.isEnabled = true }
+                }
+                return
+            }
             connect?.isEnabled = false; status.stringValue = "Connecting…"
             let secret = password.stringValue; password.stringValue = ""
             Task {

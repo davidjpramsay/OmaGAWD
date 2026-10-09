@@ -7,6 +7,7 @@ import Carbon
     var controller: PlayerWindow!
     var hotKey: EventHotKeyRef?
     var handler: EventHandlerRef?
+    private var smokeDefaultsDomain: String?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         let menu = NSMenu(); let appItem = NSMenuItem(); menu.addItem(appItem)
@@ -17,20 +18,33 @@ import Carbon
         if let url = Bundle.main.url(forResource: "OmaGAWD", withExtension: "icns"), let icon = NSImage(contentsOf: url) {
             NSApp.applicationIconImage = icon
         }
-        model = PlayerModel(); controller = PlayerWindow(model: model)
+        let smoke = CommandLine.arguments.contains("--smoke-test")
+        if smoke { smokeDefaultsDomain = "OmaGAWD.smoke.\(UUID().uuidString)" }
+        model = PlayerModel(defaults: smokeDefaultsDomain.flatMap { UserDefaults(suiteName: $0) } ?? .standard, sessionStore: smoke ? nil : PlayerSessionStore())
+        controller = PlayerWindow(model: model)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = status.button {
-            let image = NSImage(size: NSSize(width: 20, height: 20))
-            for name in ["MenuBarIcon", "MenuBarIcon@2x"] {
-                if let url = Bundle.main.url(forResource: name, withExtension: "png"),
-                   let data = try? Data(contentsOf: url), let representation = NSBitmapImageRep(data: data) {
-                    representation.size = image.size
-                    image.addRepresentation(representation)
+            let iconHeight: CGFloat = 16
+            let image: NSImage
+            if let url = Bundle.main.url(forResource: "MenuBarIcon", withExtension: "svg"),
+               let vector = NSImage(contentsOf: url), vector.size.height > 0 {
+                // Keep the SVG's proportions and let AppKit render at screen scale.
+                vector.size = NSSize(width: iconHeight * vector.size.width / vector.size.height, height: iconHeight)
+                image = vector
+            } else {
+                image = NSImage(size: NSSize(width: iconHeight, height: iconHeight))
+                for name in ["MenuBarIcon", "MenuBarIcon@2x"] {
+                    if let url = Bundle.main.url(forResource: name, withExtension: "png"),
+                       let data = try? Data(contentsOf: url), let representation = NSBitmapImageRep(data: data) {
+                        representation.size = image.size
+                        image.addRepresentation(representation)
+                    }
                 }
             }
-            image.isTemplate = false
+            // Use the system menu bar tint, including dark mode and selection.
+            image.isTemplate = true
             if image.representations.isEmpty { button.title = "🦙" } else { button.image = image }
-            button.toolTip = "OmaGAWD — ⌘⌥O"; button.setAccessibilityLabel("OmaGAWD"); button.target = self; button.action = #selector(toggle)
+            button.toolTip = "OmaGAWD — ⌘⌥O"; button.setAccessibilityLabel("OmaGAWD"); button.target = self; button.action = #selector(toggle(_:))
         }
         var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
@@ -42,7 +56,7 @@ import Carbon
         if result != noErr { controller.hotKeyWarning = "Command–Option–O is already in use. The menu bar button remains available."; model.message = controller.hotKeyWarning!; controller.reload() }
         controller.show(near: status.button)
         if let i = CommandLine.arguments.firstIndex(of: "--smoke-test"), CommandLine.arguments.count > i + 3 {
-            Task { await smokeTest(model: model, fixture: CommandLine.arguments[i + 1], port: CommandLine.arguments[i + 2], report: CommandLine.arguments[i + 3]) }; return
+            Task { await smokeTest(model: model, controller: controller, fixture: CommandLine.arguments[i + 1], port: CommandLine.arguments[i + 2], report: CommandLine.arguments[i + 3], defaultsDomain: smokeDefaultsDomain) }; return
         }
         model.start()
         if let i = CommandLine.arguments.firstIndex(of: "--test-audio"), CommandLine.arguments.indices.contains(i + 1) {
@@ -53,8 +67,8 @@ import Carbon
             }
         }
     }
-    @objc func toggle() { if controller.window?.isVisible == true { controller.hide() } else { controller.show(near: status.button) } }
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { controller.show(near: status.button); return true }
+    @objc func toggle(_ sender: NSStatusBarButton? = nil) { if controller.window?.isVisible == true { controller.hide() } else { controller.show(near: sender) } }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { controller.show(); return true }
     func applicationWillTerminate(_ notification: Notification) { if let hotKey { UnregisterEventHotKey(hotKey) }; if let handler { RemoveEventHandler(handler) }; model.shutdown() }
 }
 MainActor.assumeIsolated {

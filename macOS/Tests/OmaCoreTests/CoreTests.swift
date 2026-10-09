@@ -25,6 +25,22 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(LibraryFilter.songs([a,b], query: "bjork").map(\.id), ["a"])
         XCTAssertTrue(LibraryFilter.songs([a,b], query: "", artist: "Other", album: "first").isEmpty)
     }
+    func testRefreshClearsMissingArtistAndAlbumFilters() {
+        let missingArtist = LibraryFilter.validSelection(in: [b], artist: a.artist, album: a.albumID)
+        XCTAssertNil(missingArtist.artist); XCTAssertNil(missingArtist.album)
+        var replacement = a; replacement.albumID = "replacement"
+        let missingAlbum = LibraryFilter.validSelection(in: [replacement], artist: a.artist, album: a.albumID)
+        XCTAssertEqual(missingAlbum.artist, a.artist); XCTAssertNil(missingAlbum.album)
+        XCTAssertEqual(LibraryFilter.songs([replacement], query: "", artist: missingAlbum.artist, album: missingAlbum.album).count, 1)
+        let unchanged = LibraryFilter.validSelection(in: [a, b], artist: a.artist, album: a.albumID)
+        XCTAssertEqual(unchanged.artist, a.artist); XCTAssertEqual(unchanged.album, a.albumID)
+    }
+    func testRestoredQueueKeepsDuplicateIdentityAndCurrentEntry() {
+        var original = PlayQueue(); original.replace([a, a, b]); original.current = original.entries[1].id
+        var restored = PlayQueue(); restored.restore(original.entries, current: original.current)
+        XCTAssertEqual(restored.entries.map(\.id), original.entries.map(\.id))
+        XCTAssertEqual(restored.current, original.current); XCTAssertEqual(restored.index, 1)
+    }
     func testServerValidation() {
         XCTAssertNotNil(ServerAddress.parse("https://music.example/jellyfin"))
         for s in ["file:///etc/passwd", "https://user:pass@example.com", "https://example.com?token=x", "https://example.com#x", "music.example"] { XCTAssertNil(ServerAddress.parse(s)) }

@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${SIGNING_IDENTITY:?Set SIGNING_IDENTITY to your Developer ID Application identity}"
 : "${NOTARY_PROFILE:?Set NOTARY_PROFILE to a saved notarytool Keychain profile}"
 "$ROOT_DIR/script/build_and_run.sh" --package
-APP="$ROOT_DIR/dist/OmaGAWD.app"
+APP="$ROOT_DIR/dist/release/OmaGAWD.app"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
 OUT="$ROOT_DIR/dist/OmaGAWD-$VERSION-macOS-universal"
 codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$APP"

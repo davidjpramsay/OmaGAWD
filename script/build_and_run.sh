@@ -12,9 +12,11 @@ if [[ "$MODE" == "--package" ]]; then BUILD_ARGS+=(--arch arm64 --arch x86_64); 
 swift build "${BUILD_ARGS[@]}"
 BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 BUNDLE="$ROOT_DIR/dist/OmaGAWD.app"
+if [[ "$MODE" == "--package" ]]; then BUNDLE="$ROOT_DIR/dist/release/OmaGAWD.app"; fi
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 cp "$BIN_DIR/OmaGAWD" "$BUNDLE/Contents/MacOS/OmaGAWD"
 cp "$ROOT_DIR/macOS/Resources/OmaGAWD.icns" "$ROOT_DIR/macOS/Resources/MenuBarIcon.png" "$ROOT_DIR/macOS/Resources/MenuBarIcon@2x.png" "$BUNDLE/Contents/Resources/"
+cp "$ROOT_DIR/assets/llama.svg" "$BUNDLE/Contents/Resources/MenuBarIcon.svg"
 cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -25,8 +27,8 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>OmaGAWD</string>
 <key>CFBundleIconFile</key><string>OmaGAWD.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>3</string>
+<key>CFBundleShortVersionString</key><string>0.2.0</string>
+<key>CFBundleVersion</key><string>4</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
