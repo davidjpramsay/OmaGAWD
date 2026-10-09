@@ -1,12 +1,12 @@
 import AppKit
 
 enum LlamaDance: Int, CaseIterable {
-    case runningMan, sideShuffle
+    case runningMan, sideShuffle, headBang
 
     static let frameCount = 50
     // Six complete phrases per ten-second turn: 20% quicker than the old loop.
     static let phraseDuration: TimeInterval = 5.0 / 3.0
-    var title: String { ["Running man", "Side shuffle"][rawValue] }
+    var title: String { ["Running man", "Side shuffle", "Head banging"][rawValue] }
 
     func frame(at time: TimeInterval) -> Int {
         let position = max(0, time).truncatingRemainder(dividingBy: Self.phraseDuration)
@@ -20,6 +20,7 @@ enum LlamaDance: Int, CaseIterable {
         switch self {
         case .runningMan: return phase + 0.10 * sin(2 * phase) + 0.04 * sin(phase)
         case .sideShuffle: return phase + 0.07 * sin(2 * phase) - 0.04 * sin(phase)
+        case .headBang: return phase + 0.08 * sin(2 * phase) + 0.03 * sin(phase)
         }
     }
 }
@@ -48,7 +49,7 @@ struct LlamaDanceClock {
     }
 }
 
-/// Two cached dance routines, driven by the visible player's existing timer.
+/// Cached dance routines, driven by the visible player's existing timer.
 final class DancingLlamaView: NSView {
     static let canvasSize = NSSize(width: 40, height: 34)
     private(set) var isDancing = false
@@ -155,6 +156,9 @@ final class DancingLlamaView: NSView {
                 shift = CGPoint(x: 100 * side, y: 32 * bounce * bounce)
                 rotation = -0.12 * side
                 stretch = CGSize(width: 1, height: 1 - 0.045 * side * side)
+            case .headBang:
+                // Keep the torso and hooves anchored; the neck supplies the beat.
+                shift = .zero; rotation = 0; stretch = CGSize(width: 1, height: 1)
             }
             context.translateBy(x: 512 + shift.x, y: 420 + shift.y)
             context.rotate(by: rotation)
@@ -168,6 +172,18 @@ final class DancingLlamaView: NSView {
             drawLeg(context, hip: CGPoint(x: 641, y: 438), step: step + farRearOffset, near: false, dance: dance)
             drawLeg(context, hip: CGPoint(x: 424, y: 446), step: step, near: true, dance: dance)
             drawLeg(context, hip: CGPoint(x: 709, y: 447), step: step + nearRearOffset, near: true, dance: dance)
+
+            if dance == .headBang {
+                // Pivot the original head and neck behind the stationary shoulder.
+                // A small overlap hides the join as the neck swings forward.
+                context.saveGState()
+                context.translateBy(x: 365, y: 545)
+                context.rotate(by: headBangMotion(at: phase).angle)
+                context.translateBy(x: -365, y: -545)
+                context.addPath(headMask(base: 505)); context.clip()
+                glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024))
+                context.restoreGState()
+            }
 
             // Keep the familiar emoji's head, neck, coat and tail. The curved belly
             // mask replaces the original legs so knees can actually bend.
@@ -183,12 +199,42 @@ final class DancingLlamaView: NSView {
             body.closeSubpath()
             context.addPath(body)
             context.clip()
+            if dance == .headBang {
+                context.addRect(CGRect(x: 0, y: 0, width: 1024, height: 1024))
+                context.addPath(headMask(base: 548))
+                context.clip(using: .evenOdd)
+            }
         }
         glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024))
         NSGraphicsContext.restoreGraphicsState()
         let image = NSImage(size: size)
         image.addRepresentation(bitmap)
         return image
+    }
+
+    private static func headMask(base: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 1024))
+        path.addLine(to: CGPoint(x: 470, y: 1024))
+        path.addLine(to: CGPoint(x: 470, y: 700))
+        path.addCurve(to: CGPoint(x: 394, y: 600), control1: CGPoint(x: 388, y: 700), control2: CGPoint(x: 390, y: 640))
+        path.addLine(to: CGPoint(x: 394, y: base))
+        path.addLine(to: CGPoint(x: 0, y: base))
+        path.closeSubpath()
+        return path
+    }
+
+    private static func headBangMotion(at phase: Double) -> (angle: CGFloat, dip: CGFloat) {
+        // Four quick downbeats per phrase, followed by a slower neck recovery.
+        let beats = phase / (2 * .pi) * 4
+        let progress = beats - floor(beats)
+        func ease(_ value: Double) -> CGFloat {
+            let value = min(1, max(0, value))
+            return CGFloat(value * value * (3 - 2 * value))
+        }
+        let dip = progress < 0.28 ? ease(progress / 0.28)
+            : progress < 0.86 ? 1 - ease((progress - 0.28) / 0.58) : 0
+        return (-0.16 + 1.0 * dip, dip)
     }
 
     private static func runningManBounce(at phase: Double) -> (height: CGFloat, lift: CGFloat, compression: CGFloat) {
@@ -248,6 +294,11 @@ final class DancingLlamaView: NSView {
             kneeX = 60 * sway - 35 * lift
             kneeY += 45 * lift
             footY += 44 * lift
+        case .headBang:
+            let dip = headBangMotion(at: step * 2 * .pi).dip
+            footX = near ? 8 : -8
+            kneeX = -22 * dip
+            kneeY -= 18 * dip
         }
         let knee = CGPoint(x: hip.x + kneeX, y: kneeY)
         let foot = CGPoint(x: hip.x + footX, y: footY)

@@ -36,6 +36,15 @@ import OmaCore
             controller.show()
             for _ in 0..<60 { if controller.dancingLlama.currentDance == .sideShuffle { break }; await settle(0.05) }
             try check(controller.dancingLlama.currentDance == .sideShuffle, "Llama changes dance after ten seconds of playback")
+            await settle(10); controller.show()
+            for _ in 0..<60 { if controller.dancingLlama.currentDance == .headBang { break }; await settle(0.05) }
+            try check(controller.dancingLlama.currentDance == .headBang, "Head banging joins the third ten-second dance slot")
+            let firstHeadPose = llamaSnapshot(); await settle(0.18)
+            let secondHeadPose = llamaSnapshot()
+            try check(firstHeadPose != nil && secondHeadPose != nil && firstHeadPose != secondHeadPose, "Head banging renders moving neck poses")
+            let output = URL(fileURLWithPath: report).deletingLastPathComponent()
+            try firstHeadPose?.write(to: output.appendingPathComponent("head-bang-runtime-1.png"))
+            try secondHeadPose?.write(to: output.appendingPathComponent("head-bang-runtime-2.png"))
         }
         model.pause(); await settle(0.2); let paused = model.position; await settle(0.3)
         try check(abs(model.position - paused) < 0.1, "Pause holds position")
