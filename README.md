@@ -10,7 +10,7 @@ Jellyfin, local music, and radio in a compact player that follows your Omarchy t
 
 <img src="assets/llama-dances.gif" alt="OmaGAWD llama demonstrating the running man and side shuffle" width="240">
 
-**Radio** in the source menu offers 14 curated [Cliamp stations](https://cliamp.stream), including Omarchy, Lofi, and Synthwave. Search, browse with arrows, and press Return to tune in; Alt+Return adds a station to the queue. Live song titles appear when provided. Spectrum and llama dances work with radio too; no Cliamp installation or account needed.
+**Radio:** **Saved** starts with 14 Cliamp stations, including Omarchy, Lofi, and Synthwave. **Discover** searches [Radio Browser](https://www.radio-browser.info/) by name, genre, country, or language; select a result and **+ SAVE**. **+ STATION** accepts a name and direct audio stream link. **− FORGET** removes a saved station without touching the queue. Arrows browse, Return tunes in, Alt+Return appends. Live titles, spectrum, and llama dances work throughout; no Cliamp installation or account needed.
 
 Your queue, playback position, volume, shuffle, and repeat are remembered. Restart restores paused. **Manage sources…** adds or forgets local files/folders without deleting music. Media keys work with the popup hidden.
 
@@ -49,7 +49,7 @@ omarchy-shell shell summon david.omaamp '{}'
 
 Update with `omarchy plugin update david.omaamp --yes`. Remove with `omarchy plugin remove david.omaamp`. The script-installed launcher/icon live at `~/.local/share/applications/omaamp.desktop` and `~/.local/share/icons/hicolor/scalable/apps/omaamp.svg`; remove those separately. Music, saved sources, playback settings, and keyring sign-in remain.
 
-Spectrum analysis stops while hidden or paused. Server-playlist sync, file drag-and-drop, playlist import/export, and custom radio stations are not implemented. Safety limits: 8 MiB per API response, 100,000 tracks per local scan or 100,000 tracks / 64 MiB per Jellyfin scan, and 2 MiB of metadata per local file.
+Spectrum analysis stops while hidden or paused. Server-playlist sync, file drag-and-drop, playlist import/export are not implemented. Radio accepts direct public HTTP(S) stream links; PLS/M3U playlist-file links are unsupported. Safety limits: 8 MiB per API response, 100,000 tracks per local scan or 100,000 tracks / 64 MiB per Jellyfin scan, 2 MiB of metadata per local file, 2 MiB per radio-directory response, and 1,000 saved stations/search results.
 
 ## macOS
 

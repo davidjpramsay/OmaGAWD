@@ -24,6 +24,14 @@ Item {
         property string error: ""
         property var current: null
         property var commands: []
+        property var radioResults: []
+        property bool radioBusy: false
+        property bool radioMore: false
+        property int radioOffset: 100
+        property string radioError: ""
+        signal radioSaved(string stationId)
+        function searchRadio(fields, offset) { send({cmd: "radio_search", fields: fields, offset: offset}); radioBusy = true }
+        function cancelRadioSearch() { radioResults = []; radioMore = false; radioBusy = false; radioError = "" }
         function time(n) { return String(n) }
         function send(command) { commands = commands.concat([command]) }
         function showLibrary() { tab = "library" }
@@ -44,6 +52,10 @@ Item {
         function init() {
             fakeApp.tab = "library"
             fakeApp.selectedLibrary = "local"
+            fakeApp.busy = false
+            library.radioTab = "saved"
+            library.radioAdding = false
+            fakeApp.cancelRadioSearch()
             fakeApp.songs = [
                 {id: "1", artist: "A", albumId: "a1", album: "First", title: "One", duration: 1},
                 {id: "2", artist: "A", albumId: "a2", album: "Second", title: "Two", duration: 1},
@@ -101,6 +113,64 @@ Item {
             compare(library.station, "radio:omarchy")
             keyClick(Qt.Key_Return)
             compare(fakeApp.commands[1].cmd, "replace_play")
+        }
+        function test_radio_discovery_filters_keyboard_save_and_forget() {
+            fakeApp.selectedLibrary = "radio"
+            fakeApp.songs = [{id: "radio:omarchy", title: "Omarchy", artist: "Community", album: "Radio", source: "radio", duration: 0}]
+            mouseClick(findChild(library, "discoverRadioTab"))
+            compare(library.radioTab, "discover")
+            keyClick(Qt.Key_C)
+            findChild(library, "radioGenre").text = "Rock"
+            findChild(library, "radioCountry").text = "Australia"
+            findChild(library, "radioLanguage").text = "English"
+            mouseClick(findChild(library, "radioSearchButton"))
+            compare(fakeApp.commands[0].cmd, "radio_search")
+            compare(fakeApp.commands[0].fields, {name: "c", genre: "Rock", country: "Australia", language: "English"})
+            fakeApp.radioBusy = false
+            fakeApp.radioResults = [{id: "radio:custom:sample", title: "Sample Radio", artist: "Rock", album: "Radio", source: "radio", duration: 0}]
+            library.cycleLists(false)
+            keyClick(Qt.Key_Return, Qt.AltModifier)
+            compare(fakeApp.commands[1].cmd, "add")
+            compare(fakeApp.commands[1].ids, ["radio:custom:sample"])
+            keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[2].cmd, "replace_play")
+            grabImage(library).save("/tmp/omagawd-discover-library.png")
+            mouseClick(findChild(library, "saveDiscoveredRadio"))
+            compare(fakeApp.commands[3], {cmd: "radio_save", id: "radio:custom:sample"})
+            fakeApp.songs = fakeApp.songs.concat(fakeApp.radioResults)
+            fakeApp.radioSaved("radio:custom:sample")
+            wait(30)
+            compare(library.radioTab, "saved")
+            compare(library.station, "radio:custom:sample")
+            mouseClick(findChild(library, "forgetRadioStation"))
+            compare(fakeApp.commands[4], {cmd: "radio_remove", id: "radio:custom:sample"})
+        }
+        function test_manual_radio_form_and_search_reset() {
+            fakeApp.selectedLibrary = "radio"
+            mouseClick(findChild(library, "addRadioStation"))
+            verify(library.radioAdding)
+            keyClick(Qt.Key_R)
+            library.cycleLists(false)
+            verify(findChild(library, "radioUrl").activeFocus)
+            findChild(library, "radioUrl").text = "https://radio.example/stream"
+            keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[0], {cmd: "radio_save", name: "r", url: "https://radio.example/stream"})
+            fakeApp.error = "Invalid stream link"
+            verify(library.radioAdding)
+            fakeApp.error = ""
+            grabImage(library).save("/tmp/omagawd-manual-radio.png")
+            library.cycleLists(true)
+            verify(findChild(library, "radioName").activeFocus)
+            library.focusSearch()
+            verify(!library.radioAdding)
+            verify(findChild(library, "librarySearch").activeFocus)
+            mouseClick(findChild(library, "discoverRadioTab"))
+            findChild(library, "radioGenre").text = "rock"
+            findChild(library, "radioCountry").text = "Australia"
+            library.focusSearch()
+            compare(findChild(library, "radioGenre").text, "")
+            compare(findChild(library, "radioCountry").text, "")
+            verify(findChild(library, "librarySearch").activeFocus)
         }
         function test_cascade_and_reverse() {
             library.cycleLists(false)

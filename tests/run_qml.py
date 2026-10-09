@@ -25,7 +25,7 @@ commons.mkdir(parents=True, exist_ok=True)
 ui = root / 'qs/Ui'
 ui.mkdir(exist_ok=True)
 (ui / 'qmldir').write_text('module qs.Ui\nTextField 1.0 TextField.qml\nPanelToolTip 1.0 PanelToolTip.qml\n')
-(ui / 'TextField.qml').write_text('import QtQuick.Controls as C\nC.TextField { property real verticalPadding: 5; property bool password: false }')
+(ui / 'TextField.qml').write_text('import QtQuick\nimport QtQuick.Controls as C\nimport qs.Commons\nC.TextField { property real verticalPadding: 5; property bool password: false; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; color: Color.foreground; placeholderTextColor: Qt.darker(Color.foreground, 1.5); background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Color.foreground, Color.accent) } }')
 (ui / 'PanelToolTip.qml').write_text('import QtQuick.Controls as C\nC.ToolTip {}')
 
 runner = shutil.which("qmltestrunner") or "/usr/lib/qt6/bin/qmltestrunner"

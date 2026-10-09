@@ -54,6 +54,23 @@ Item {
     property string savedUsername: ""
     property string serverUrl: ""
     property bool remembered: false
+    property var radioResults: []
+    property bool radioBusy: false
+    property string radioError: ""
+    property bool radioMore: false
+    property int radioOffset: 0
+    property int radioRequest: 0
+    signal radioSaved(string stationId)
+    function searchRadio(fields, offset) {
+        radioRequest++
+        radioBusy = true; radioError = ""
+        if (!offset) { radioResults = []; radioMore = false }
+        send({cmd: "radio_search", fields: fields, offset: offset || 0, request: radioRequest})
+    }
+    function cancelRadioSearch() {
+        radioRequest++; radioBusy = false; radioResults = []; radioMore = false; radioError = ""
+        if (ready) send({cmd: "radio_cancel", request: radioRequest})
+    }
     property string selectedLibrary: "local"
     property bool hasLocalSources: false
     property var localSources: []
@@ -96,6 +113,10 @@ Item {
     }
     function receive(data) {
         if (data.type === "ready") { ready = true; syncVisibility() }
+        else if (data.type === "radio_results" && data.request >= radioRequest) { radioRequest = data.request; radioResults = data.songs; radioMore = data.more; radioOffset = data.offset }
+        else if (data.type === "radio_busy" && data.request >= radioRequest) { radioRequest = data.request; radioBusy = data.value }
+        else if (data.type === "radio_error" && data.request === radioRequest) radioError = data.message
+        else if (data.type === "radio_saved") radioSaved(data.id)
         else if (data.type === "state") state = data
         else if (data.type === "restore_retry") restoreRetry = data.value
         else if (data.type === "remote_libraries") remoteLibraries = data.libraries

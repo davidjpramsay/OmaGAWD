@@ -30,7 +30,7 @@ def validate(data):
         seen.add(row['key'])
         local = row.get('source') == 'local'
         broadcast = row.get('source') == 'radio'
-        if broadcast and radio.station(row['id']) is None: raise ValueError('Invalid saved radio station')
+        if broadcast: radio.clean_station(row)
         if not broadcast and row['id'].startswith('radio:'): raise ValueError('Invalid radio source')
         if local and (not row['id'].startswith('local:') or not isinstance(row.get('path'), str) or not Path(row['path']).is_absolute()):
             raise ValueError('Invalid saved local track')
@@ -47,7 +47,7 @@ def validate(data):
                 raise ValueError('Invalid track number')
         clean['duration'] = duration
         if broadcast:
-            clean = dict(radio.station(row['id']), key=row['key'])
+            clean = dict(radio.clean_station(row), key=row['key'])
         if not local:
             clean.pop('path', None)
             if not broadcast: clean.pop('source', None)
