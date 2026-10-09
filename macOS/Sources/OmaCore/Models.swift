@@ -31,6 +31,10 @@ public struct PlayQueue: Sendable {
     public var song: Song? { index.map { entries[$0].song } }
     public mutating func append(_ songs: [Song]) { entries += songs.map(QueueEntry.init) }
     public mutating func replace(_ songs: [Song]) { entries = songs.map(QueueEntry.init); current = entries.first?.id }
+    public mutating func restore(_ saved: [QueueEntry], current: UUID?) {
+        entries = saved
+        self.current = current.flatMap { id in saved.contains { $0.id == id } ? id : nil } ?? saved.first?.id
+    }
     @discardableResult public mutating func remove(_ ids: Set<UUID>) -> Bool {
         let removedCurrent = current.map(ids.contains) ?? false
         let old = index ?? 0
@@ -53,6 +57,11 @@ public struct PlayQueue: Sendable {
     }
 }
 public enum LibraryFilter {
+    public static func validSelection(in songs: [Song], artist: String?, album: String?) -> (artist: String?, album: String?) {
+        if let artist, !songs.contains(where: { $0.artist == artist }) { return (nil, nil) }
+        let validAlbum = album.flatMap { id in songs.contains { $0.albumID == id && (artist == nil || $0.artist == artist) } ? id : nil }
+        return (artist, validAlbum)
+    }
     public static func songs(_ songs: [Song], query: String, artist: String? = nil, album: String? = nil) -> [Song] {
         songs.filter { (query.isEmpty || "\($0.artist) \($0.album) \($0.title)".localizedStandardContains(query)) && (artist == nil || $0.artist == artist) && (album == nil || $0.albumID == album) }
     }

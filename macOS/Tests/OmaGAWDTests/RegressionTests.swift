@@ -25,7 +25,7 @@ final class RegressionTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let songs = try await LocalLibrary(cacheDirectory: root).scan([Bundle.module.resourceURL!.appendingPathComponent("Fixtures")])
-        let model = PlayerModel()
+        let model = PlayerModel(sessionStore: nil)
         defer { model.shutdown() }
         model.player.volume = 0
         let commands = MPRemoteCommandCenter.shared()

@@ -17,7 +17,8 @@ import Carbon
         if let url = Bundle.main.url(forResource: "OmaGAWD", withExtension: "icns"), let icon = NSImage(contentsOf: url) {
             NSApp.applicationIconImage = icon
         }
-        model = PlayerModel(); controller = PlayerWindow(model: model)
+        model = PlayerModel(sessionStore: CommandLine.arguments.contains("--smoke-test") ? nil : PlayerSessionStore())
+        controller = PlayerWindow(model: model)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = status.button {
             let iconHeight: CGFloat = 16

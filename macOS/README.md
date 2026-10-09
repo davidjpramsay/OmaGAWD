@@ -48,7 +48,8 @@ The header llama alternates between running man and side shuffle every ten secon
 - Tokens stay in headers, never audio URLs. API and audio redirects are refused. TLS certificate validation uses the system defaults. HTTP is accepted for explicitly selected servers, including public hosts, and sends credentials without encryption. Prefer HTTPS.
 - API responses are limited to 8 MiB; remote library scans to 100,000 tracks / 64 MiB. Local scans stop at 100,000 matching files. Metadata decoding uses AVFoundation, rather than the Linux port's ffprobe metadata-byte limit.
 - FFT uses a reusable buffer and runs only while the player panel is visible and audio is playing. The spectrum and cached llama poses share a 30 Hz display timer only in that state. No idle animation timer or network polling.
-- Removing a source never deletes its files. Preferences store source paths, volume, shuffle, and repeat. Queue contents are session-only, matching the original player.
+- Removing a source never deletes its files. Preferences store source paths, volume, shuffle, repeat, and the selected library. Queue order, duplicate entries, current track, and position are saved locally and restored with playback paused after restart. Playback position is checkpointed every five seconds and when pausing, seeking, or quitting. Session files contain track metadata and local paths; sign-in tokens remain in Keychain.
+- Keychain access runs off the UI thread. Refresh retries failed Jellyfin library discovery or saved sign-in access; local music can still refresh while Jellyfin is unavailable.
 
 ## Format and distribution limits
 
@@ -64,7 +65,7 @@ Maintainers can create a universal signed release with `SIGNING_IDENTITY="Develo
 ./script/test_macos.sh
 ```
 
-Runs the Swift queue/filter/URL tests, dance timing tests, and M4A/missing-source/pause-during-loading regressions, builds the app, creates a disposable loopback Jellyfin fixture, and checks real AVFoundation local and remote playback, pause, seek, PCM spectrum, queue edits, dance rotation, hidden-animation shutdown, and redirect rejection. Fixture audio is muted. The fixture needs Python 3 only for tests; the application does not. The script replaces the running development app and writes `dist/smoke-test.txt`. No real account credentials are used or saved.
+Runs the Swift queue/filter/URL tests, dance timing tests, startup recovery and session restoration tests, and M4A/missing-source/pause-during-loading regressions, builds the app, creates a disposable loopback Jellyfin fixture, and checks real AVFoundation local and remote playback, pause, seek, PCM spectrum, queue edits, dance rotation, hidden-animation shutdown, and redirect rejection. Fixture audio is muted. The fixture needs Python 3 only for tests; the application does not. The script replaces the running development app and writes `dist/smoke-test.txt`. No real account credentials or playback sessions are used or saved by the tests.
 
 Manually checked on the development Mac: rendered player and source windows; Command-F clears and filters; Tab cycles all three lists; Option-Return appends; P/L change panes; Option-Down reorders; Delete removes; Escape hides; Command-Option-O shows the player again.
 

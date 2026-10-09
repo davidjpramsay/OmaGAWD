@@ -202,7 +202,7 @@ final class DockedPlayerPanel: NSPanel {
         search.placeholderString = "Search your collection  ⌘F"; search.delegate = self; search.setAccessibilityLabel("Search library")
         refreshButton = ActionButton("", help: "Refresh library — check for added or changed music") { [weak model] in
             guard let model, !model.busy else { return }
-            model.selectFolder(model.selectedFolder)
+            model.refreshLibrary()
         }
         refreshButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh library")
         refreshButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
@@ -270,11 +270,13 @@ final class DockedPlayerPanel: NSPanel {
     private func filter(reloadArtists: Bool = true, reloadAlbums: Bool = true) {
         refreshing = true; defer { refreshing = false }
         let matches = LibraryFilter.songs(model.songs, query: search.stringValue)
-        if reloadArtists { artists = Array(Set(matches.map(\.artist))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }; artistTable.reloadData(); if let artist, let i = artists.firstIndex(of: artist) { artistTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) } }
+        let selection = LibraryFilter.validSelection(in: matches, artist: artist, album: album)
+        artist = selection.artist; album = selection.album
+        if reloadArtists { artists = Array(Set(matches.map(\.artist))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }; artistTable.reloadData(); artistTable.deselectAll(nil); if let artist, let i = artists.firstIndex(of: artist) { artistTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) } }
         let artistSongs = matches.filter { artist == nil || $0.artist == artist }
         if reloadAlbums {
             var seen = Set<String>(); albums = artistSongs.filter { seen.insert($0.albumID).inserted }.map { ($0.albumID, $0.album) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            albumTable.reloadData(); if let album, let i = albums.firstIndex(where: { $0.id == album }) { albumTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) }
+            albumTable.reloadData(); albumTable.deselectAll(nil); if let album, let i = albums.firstIndex(where: { $0.id == album }) { albumTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) }
         }
         visibleSongs = artistSongs.filter { album == nil || $0.albumID == album }; songTable.reloadData()
     }
@@ -284,11 +286,16 @@ final class DockedPlayerPanel: NSPanel {
         queueTable.selectRowIndexes(IndexSet(model.queue.entries.indices.filter { selected.contains(model.queue.entries[$0].id) }), byExtendingSelection: false)
         source.removeAllItems(); source.addItem(withTitle: "Local Music"); source.lastItem?.representedObject = "local"
         for folder in model.folders { source.addItem(withTitle: folder.name); source.lastItem?.representedObject = folder.id }
+        if model.selectedFolder != "local", !model.folders.contains(where: { $0.id == model.selectedFolder }) {
+            source.addItem(withTitle: "Jellyfin library (unavailable)"); source.lastItem?.representedObject = model.selectedFolder
+            source.lastItem?.isEnabled = false
+        }
         source.menu?.addItem(.separator()); source.addItem(withTitle: model.account == nil ? "Connect to Jellyfin…" : "Jellyfin account…"); source.lastItem?.representedObject = "account"
+        if model.accountLoading { source.lastItem?.title = "Loading saved sign-in…"; source.lastItem?.isEnabled = false }
         if let item = source.itemArray.first(where: { ($0.representedObject as? String) == model.selectedFolder }) { source.select(item) }
         footer.stringValue = model.message; footer.textColor = model.error ? .systemOrange : .secondaryLabelColor
         playlistButton.title = "PLAYLIST \(model.queue.entries.count)"; source.isEnabled = !model.busy
-        refreshButton.isEnabled = !model.busy
+        refreshButton.isEnabled = !model.busy && !model.refreshingFolders
         tick()
     }
     func tick() {
@@ -455,7 +462,14 @@ final class DockedPlayerPanel: NSPanel {
         let connect = ActionButton(model.account == nil ? "Connect" : "Sign out") {}
         connect.perform = { [weak self, weak connect, weak panel] in
             guard let self else { return }
-            if self.model.account != nil { self.model.disconnect(); panel?.close(); return }
+            if self.model.account != nil {
+                connect?.isEnabled = false; status.stringValue = "Signing out…"
+                Task {
+                    do { try await self.model.disconnect(); panel?.close() }
+                    catch { status.stringValue = error.localizedDescription; status.textColor = .systemOrange; connect?.isEnabled = true }
+                }
+                return
+            }
             connect?.isEnabled = false; status.stringValue = "Connecting…"
             let secret = password.stringValue; password.stringValue = ""
             Task {
