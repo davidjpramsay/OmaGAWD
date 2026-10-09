@@ -7,21 +7,25 @@ import Carbon
     var controller: PlayerWindow!
     var hotKey: EventHotKeyRef?
     var handler: EventHandlerRef?
+    var updates: AppUpdates!
     private var smokeDefaultsDomain: String?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        let smoke = CommandLine.arguments.contains("--smoke-test")
+        updates = AppUpdates(startingUpdater: !smoke)
         let menu = NSMenu(); let appItem = NSMenuItem(); menu.addItem(appItem)
-        let appMenu = NSMenu(); appMenu.addItem(withTitle: "Quit OmaGAWD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); appItem.submenu = appMenu
+        let appMenu = NSMenu(); appMenu.addItem(updates.menuItem()); appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit OmaGAWD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); appItem.submenu = appMenu
         let editItem = NSMenuItem(); menu.addItem(editItem); let edit = NSMenu(title: "Edit"); editItem.submenu = edit
         for (name, action, key) in [("Cut", #selector(NSText.cut(_:)), "x"), ("Copy", #selector(NSText.copy(_:)), "c"), ("Paste", #selector(NSText.paste(_:)), "v"), ("Select All", #selector(NSText.selectAll(_:)), "a")] { edit.addItem(withTitle: name, action: action, keyEquivalent: key) }
         NSApp.mainMenu = menu
         if let url = Bundle.main.url(forResource: "OmaGAWD", withExtension: "icns"), let icon = NSImage(contentsOf: url) {
             NSApp.applicationIconImage = icon
         }
-        let smoke = CommandLine.arguments.contains("--smoke-test")
         if smoke { smokeDefaultsDomain = "OmaGAWD.smoke.\(UUID().uuidString)" }
         model = PlayerModel(defaults: smokeDefaultsDomain.flatMap { UserDefaults(suiteName: $0) } ?? .standard, sessionStore: smoke ? nil : PlayerSessionStore())
         controller = PlayerWindow(model: model)
+        controller.updates = updates
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = status.button {
             let iconHeight: CGFloat = 16

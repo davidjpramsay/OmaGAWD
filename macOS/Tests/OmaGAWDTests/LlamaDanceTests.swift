@@ -1,5 +1,7 @@
 import XCTest
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 @testable import OmaGAWD
 
 final class LlamaDanceTests: XCTestCase {
@@ -11,10 +13,13 @@ final class LlamaDanceTests: XCTestCase {
         XCTAssertEqual(clock.sample(at: 119.999).dance, .sideShuffle)
         XCTAssertEqual(clock.sample(at: 120).dance, .headBang)
         XCTAssertEqual(clock.sample(at: 129.999).dance, .headBang)
-        XCTAssertEqual(clock.sample(at: 130).dance, .runningMan)
-        XCTAssertEqual(clock.sample(at: 140).dance, .sideShuffle)
-        XCTAssertEqual(clock.sample(at: 150).dance, .headBang)
-        XCTAssertEqual(clock.sample(at: 160).dance, .runningMan)
+        XCTAssertEqual(clock.sample(at: 130).dance, .twerk)
+        XCTAssertEqual(clock.sample(at: 139.999).dance, .twerk)
+        XCTAssertEqual(clock.sample(at: 140).dance, .runningMan)
+        XCTAssertEqual(clock.sample(at: 150).dance, .sideShuffle)
+        XCTAssertEqual(clock.sample(at: 160).dance, .headBang)
+        XCTAssertEqual(clock.sample(at: 170).dance, .twerk)
+        XCTAssertEqual(clock.sample(at: 180).dance, .runningMan)
     }
 
     func testPauseFreezesThePhraseAndResumeKeepsRemainingTime() {
@@ -65,14 +70,68 @@ final class LlamaDanceTests: XCTestCase {
         XCTAssertFalse(view.isDancing)
         view.setPlaybackState(playing: true, stopped: false, visible: true, reduceMotion: false, at: 30)
         XCTAssertTrue(view.isDancing)
-        XCTAssertEqual(view.currentDance, .runningMan)
+        XCTAssertEqual(view.currentDance, .twerk)
         view.setPlaybackState(playing: false, stopped: false, visible: true, reduceMotion: false, at: 31)
         XCTAssertFalse(view.isDancing)
         view.setPlaybackState(playing: true, stopped: false, visible: true, reduceMotion: false, at: 100)
-        XCTAssertEqual(view.currentDance, .runningMan)
+        XCTAssertEqual(view.currentDance, .twerk)
         view.setPlaybackState(playing: false, stopped: true, visible: true, reduceMotion: false, at: 101)
         XCTAssertEqual(view.currentDance, .runningMan)
         XCTAssertFalse(view.isDancing)
+    }
+
+    func testTwerkHingesAtTheShoulderAndLoopsWithoutAJolt() {
+        let shoulder = CGPoint(x: 455, y: 490), hip = CGPoint(x: 709, y: 447)
+        let transforms = (0...50).map { DancingLlamaView.twerkMotion(at: Double($0) / 50 * 2 * .pi).transform }
+        for transform in transforms {
+            let anchor = shoulder.applying(transform)
+            XCTAssertEqual(anchor.x, shoulder.x, accuracy: 0.000001)
+            XCTAssertEqual(anchor.y, shoulder.y, accuracy: 0.000001)
+        }
+        let hipHeights = transforms.map { hip.applying($0).y }
+        XCTAssertGreaterThan(hipHeights.max()! - hipHeights.min()!, 120)
+        XCTAssertEqual(hipHeights.first!, hipHeights.last!, accuracy: 0.000001)
+    }
+
+    @MainActor func testTwerkRendersDistinctPosesAndAStationaryHead() throws {
+        _ = NSApplication.shared
+        let view = DancingLlamaView(); view.frame = NSRect(origin: .zero, size: DancingLlamaView.canvasSize)
+        view.setPlaybackState(playing: true, stopped: false, visible: true, reduceMotion: false, at: 0)
+        var frames: [NSBitmapImageRep] = []
+        for frame in 0..<LlamaDance.frameCount {
+            view.advance(at: 30 + Double(frame) / Double(LlamaDance.frameCount) * LlamaDance.phraseDuration)
+            XCTAssertEqual(view.currentDance, .twerk)
+            XCTAssertEqual(view.toolTip, "OmaGAWD llama — Twerk")
+            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 120, pixelsHigh: 102,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            bitmap.size = view.bounds.size
+            NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+            view.draw(view.bounds); NSGraphicsContext.restoreGraphicsState()
+            frames.append(bitmap)
+        }
+        XCTAssertNotEqual(frames[0].representation(using: .png, properties: [:]), frames[6].representation(using: .png, properties: [:]))
+        // The upper-left head pixels must stay fixed while the hindquarters pop.
+        for bitmap in frames.dropFirst() {
+            for y in 0..<35 { for x in 20..<45 {
+                XCTAssertEqual(bitmap.colorAt(x: x, y: y), frames[0].colorAt(x: x, y: y))
+            } }
+        }
+        if let path = ProcessInfo.processInfo.environment["OMAGAWD_TWERK_PREVIEW_DIR"] {
+            let directory = URL(fileURLWithPath: path, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appendingPathComponent("llama-twerk.gif")
+            let gif = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, frames.count, nil))
+            CGImageDestinationSetProperties(gif, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+            for (index, bitmap) in frames.enumerated() {
+                CGImageDestinationAddImage(gif, try XCTUnwrap(bitmap.cgImage),
+                    [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: index % 3 == 2 ? 0.04 : 0.03]] as CFDictionary)
+            }
+            XCTAssertTrue(CGImageDestinationFinalize(gif))
+            for index in [0, 3, 6, 9] {
+                try frames[index].representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("twerk-\(index).png"))
+            }
+        }
     }
 
     @MainActor func testHeadBangRendersDistinctPosesAtIconSize() throws {

@@ -6,7 +6,7 @@ os.makedirs(folder, exist_ok=True)
 path = os.path.join(folder, 'OmaGAWD test tone.wav')
 with wave.open(path, 'wb') as f:
     f.setparams((1, 2, 44100, 0, 'NONE', 'not compressed'))
-    f.writeframes(b''.join(struct.pack('<h', int(1200 * math.sin(i * 440 * 2 * math.pi / 44100))) for i in range(44100 * 30)))
+    f.writeframes(b''.join(struct.pack('<h', int(1200 * math.sin(i * 440 * 2 * math.pi / 44100))) for i in range(44100 * 45)))
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args): print(fmt % args, flush=True)
     def do_POST(self):
@@ -45,7 +45,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path.startswith('/jellyfin/UserViews'):
             self.send_json({'Items':[{'Id':'music','Name':'Music','CollectionType':'music'}]})
         elif self.path.startswith('/jellyfin/Items'):
-            self.send_json({'Items':[{'Id':'tone','Name':'Streaming test tone','AlbumArtist':'OmaGAWD','Album':'Verification','AlbumId':'verification','RunTimeTicks':300000000,'IndexNumber':1}], 'TotalRecordCount':1})
+            self.send_json({'Items':[{'Id':'tone','Name':'Streaming test tone','AlbumArtist':'OmaGAWD','Album':'Verification','AlbumId':'verification','RunTimeTicks':450000000,'IndexNumber':1}], 'TotalRecordCount':1})
         elif self.path.startswith('/jellyfin/Audio/tone/stream'):
             size = os.path.getsize(path); start, end = 0, size-1
             if self.headers.get('Range'):

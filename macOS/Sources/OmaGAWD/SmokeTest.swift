@@ -34,10 +34,18 @@ import OmaCore
             // The user can work in other apps while this disposable panel runs.
             // Reveal it again so normal outside-click hiding cannot stall a UI check.
             controller.show()
-            for _ in 0..<60 { if controller.dancingLlama.currentDance == .sideShuffle { break }; await settle(0.05) }
+            for _ in 0..<60 {
+                if !model.visible { controller.show() }
+                if controller.dancingLlama.currentDance == .sideShuffle { break }
+                await settle(0.05)
+            }
             try check(controller.dancingLlama.currentDance == .sideShuffle, "Llama changes dance after ten seconds of playback")
             await settle(10); controller.show()
-            for _ in 0..<60 { if controller.dancingLlama.currentDance == .headBang { break }; await settle(0.05) }
+            for _ in 0..<60 {
+                if !model.visible { controller.show() }
+                if controller.dancingLlama.currentDance == .headBang { break }
+                await settle(0.05)
+            }
             try check(controller.dancingLlama.currentDance == .headBang, "Head banging joins the third ten-second dance slot")
             let firstHeadPose = llamaSnapshot(); await settle(0.18)
             let secondHeadPose = llamaSnapshot()
@@ -45,6 +53,18 @@ import OmaCore
             let output = URL(fileURLWithPath: report).deletingLastPathComponent()
             try firstHeadPose?.write(to: output.appendingPathComponent("head-bang-runtime-1.png"))
             try secondHeadPose?.write(to: output.appendingPathComponent("head-bang-runtime-2.png"))
+            await settle(10); controller.show()
+            for _ in 0..<60 {
+                if !model.visible { controller.show() }
+                if controller.dancingLlama.currentDance == .twerk { break }
+                await settle(0.05)
+            }
+            try check(controller.dancingLlama.currentDance == .twerk, "Twerk joins the fourth ten-second dance slot")
+            let firstTwerkPose = llamaSnapshot(); await settle(0.18)
+            let secondTwerkPose = llamaSnapshot()
+            try check(firstTwerkPose != nil && secondTwerkPose != nil && firstTwerkPose != secondTwerkPose, "Twerk renders moving hindquarters")
+            try firstTwerkPose?.write(to: output.appendingPathComponent("twerk-runtime-1.png"))
+            try secondTwerkPose?.write(to: output.appendingPathComponent("twerk-runtime-2.png"))
         }
         model.pause(); await settle(0.2); let paused = model.position; await settle(0.3)
         try check(abs(model.position - paused) < 0.1, "Pause holds position")
@@ -67,6 +87,14 @@ import OmaCore
         let remote = try await api.songs(folder: folders[0].id); try check(remote.count == 1, "Jellyfin library parsing")
         model.account = account; model.songs = remote; model.replace(remote); await settle(3)
         try check(model.playing && model.position > 0 && !model.error, "Authenticated remote byte-range playback")
+        // Outside clicks and occlusion intentionally stop spectrum work. Reveal
+        // the fixture before checking PCM and allow the next audio buffer to arrive.
+        controller.show()
+        for _ in 0..<40 {
+            if !model.visible { controller.show() }
+            if model.spectrum.read().max() ?? 0 > 0 { break }
+            await settle(0.05)
+        }
         try check(model.spectrum.read().max() ?? 0 > 0, "Streaming FFT spectrum receives PCM")
         model.seek(15); await settle(0.8); try check(model.position >= 15 && model.position < 18, "Remote byte-range seek")
         controller.hide(); await settle(0.2); try check(model.spectrum.read().allSatisfy { $0 == 0 }, "Hidden spectrum sleeps")
@@ -84,6 +112,7 @@ import OmaCore
         model.player.isMuted = true; model.player.volume = 1
         controller.show(); model.replace([station.song])
         for _ in 0..<100 {
+            if !model.visible { controller.show() }
             if model.playing && !model.radioTitle.isEmpty && model.spectrum.processedFrames > 0 { break }
             await settle(0.1)
         }
