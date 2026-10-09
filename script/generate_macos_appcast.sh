@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAG="${1:?Usage: generate_macos_appcast.sh macos-vVERSION-beta.N}"
-APP="$ROOT_DIR/dist/release/OmaGAWD.app"
+APP="$ROOT_DIR/dist/release.noindex/OmaGAWD.app"
 PLIST="$APP/Contents/Info.plist"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$PLIST")
 [[ "$TAG" == "macos-v$VERSION-beta."* && "${TAG##*-beta.}" =~ ^[0-9]+$ ]] || { echo "Tag does not match packaged macOS version $VERSION"; exit 2; }

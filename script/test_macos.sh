@@ -10,7 +10,7 @@ trap 'kill "$FIXTURE_PID" 2>/dev/null || true; wait "$FIXTURE_PID" 2>/dev/null |
 for _ in {1..50}; do [[ -f "$FIXTURE_DIR/port" ]] && break; sleep 0.1; done
 PORT="$(cat "$FIXTURE_DIR/port")"
 REPORT="$ROOT_DIR/dist/smoke-test.txt"
-BUNDLE="${OMAGAWD_TEST_BUNDLE:-$ROOT_DIR/dist/OmaGAWD.app}"
+BUNDLE="${OMAGAWD_TEST_BUNDLE:-$ROOT_DIR/dist/build.noindex/OmaGAWD.app}"
 rm -f "$REPORT"
 pkill -x OmaGAWD >/dev/null 2>&1 || true
 open -n "$BUNDLE" --args --smoke-test "$FIXTURE_DIR/OmaGAWD test tone.wav" "$PORT" "$REPORT"
