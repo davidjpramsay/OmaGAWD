@@ -675,6 +675,18 @@ class Player:
     def handle(self, c):
         with self.lock:
             cmd = c.get('cmd')
+            if cmd == 'prepare_update':
+                self.paused = True
+                if self.mpv and not self.idle:
+                    self.mpv.send('set_property', 'pause', True)
+                self.state()
+                try:
+                    if self.playback_store:
+                        self.playback_store.flush(self.session_snapshot())
+                    self.emit({'type': 'update_ready', 'request': c.get('request', 0)})
+                except (OSError, ValueError, TypeError, RecursionError):
+                    self.emit({'type': 'update_error', 'request': c.get('request', 0), 'message': 'Could not save your playlist and position. Update cancelled; check free space or permissions.'})
+                return
             if cmd == 'radio_search':
                 self.radio_generation += 1
                 if self.radio_future: self.radio_future.cancel()

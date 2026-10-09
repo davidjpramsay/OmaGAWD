@@ -223,6 +223,7 @@ Rectangle {
                     }
                 }
                 AmpText { text: "Suggested global binding: Super+Alt+O (Command+Option+O on Mac keys). Configure it in Omarchy."; Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.7 }
+                AmpButton { objectName: "openUpdates"; text: (app.updateInfo || {}).available ? "Update available" : "Updates…"; lit: !!(app.updateInfo || {}).available; onClicked: app.showUpdates() }
                 Controls.CheckBox {
                     objectName: "reduceMotionToggle"
                     text: "Reduce motion"
@@ -241,6 +242,45 @@ Rectangle {
                 }
                 AmpButton { text: "Back"; onClicked: app.tab = root.helpReturnTab }
             }
+        }
+        ColumnLayout {
+            visible: app.tab === "updates"
+            Layout.fillWidth: true; Layout.fillHeight: true; spacing: Style.space(10)
+            AmpText { text: "OMAGAWD UPDATES"; font.bold: true; Layout.fillWidth: true }
+            AmpText {
+                objectName: "updateStatus"
+                text: app.updateChecking ? "Checking for updates…" : (app.updateInfo || {}).available ? "Update available · " + app.updateInfo.latest : app.updateError ? "Update check unavailable" : (app.updateInfo || {}).current ? "You’re up to date · " + app.updateInfo.current : "Check for the latest Omarchy release"
+                color: (app.updateInfo || {}).available ? Color.accent : Color.foreground
+                Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone
+            }
+            AmpText {
+                text: app.updateError || ""
+                visible: !!app.updateError; color: Color.urgent
+                Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone
+            }
+            Controls.ScrollView {
+                Layout.fillWidth: true; Layout.fillHeight: true
+                contentWidth: availableWidth; clip: true
+                AmpText {
+                    objectName: "updateNotes"
+                    width: parent.width
+                    text: (app.updateInfo || {}).notes || "Published Omarchy release notes appear here. Checks run when you open the player, at most once every six hours."
+                    wrapMode: Text.WordWrap; elide: Text.ElideNone
+                }
+            }
+            AmpText {
+                text: app.updateTerminalOpened ? "Finish or cancel the update in the terminal. Choose Check to refresh this page afterwards." : (app.updateInfo || {}).managed ? "Updating pauses music and saves your playlist and position. Omarchy opens a terminal to show the changes and ask for confirmation." : "Updating here needs a Git-managed OmaGAWD installation. See the README for installation instructions."
+                visible: !!(app.updateInfo || {}).current
+                Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                AmpButton { objectName: "checkUpdates"; text: "Check"; enabled: !app.updateChecking && !app.updateInstalling; onClicked: app.checkUpdates(true) }
+                AmpButton { objectName: "viewUpdateRelease"; text: "Release notes ↗"; visible: !!(app.updateInfo || {}).url; onClicked: app.viewUpdateRelease() }
+                Item { Layout.fillWidth: true }
+                AmpButton { objectName: "installUpdate"; text: app.updateInstalling ? "Preparing…" : app.updateTerminalOpened ? "Updater opened" : "Update"; lit: true; enabled: !!(app.updateInfo || {}).available && !!(app.updateInfo || {}).managed && app.ready && !app.updateInstalling && !app.updateChecking && !app.updateTerminalOpened; onClicked: app.installUpdate() }
+            }
+            AmpButton { text: "Back to library"; onClicked: app.showLibrary() }
         }
         ColumnLayout {
             visible: app.tab === "sources"

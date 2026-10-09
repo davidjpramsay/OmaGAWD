@@ -16,6 +16,7 @@ Item {
     onOpenedChanged: {
         if (!opened) { optionHeld = false; levels = Array(16).fill(0) }
         syncVisibility()
+        if (opened) checkUpdates(false)
     }
     function syncVisibility() {
         if (ready) bridge.write(JSON.stringify({cmd: "visibility", visible: opened}) + "\n")
@@ -50,6 +51,83 @@ Item {
         onTriggered: root.refreshLibrary()
     }
     property string error: ""
+    property var updateInfo: ({})
+    property bool updateChecking: false
+    property bool updateInstalling: false
+    property bool updateTerminalOpened: false
+    property string updateError: ""
+    property double lastUpdateCheck: 0
+    property int updateRequest: 0
+    readonly property string updateScript: decodeURIComponent(Qt.resolvedUrl("update_check.py").toString().replace(/^file:\/\//, ""))
+    function checkUpdates(force) {
+        if (updateChecking || updateInstalling || (!force && Date.now() - lastUpdateCheck < 21600000)) return
+        if (force) updateTerminalOpened = false
+        lastUpdateCheck = Date.now(); updateChecking = true; updateError = ""
+        updateChecker.running = true
+    }
+    function showUpdates() { playlistOpen = true; tab = "updates"; checkUpdates(false) }
+    function installUpdate() {
+        if (!ready || updateInstalling || updateTerminalOpened || !updateInfo.available || !updateInfo.managed) return
+        updateError = ""; updateInstalling = true
+        updateRequest++
+        updatePrepareTimeout.restart()
+        bridge.write(JSON.stringify({cmd: "prepare_update", request: updateRequest}) + "\n")
+    }
+    function viewUpdateRelease() {
+        // Accept only the fixed public release path; remote notes are never executable.
+        if (/^https:\/\/github\.com\/davidjpramsay\/OmaGAWD\/releases\/tag\/omarchy-v[0-9]+\.[0-9]+\.[0-9]+$/.test(updateInfo.url || ""))
+            Qt.openUrlExternally(updateInfo.url)
+    }
+    Timer {
+        interval: 21600000; repeat: true
+        running: root.opened
+        onTriggered: root.checkUpdates(false)
+    }
+    Timer {
+        id: updatePrepareTimeout
+        interval: 10000
+        onTriggered: { root.updateInstalling = false; root.updateError = "Could not prepare the player for updating. Try again." }
+    }
+    Process {
+        id: updateChecker
+        command: ["/usr/bin/python3", root.updateScript, "--check"]
+        property bool received: false
+        onStarted: received = false
+        stdout: SplitParser {
+            onRead: function(line) {
+                try {
+                    const result = JSON.parse(line)
+                    updateChecker.received = true
+                    if (result.error) root.updateError = result.error
+                    else root.updateInfo = result
+                } catch (e) { root.updateError = "Could not read the update check. Try again later." }
+            }
+        }
+        onExited: {
+            root.updateChecking = false
+            if (!received) root.updateError = "Could not check for updates. Try again later."
+        }
+    }
+    Process {
+        id: updateLauncher
+        command: ["/usr/bin/python3", root.updateScript, "--launch"]
+        property bool received: false
+        onStarted: received = false
+        stdout: SplitParser {
+            onRead: function(line) {
+                try {
+                    const result = JSON.parse(line)
+                    updateLauncher.received = true
+                    if (result.error) root.updateError = result.error
+                    else if (result.launched) root.updateTerminalOpened = true
+                } catch (e) { root.updateError = "Could not open the updater. Try again." }
+            }
+        }
+        onExited: {
+            root.updateInstalling = false
+            if (!received) root.updateError = "Could not open the updater. Run omarchy plugin update david.omaamp."
+        }
+    }
     property string username: ""
     property string savedUsername: ""
     property string serverUrl: ""
@@ -113,6 +191,12 @@ Item {
     }
     function receive(data) {
         if (data.type === "ready") { ready = true; syncVisibility() }
+        else if (data.type === "update_ready" && data.request === updateRequest && updateInstalling && updatePrepareTimeout.running) {
+            updatePrepareTimeout.stop(); close(); updateLauncher.running = true
+        }
+        else if (data.type === "update_error" && data.request === updateRequest) {
+            updatePrepareTimeout.stop(); updateInstalling = false; updateError = data.message
+        }
         else if (data.type === "radio_results" && data.request >= radioRequest) { radioRequest = data.request; radioResults = data.songs; radioMore = data.more; radioOffset = data.offset }
         else if (data.type === "radio_busy" && data.request >= radioRequest) { radioRequest = data.request; radioBusy = data.value }
         else if (data.type === "radio_error" && data.request === radioRequest) radioError = data.message
@@ -160,6 +244,7 @@ Item {
             }
         }
         onExited: {
+            updatePrepareTimeout.stop(); root.updateInstalling = false
             root.ready = false; root.busy = false; root.restoreRetry = false
             root.connected = false; root.remembered = false; root.remoteLibraries = []; root.songs = []
             root.lastLibraryCheck = 0
