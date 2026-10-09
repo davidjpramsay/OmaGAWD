@@ -10,9 +10,12 @@ public struct Song: Codable, Hashable, Sendable {
     public var track: Int
     public var disc: Int
     public var file: URL?
-    public init(id: String, title: String, artist: String = "Unknown artist", album: String = "Unknown album", albumID: String = "", duration: Double = 0, track: Int = 0, disc: Int = 0, file: URL? = nil) {
+    public var radioURL: URL?
+    public var isRadio: Bool { radioURL != nil }
+    public var requiresAccount: Bool { file == nil && radioURL == nil }
+    public init(id: String, title: String, artist: String = "Unknown artist", album: String = "Unknown album", albumID: String = "", duration: Double = 0, track: Int = 0, disc: Int = 0, file: URL? = nil, radioURL: URL? = nil) {
         self.id = id; self.title = title; self.artist = artist; self.album = album
-        self.albumID = albumID; self.duration = duration; self.track = track; self.disc = disc; self.file = file
+        self.albumID = albumID; self.duration = duration; self.track = track; self.disc = disc; self.file = file; self.radioURL = radioURL
     }
 }
 public struct QueueEntry: Identifiable, Codable, Sendable {

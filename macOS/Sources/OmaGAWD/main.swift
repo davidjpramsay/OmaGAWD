@@ -7,6 +7,7 @@ import Carbon
     var controller: PlayerWindow!
     var hotKey: EventHotKeyRef?
     var handler: EventHandlerRef?
+    private var smokeDefaultsDomain: String?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         let menu = NSMenu(); let appItem = NSMenuItem(); menu.addItem(appItem)
@@ -17,7 +18,9 @@ import Carbon
         if let url = Bundle.main.url(forResource: "OmaGAWD", withExtension: "icns"), let icon = NSImage(contentsOf: url) {
             NSApp.applicationIconImage = icon
         }
-        model = PlayerModel(sessionStore: CommandLine.arguments.contains("--smoke-test") ? nil : PlayerSessionStore())
+        let smoke = CommandLine.arguments.contains("--smoke-test")
+        if smoke { smokeDefaultsDomain = "OmaGAWD.smoke.\(UUID().uuidString)" }
+        model = PlayerModel(defaults: smokeDefaultsDomain.flatMap { UserDefaults(suiteName: $0) } ?? .standard, sessionStore: smoke ? nil : PlayerSessionStore())
         controller = PlayerWindow(model: model)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = status.button {
@@ -53,7 +56,7 @@ import Carbon
         if result != noErr { controller.hotKeyWarning = "Command–Option–O is already in use. The menu bar button remains available."; model.message = controller.hotKeyWarning!; controller.reload() }
         controller.show(near: status.button)
         if let i = CommandLine.arguments.firstIndex(of: "--smoke-test"), CommandLine.arguments.count > i + 3 {
-            Task { await smokeTest(model: model, controller: controller, fixture: CommandLine.arguments[i + 1], port: CommandLine.arguments[i + 2], report: CommandLine.arguments[i + 3]) }; return
+            Task { await smokeTest(model: model, controller: controller, fixture: CommandLine.arguments[i + 1], port: CommandLine.arguments[i + 2], report: CommandLine.arguments[i + 3], defaultsDomain: smokeDefaultsDomain) }; return
         }
         model.start()
         if let i = CommandLine.arguments.firstIndex(of: "--test-audio"), CommandLine.arguments.indices.contains(i + 1) {

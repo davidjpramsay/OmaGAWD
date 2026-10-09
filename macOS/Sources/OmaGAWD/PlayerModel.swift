@@ -20,8 +20,12 @@ import OmaCore
     let player = AVPlayer()
     let spectrum = Spectrum()
     let local = LocalLibrary()
-    var position: Double { if let pendingPosition { return pendingPosition }; let t = player.currentTime().seconds; return t.isFinite ? t : 0 }
-    var duration: Double { let t = player.currentItem?.duration.seconds ?? 0; return t.isFinite && t > 0 ? t : queue.song?.duration ?? 0 }
+    let radio: RadioLibrary
+    private(set) var radioTitle = ""
+    private var radioMetadata: RadioMetadataSink?
+    var position: Double { if queue.song?.isRadio == true { return 0 }; if let pendingPosition { return pendingPosition }; let t = player.currentTime().seconds; return t.isFinite ? t : 0 }
+    var duration: Double { if queue.song?.isRadio == true { return 0 }; let t = player.currentItem?.duration.seconds ?? 0; return t.isFinite && t > 0 ? t : queue.song?.duration ?? 0 }
+    var canSeek: Bool { !stopped && queue.song?.isRadio != true }
     var playing: Bool { player.rate != 0 }
     var bitRate: Float = 0
     var stopped = true
@@ -58,11 +62,12 @@ import OmaCore
     private var periodic: Any?
     private var generation = 0
     private var remoteTargets: [(MPRemoteCommand, Any)] = []
-    init(defaults: UserDefaults = .standard, sessionStore: PlayerSessionStore? = PlayerSessionStore(),
+    init(defaults: UserDefaults = .standard, sessionStore: PlayerSessionStore? = PlayerSessionStore(), radio: RadioLibrary? = nil,
          loadAccount: @escaping () async throws -> Account? = { try await Keychain.load() },
          loadFolders: @escaping (Account) async throws -> [MusicFolder] = { try await Jellyfin($0).folders() },
          loadSongs: @escaping (Account, String) async throws -> [Song] = { try await Jellyfin($0).songs(folder: $1) }) {
         self.defaults = defaults; self.sessionStore = sessionStore
+        self.radio = radio ?? RadioLibrary(store: sessionStore == nil ? RadioStationStore(url: nil) : RadioStationStore())
         self.loadAccount = loadAccount; self.loadFolders = loadFolders; self.loadSongs = loadSongs
         sources = (defaults.stringArray(forKey: "sources") ?? []).map { URL(fileURLWithPath: $0) }
         selectedFolder = defaults.string(forKey: "selectedFolder") ?? "local"
@@ -82,6 +87,10 @@ import OmaCore
             }
         }
         configureRemoteCommands()
+        self.radio.onChange = { [weak self] in
+            guard let self, self.selectedFolder == "radio" else { return }
+            self.songs = self.radio.saved.map(\.song); self.message = self.radio.message; self.error = self.radio.error; self.onChange?()
+        }
     }
     private func configureRemoteCommands() {
         let commands = MPRemoteCommandCenter.shared()
@@ -111,10 +120,12 @@ import OmaCore
     }
 
     func start() {
+        radio.start()
         startupTask?.cancel()
         accountLoading = true; let revision = accountGeneration; let edits = queueRevision; let selection = selectionRevision
         if sources.isEmpty && queue.entries.isEmpty { message = "Loading saved sign-in…" }
         if selectedFolder == "local", !sources.isEmpty { loadLocal() }
+        if selectedFolder == "radio" { songs = radio.saved.map(\.song); message = radio.message; error = radio.error }
         onChange?()
         startupTask = Task {
             if !sessionLoaded {
@@ -124,8 +135,12 @@ import OmaCore
                     queue.restore(saved.entries, current: saved.current); queueLibrary = saved.library
                     pendingPosition = saved.position.isFinite ? max(0, saved.position) : 0
                     stopped = saved.stopped
-                    if selectionRevision == selection { selectedFolder = saved.selectedFolder; preferRemoteOnDiscovery = false }
+                    if selectionRevision == selection {
+                        if selectedFolder != saved.selectedFolder { selectFolder(saved.selectedFolder) }
+                        preferRemoteOnDiscovery = false
+                    }
                 }
+                if selectedFolder == "radio" { songs = self.radio.saved.map(\.song); message = self.radio.message; error = self.radio.error }
                 sessionLoaded = true; restorePlaybackIfPossible(); onChange?()
             }
             do {
@@ -133,8 +148,8 @@ import OmaCore
                 guard !Task.isCancelled, accountGeneration == revision else { return }
                 account = restored; accountLoading = false; retrySignIn = false
                 restorePlaybackIfPossible(); saveSession(); onChange?()
-                if restored != nil { discoverLibraries(reloadSongs: selectedFolder != "local" || preferRemoteOnDiscovery) }
-                else if selectedFolder != "local" {
+                if restored != nil { discoverLibraries(reloadSongs: (selectedFolder != "local" && selectedFolder != "radio") || preferRemoteOnDiscovery) }
+                else if selectedFolder != "local" && selectedFolder != "radio" {
                     report(MusicError.message("Saved Jellyfin sign-in is unavailable. Connect to Jellyfin to restore this library."))
                 }
                 else if queue.entries.isEmpty && songs.isEmpty && !busy { message = "Add a music folder or connect to Jellyfin."; onChange?() }
@@ -145,6 +160,7 @@ import OmaCore
         }
     }
     func refreshLibrary() {
+        if selectedFolder == "radio" { if radio.mode == .discover { radio.search() } else { message = radio.message; error = radio.error; onChange?() }; return }
         if accountLoading { if selectedFolder == "local" { loadLocal() }; return }
         if account != nil {
             if selectedFolder == "local" && !preferRemoteOnDiscovery { loadLocal() }
@@ -164,7 +180,7 @@ import OmaCore
                 guard accountGeneration == revision, self.account?.token == account.token else { return }
                 folders = restored; refreshingFolders = false
                 var next = selectedFolder
-                if selectedFolder != "local", !folders.contains(where: { $0.id == selectedFolder }) { next = folders.first?.id ?? "local" }
+                if selectedFolder != "local", selectedFolder != "radio", !folders.contains(where: { $0.id == selectedFolder }) { next = folders.first?.id ?? "local" }
                 else if preferRemoteOnDiscovery, let first = folders.first { next = first.id }
                 preferRemoteOnDiscovery = false
                 if next != selectedFolder || reloadSongs { selectFolder(next) }
@@ -179,7 +195,8 @@ import OmaCore
     private func restorePlaybackIfPossible() {
         guard !stopped, let index = queue.index, player.currentItem == nil, playbackTask == nil else { return }
         let song = queue.entries[index].song
-        guard song.file != nil || account.map({ queueLibrary == LibraryIdentity($0) }) == true else { return }
+        guard song.file != nil || song.isRadio || account.map({ queueLibrary == LibraryIdentity($0) }) == true else { return }
+        if song.isRadio && !wantsPlayback { updateNowPlaying(); return }
         prepare(index, autoplay: wantsPlayback, position: position)
     }
     func report(_ error: Error) { if error is CancellationError { return }; self.error = true; message = error.localizedDescription; onChange?() }
@@ -188,6 +205,10 @@ import OmaCore
         preferRemoteOnDiscovery = false
         if selectedFolder != id { songs = [] }
         selectedFolder = id
+        if id == "radio" {
+            scanTask?.cancel(); generation += 1; busy = false; radio.start()
+            songs = radio.saved.map(\.song); message = radio.message; error = radio.error; onChange?(); return
+        }
         if id == "local" { loadLocal(); return }
         guard let account else { return }
         work { (try await self.loadSongs(account, id), []) }
@@ -231,7 +252,7 @@ import OmaCore
     }
     func append(_ songs: [Song]) { queueRevision += 1; rememberLibrary(for: songs); queue.append(songs); saveSession(); onChange?() }
     func replace(_ songs: [Song]) { guard !songs.isEmpty else { return }; queueRevision += 1; queueLibrary = nil; rememberLibrary(for: songs); queue.replace(songs); play(0) }
-    private func rememberLibrary(for songs: [Song]) { if songs.contains(where: { $0.file == nil }), let account { queueLibrary = LibraryIdentity(account) } }
+    private func rememberLibrary(for songs: [Song]) { if songs.contains(where: \.requiresAccount), let account { queueLibrary = LibraryIdentity(account) } }
     func play(_ index: Int) { prepare(index, autoplay: true, position: 0) }
     private func prepare(_ index: Int, autoplay: Bool, position: Double) {
         guard queue.entries.indices.contains(index) else { return }
@@ -240,12 +261,18 @@ import OmaCore
         playbackTask?.cancel(); player.pause(); statusObservation = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }; endObserver = nil
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }; failureObserver = nil
-        player.replaceCurrentItem(with: nil); loader?.cancel(); loader = nil
+        player.replaceCurrentItem(with: nil); loader?.cancel(); loader = nil; radioMetadata = nil; radioTitle = ""
         queue.current = queue.entries[index].id; let identity = queue.current; let song = queue.entries[index].song
-        wantsPlayback = autoplay; pendingPosition = position > 0 ? position : nil
+        wantsPlayback = autoplay; pendingPosition = !song.isRadio && position > 0 ? position : nil
         stopped = false; bitRate = 0; error = false; message = "Loading \(song.title)…"; saveSession(); onChange?()
         let asset: AVURLAsset
         if let file = song.file { asset = AVURLAsset(url: file) }
+        else if let url = song.radioURL {
+            guard let stream = try? RadioStream.address(url.absoluteString) else {
+                stopped = true; report(MusicError.message("The saved radio stream link is invalid. Choose or save the station again.")); return
+            }
+            asset = AVURLAsset(url: stream, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false, AVURLAssetHTTPUserAgentKey: "OmaGAWD/macOS"])
+        }
         else if let account, queueLibrary == nil || queueLibrary == LibraryIdentity(account) {
             let resource = AudioResourceLoader(account: account, songID: song.id); loader = resource
             asset = AVURLAsset(url: URL(string: "omagawd://audio/\(UUID().uuidString)")!)
@@ -260,29 +287,51 @@ import OmaCore
                 let tracks = try await asset.loadTracks(withMediaType: .audio)
                 try Task.checkCancellation(); guard queue.current == identity else { return }
                 let item = AVPlayerItem(asset: asset)
+                if song.isRadio {
+                    let metadata = AVPlayerItemMetadataOutput(identifiers: nil)
+                    let sink = RadioMetadataSink { [weak self, weak item] title in
+                        guard let self, let item, self.player.currentItem === item, self.radioTitle != title else { return }
+                        self.radioTitle = title; self.updateNowPlaying(); self.onTick?()
+                    }
+                    radioMetadata = sink; metadata.setDelegate(sink, queue: .main); item.add(metadata)
+                    // ICY/HLS assets may not expose an AVAssetTrack before play.
+                    // The mixed-output tap is independent of that track list.
+                    if #available(macOS 27.0, *) { item.audioMix = spectrum.mix() }
+                }
                 if let track = tracks.first {
                     bitRate = (try? await track.load(.estimatedDataRate)) ?? 0
                     try Task.checkCancellation()
-                    item.audioMix = spectrum.mix(for: track)
+                    if item.audioMix == nil { item.audioMix = spectrum.mix(for: track) }
                 }
                 statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                     Task { @MainActor in
                         guard let self, self.player.currentItem === item else { return }
-                        if item.status == .failed { self.stopped = true; self.report(item.error ?? MusicError.message("The audio format could not be played.")) }
+                        if item.status == .failed {
+                            if song.isRadio { self.stop() } else { self.stopped = true }
+                            self.report(item.error ?? MusicError.message("The audio format could not be played."))
+                        }
                         else if item.status == .readyToPlay {
-                            self.message = "\(self.songs.count) songs"; self.error = false
+                            self.message = self.selectedFolder == "radio" ? self.radio.message : "\(self.songs.count) songs"; self.error = false
                             if let position = self.pendingPosition { self.seek(position) }
                             self.onChange?(); self.updateNowPlaying()
                         }
                     }
                 }
-                endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in Task { @MainActor in self?.next(automatic: true) } }
+                endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in Task { @MainActor in
+                    guard let self, self.player.currentItem === item else { return }
+                    if song.isRadio { self.stop(); self.report(MusicError.message("Radio station is unavailable. Press Play to reconnect or choose another station.")) }
+                    else { self.next(automatic: true) }
+                } }
                 failureObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] notification in
                     let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-                    Task { @MainActor in self?.report(error ?? MusicError.message("Playback was interrupted.")) }
+                    Task { @MainActor in
+                        guard let self, self.player.currentItem === item else { return }
+                        if song.isRadio { self.stop(); self.report(MusicError.message("Radio station is unavailable. Press Play to reconnect or choose another station.")) }
+                        else { self.report(error ?? MusicError.message("Playback was interrupted.")) }
+                    }
                 }
                 player.replaceCurrentItem(with: item); if wantsPlayback && pendingPosition == nil { player.play() }; updateNowPlaying(); onChange?()
-            } catch { if !(error is CancellationError), queue.current == identity { stopped = true; report(error) } }
+            } catch { if !Task.isCancelled, !(error is CancellationError), queue.current == identity { stopped = true; report(error) } }
         }
     }
     func toggle() { wantsPlayback && !stopped ? pause() : resume() }
@@ -291,12 +340,27 @@ import OmaCore
         if stopped || (player.currentItem == nil && playbackTask == nil) { prepare(queue.index ?? 0, autoplay: true, position: position) }
         else if player.currentItem != nil && pendingPosition == nil { player.play() }
     }
-    func pause() { wantsPlayback = false; player.pause(); saveSession(); updateNowPlaying(); onTick?() }
-    func stop() { queueRevision += 1; seekGeneration += 1; wantsPlayback = false; playbackTask?.cancel(); playbackTask = nil; player.pause(); player.replaceCurrentItem(with: nil); loader?.cancel(); loader = nil; pendingPosition = nil; stopped = true; spectrum.setEnabled(false); saveSession(); updateNowPlaying(); onTick?() }
+    func pause() {
+        if queue.song?.isRadio == true && !stopped {
+            // A live broadcast has no resumable position. Release its connection
+            // while paused and reconnect to the current broadcast on Play.
+            stop(); stopped = false
+        } else { wantsPlayback = false; player.pause() }
+        saveSession(); updateNowPlaying(); onTick?()
+    }
+    func stop() {
+        queueRevision += 1; seekGeneration += 1; wantsPlayback = false; playbackTask?.cancel(); playbackTask = nil
+        statusObservation = nil
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }; endObserver = nil
+        if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }; failureObserver = nil
+        player.pause(); player.replaceCurrentItem(with: nil); loader?.cancel(); loader = nil
+        radioMetadata = nil; radioTitle = ""; pendingPosition = nil; stopped = true; spectrum.setEnabled(false)
+        saveSession(); updateNowPlaying(); onTick?()
+    }
     func next(automatic: Bool = false) { if let next = queue.next(automatic: automatic) { play(next) } else { stop() } }
     func previous() { play(max(0, (queue.index ?? 0) - 1)) }
     func seek(_ seconds: Double) {
-        guard seconds.isFinite else { return }
+        guard seconds.isFinite, queue.song?.isRadio != true else { return }
         seekGeneration += 1; let revision = seekGeneration
         pendingPosition = min(duration, max(0, seconds)); saveSession(); onTick?()
         guard let item = player.currentItem, item.status == .readyToPlay else { return }
@@ -316,7 +380,7 @@ import OmaCore
     func cycleRepeat() { queue.repeatMode = queue.repeatMode == .off ? .all : queue.repeatMode == .all ? .one : .off; defaults.set(queue.repeatMode.rawValue, forKey: "repeat"); onTick?() }
     private func sessionSnapshot() -> PlayerSession {
         PlayerSession(entries: queue.entries, current: queue.current, position: position, selectedFolder: selectedFolder,
-                      stopped: stopped, library: queue.entries.contains(where: { $0.song.file == nil }) ? queueLibrary : nil)
+                      stopped: stopped, library: queue.entries.contains(where: \.song.requiresAccount) ? queueLibrary : nil)
     }
     private func saveSession() { if sessionLoaded && !shuttingDown { sessionStore?.save(sessionSnapshot()) } }
     private func updateNowPlaying() {
@@ -326,14 +390,15 @@ import OmaCore
             center.nowPlayingInfo = nil
             return
         }
-        center.nowPlayingInfo = [MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue, MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0, MPMediaItemPropertyTitle: song.title, MPMediaItemPropertyArtist: song.artist, MPMediaItemPropertyAlbumTitle: song.album, MPMediaItemPropertyPlaybackDuration: duration, MPNowPlayingInfoPropertyElapsedPlaybackTime: position, MPNowPlayingInfoPropertyPlaybackRate: playing ? 1 : 0]
+        center.nowPlayingInfo = [MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue, MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0, MPMediaItemPropertyTitle: song.isRadio && !radioTitle.isEmpty ? radioTitle : song.title, MPMediaItemPropertyArtist: song.isRadio ? song.title : song.artist, MPMediaItemPropertyAlbumTitle: song.album, MPNowPlayingInfoPropertyIsLiveStream: song.isRadio, MPMediaItemPropertyPlaybackDuration: duration, MPNowPlayingInfoPropertyElapsedPlaybackTime: position, MPNowPlayingInfoPropertyPlaybackRate: playing ? 1 : 0]
+        MPRemoteCommandCenter.shared().changePlaybackPositionCommand.isEnabled = !song.isRadio
         center.playbackState = stopped ? .stopped : (playing ? .playing : .paused)
     }
     func shutdown() {
         guard !shuttingDown else { return }
         shuttingDown = true; accountGeneration += 1; startupTask?.cancel(); folderTask?.cancel()
         if sessionLoaded { try? sessionStore?.flush(sessionSnapshot()) }
-        scanTask?.cancel(); stop()
+        scanTask?.cancel(); radio.cancel(); stop()
         for (command, target) in remoteTargets { command.removeTarget(target) }
         remoteTargets.removeAll()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Disposable Jellyfin/range server. Fixture credentials only; binds loopback."""
-import http.server, json, math, os, struct, sys, wave
+import http.server, json, math, os, struct, sys, time, wave
 folder = sys.argv[1]
 os.makedirs(folder, exist_ok=True)
 path = os.path.join(folder, 'OmaGAWD test tone.wav')
@@ -17,6 +17,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def send_json(self, obj):
         data = json.dumps(obj).encode(); self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
     def do_GET(self):
+        if self.path == '/radio/live':
+            # No Jellyfin credentials may cross into anonymous radio requests.
+            if self.headers.get('Authorization'):
+                with open(os.path.join(folder, 'radio-auth-failure'), 'w') as f: f.write('unexpected Authorization')
+                self.send_error(403); return
+            icy = self.headers.get('Icy-MetaData') == '1'
+            with open(os.path.join(folder, 'radio-request'), 'w') as f: f.write('ICY' if icy else 'plain')
+            self.send_response(200); self.send_header('Content-Type', 'audio/mpeg')
+            self.send_header('icy-name', 'Fixture Radio'); self.send_header('icy-br', '64')
+            if icy: self.send_header('icy-metaint', '1024')
+            self.end_headers()
+            with open(os.path.join(os.path.dirname(__file__), 'radio.mp3'), 'rb') as f: audio = f.read()
+            metadata = b"StreamTitle='Fixture Artist - Live Track';"
+            metadata = bytes([(len(metadata) + 15) // 16]) + metadata.ljust(((len(metadata) + 15) // 16) * 16, b'\0')
+            cursor = 0
+            try:
+                for _ in range(500):
+                    chunk = (audio + audio)[cursor:cursor + 1024]; cursor = (cursor + 1024) % len(audio)
+                    self.wfile.write(chunk)
+                    if icy: self.wfile.write(metadata)
+                    self.wfile.flush(); time.sleep(0.128)
+            except (BrokenPipeError, ConnectionResetError): pass
+            return
         if 'Token="fixture-token"' not in self.headers.get('Authorization', ''):
             self.send_error(401); return
         if self.path.startswith('/jellyfin/UserViews'):

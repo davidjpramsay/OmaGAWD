@@ -13,7 +13,7 @@ REPORT="$ROOT_DIR/dist/smoke-test.txt"
 rm -f "$REPORT"
 pkill -x OmaGAWD >/dev/null 2>&1 || true
 open -n "$ROOT_DIR/dist/OmaGAWD.app" --args --smoke-test "$FIXTURE_DIR/OmaGAWD test tone.wav" "$PORT" "$REPORT"
-for _ in {1..45}; do [[ -f "$REPORT" ]] && break; sleep 1; done
+for _ in {1..60}; do [[ -f "$REPORT" ]] && break; sleep 1; done
 if [[ ! -f "$REPORT" ]]; then echo 'FAIL: smoke test timed out'; exit 1; fi
 cat "$REPORT"
 [[ "$(head -n 1 "$REPORT")" == "PASS" ]]
