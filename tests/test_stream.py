@@ -15,6 +15,57 @@ from test_backend import Player, Jellyfin, song
 
 @unittest.skipUnless(shutil.which('mpv'), 'mpv is required')
 class StreamTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg is required for the ICY fixture')
+    def test_live_radio_icy_metadata_and_spectrum_without_credentials(self):
+        payload = subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i',
+                                  'sine=frequency=440:duration=3', '-f', 'mp3', '-'],
+                                 check=True, stdout=subprocess.PIPE).stdout
+        interval = 8192
+        audio = (payload * (interval // len(payload) + 2))[:interval]
+        title = b"StreamTitle='Sample Artist - Sample Track';"
+        metadata = bytes([(len(title) + 15) // 16]) + title.ljust(((len(title) + 15) // 16) * 16, b'\0')
+        received, stop = [], threading.Event()
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_GET(self):
+                received.append(dict(self.headers))
+                self.send_response(200)
+                self.send_header('Content-Type', 'audio/mpeg')
+                self.send_header('icy-metaint', str(interval))
+                self.end_headers()
+                try:
+                    while not stop.is_set():
+                        self.wfile.write(audio + metadata)
+                        self.wfile.flush()
+                        stop.wait(.05)
+                except (BrokenPipeError, ConnectionResetError): pass
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        events = []
+        player = Player(events.append)
+        real_popen = subprocess.Popen
+        try:
+            with patch('radio_library.stream', return_value='http://127.0.0.1:' + str(server.server_port)), \
+                 patch('backend.subprocess.Popen', side_effect=lambda args, **kwargs: real_popen(args + ['--ao=null'], **kwargs)):
+                player.handle({'cmd': 'library', 'folder': 'radio'})
+                player.handle({'cmd': 'visibility', 'visible': True})
+                player.handle({'cmd': 'replace_play', 'ids': ['radio:omarchy']})
+            deadline = time.monotonic() + 8
+            measured = lambda: any(e.get('type') == 'meter' and max(e['levels']) > .1 for e in events)
+            while time.monotonic() < deadline and not (player.radio_title and measured()):
+                player.handle({'cmd': 'meter'})
+                time.sleep(.05)
+            self.assertEqual(player.radio_title, 'Sample Artist - Sample Track')
+            self.assertTrue(measured(), 'live audio must drive the real spectrum')
+            self.assertTrue(received)
+            self.assertFalse(any('Authorization' in headers for headers in received))
+            self.assertEqual((player.position, player.duration), (0, 0))
+            self.assertFalse(player.idle)
+        finally:
+            stop.set()
+            player.close()
+            server.shutdown(); server.server_close()
+
     def test_authenticated_stream_decodes_and_reaches_eof(self):
         audio = io.BytesIO()
         with wave.open(audio, 'wb') as wav:

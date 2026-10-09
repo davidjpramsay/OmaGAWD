@@ -23,6 +23,19 @@ Item {
     TestCase {
         name: "ReceiverPlaybackAnimation"
         when: windowShown
+        function test_radio_render_has_live_clock_and_no_seek_bar() {
+            app.opened = true
+            app.current = {source: "radio", title: "Omarchy", artist: "Community", album: "Cliamp Radio", key: "station"}
+            app.state = Object.assign({}, app.state, {idle: false, paused: false, radioTitle: "Sample Artist - Sample Track"})
+            wait(50)
+            verify(receiver.radio)
+            verify(!findChild(receiver, "seekRow").visible)
+            const image = grabImage(receiver)
+            image.save("/tmp/omagawd-radio-receiver.png")
+            app.current = {title: "Sample track", artist: "Sample artist", album: "Sample album", duration: 120}
+            wait(30)
+            verify(findChild(receiver, "seekRow").visible)
+        }
         function test_header_follows_playback_and_visibility() {
             const llama = findChild(receiver, "receiverLlama")
             verify(llama !== null)

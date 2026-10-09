@@ -2,13 +2,15 @@
 
 **Winamp soul. Omarchy fit. Badass llama dance moves.**
 
-Jellyfin and local music in a compact player that follows your Omarchy theme. Real frequency spectrum, a clean Artist → Album → Song browser, and keyboard control from search to playlist.
+Jellyfin, local music, and radio in a compact player that follows your Omarchy theme. Real frequency spectrum, a clean Artist → Album → Song browser, and keyboard control from search to playlist.
 
 <img src="preview.png" alt="OmaGAWD in Tokyo Night: music player, spectrum, library, keyboard shortcuts, and dancing llamas. Fictional sample music." width="920">
 
 **Running man + side shuffle.** The player llama dances while music plays; the bar icon stays still. Prefer less motion? Toggle **Reduce motion** under **?**.
 
 <img src="assets/llama-dances.gif" alt="OmaGAWD llama demonstrating the running man and side shuffle" width="240">
+
+**Radio** in the source menu offers 14 curated [Cliamp stations](https://cliamp.stream), including Omarchy, Lofi, and Synthwave. Search, browse with arrows, and press Return to tune in; Alt+Return adds a station to the queue. Live song titles appear when provided. Spectrum and llama dances work with radio too; no Cliamp installation or account needed.
 
 Your queue, playback position, volume, shuffle, and repeat are remembered. Restart restores paused. **Manage sources…** adds or forgets local files/folders without deleting music. Media keys work with the popup hidden.
 
@@ -27,7 +29,7 @@ Open the llama in the bar. **?** shows the full shortcut guide.
 |---|---|
 | P / L | Playlist / library |
 | ⌘F / Ctrl+F | Clear filters and focus search |
-| Tab / Shift+Tab | Cycle Artist → Album → Songs |
+| Tab / Shift+Tab | Cycle Artist → Album → Songs; focus radio stations |
 | Arrows / Home / End | Browse and update child lists without playing |
 | Space | Select / toggle filter |
 | Return / double-click | Replace queue and play; play selected row in playlist |
@@ -47,7 +49,7 @@ omarchy-shell shell summon david.omaamp '{}'
 
 Update with `omarchy plugin update david.omaamp --yes`. Remove with `omarchy plugin remove david.omaamp`. The script-installed launcher/icon live at `~/.local/share/applications/omaamp.desktop` and `~/.local/share/icons/hicolor/scalable/apps/omaamp.svg`; remove those separately. Music, saved sources, playback settings, and keyring sign-in remain.
 
-Spectrum analysis stops while hidden or paused. Server-playlist sync, file drag-and-drop, playlist import/export, and radio are not implemented. Safety limits: 8 MiB per API response, 100,000 tracks per local scan or 100,000 tracks / 64 MiB per Jellyfin scan, and 2 MiB of metadata per local file.
+Spectrum analysis stops while hidden or paused. Server-playlist sync, file drag-and-drop, playlist import/export, and custom radio stations are not implemented. Safety limits: 8 MiB per API response, 100,000 tracks per local scan or 100,000 tracks / 64 MiB per Jellyfin scan, and 2 MiB of metadata per local file.
 
 ## macOS
 

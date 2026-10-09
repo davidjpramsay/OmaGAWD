@@ -41,7 +41,7 @@ Item {
         if (!browsingLibrary || !ready || busy || Date.now() - lastLibraryCheck < 15000) return
         lastLibraryCheck = Date.now()
         busy = true
-        send(restoreRetry ? {cmd: "restore"} : {cmd: "library", folder: library.currentFolder})
+        send(restoreRetry && selectedLibrary !== "radio" ? {cmd: "restore"} : {cmd: "library", folder: library.currentFolder})
     }
     Timer {
         interval: 60000
@@ -107,7 +107,7 @@ Item {
         else if (data.type === "error") error = data.message
         else if (data.type === "connected") {
             connected = true; username = data.username; remoteLibraries = data.libraries
-            if (!data.preserveLocal) { selectedLibrary = data.folder || ""; songs = [] }
+            if (!data.preserveLocal && !data.preserveRadio) { selectedLibrary = data.folder || ""; songs = [] }
             tab = "library"
         } else if (data.type === "library") {
             selectedLibrary = data.folder || ""

@@ -15,6 +15,15 @@ Rectangle {
     }
     readonly property bool editingText: server.activeFocus || username.activeFocus || password.activeFocus || search.activeFocus
     property string helpReturnTab: "library"
+    readonly property bool radioMode: app.selectedLibrary === "radio"
+    property string station: ""
+    property bool radioFocusPending: false
+    function focusRadioWhenReady() {
+        if (!radioFocusPending || !radioMode || !app.songs.length || !app.songs.every(s => s.source === "radio")) return
+        radioFocusPending = false
+        Qt.callLater(function() { if (root.radioMode && app.tab === "library") stationList.focusList() })
+    }
+    onRadioModeChanged: focusRadioWhenReady()
     property string artist: ""
     property string album: ""
     property var selectedSongs: []
@@ -28,9 +37,10 @@ Rectangle {
     readonly property var artistRows: unique(filtered, "artist")
     readonly property var albumRows: unique(artistSongs, "albumId")
     readonly property var songRows: albumSongs.map(s => ({key: s.id, label: (s.track ? String(s.track).padStart(2, "0") + "  " : "") + s.title, detail: app.time(s.duration)}))
-    readonly property var queueRows: app.state.queue.map((s, i) => ({key: s.key, label: String(i + 1).padStart(2, "0") + "  " + s.artist + " — " + s.title, detail: app.time(s.duration)}))
+    readonly property var queueRows: app.state.queue.map((s, i) => ({key: s.key, label: String(i + 1).padStart(2, "0") + "  " + s.artist + " — " + s.title, detail: s.source === "radio" ? "LIVE" : app.time(s.duration)}))
     function focusPlaylist() { queueList.focusList() }
     function cycleLists(backward) {
+        if (radioMode) { stationList.focusList(); return }
         const lists = [artistList, albumList, songList]
         const current = lists.findIndex(item => item.listFocused)
         const next = current < 0 ? (backward ? 2 : 0) : (current + (backward ? 2 : 1)) % 3
@@ -41,6 +51,7 @@ Rectangle {
         root.artist = ""
         root.album = ""
         root.selectedSongs = []
+        root.station = ""
         search.forceActiveFocus(Qt.ShortcutFocusReason)
     }
     function unique(songs, field) {
@@ -80,6 +91,7 @@ Rectangle {
             if (!root.filtered.some(s => s.artist === root.artist)) root.artist = ""
             if (!root.artistSongs.some(s => s.albumId === root.album)) root.album = ""
             root.selectedSongs = root.selectedSongs.filter(id => root.albumSongs.some(s => s.id === id))
+            root.focusRadioWhenReady()
         }
     }
     ColumnLayout {
@@ -104,14 +116,14 @@ Rectangle {
             }
             AmpButton {
                 id: accountButton
-                text: app.selectedLibrary === "local" ? (app.hasLocalSources ? "Local Music ▾" : "Sources ▾") : app.connected ? "Jellyfin ▾" : "Sources ▾"
+                text: radioMode ? "Radio ▾" : app.selectedLibrary === "local" ? (app.hasLocalSources ? "Local Music ▾" : "Sources ▾") : app.connected ? "Jellyfin ▾" : "Sources ▾"
                 hint: "Choose music source or add local files"
                 lit: app.tab === "sources" || app.tab === "connect"
                 implicitWidth: accountLabel.implicitWidth + Style.space(14)
                 contentItem: Row {
                     id: accountLabel
                     spacing: Style.space(5)
-                    AmpText { text: "●"; visible: app.connected && app.selectedLibrary !== "local"; color: Color.accent; anchors.verticalCenter: parent.verticalCenter }
+                    AmpText { text: "●"; visible: app.connected && app.selectedLibrary !== "local" && !root.radioMode; color: Color.accent; anchors.verticalCenter: parent.verticalCenter }
                     AmpText { text: accountButton.text; color: Color.foreground; font.bold: accountButton.lit; anchors.verticalCenter: parent.verticalCenter }
                 }
                 onClicked: sourceMenu.open()
@@ -138,6 +150,11 @@ Rectangle {
                             else app.tab = "connect"
                         }
                     }
+                    SourceAction {
+                        objectName: "radioSource"
+                        text: "Radio"
+                        onTriggered: { root.focusSearch(); root.radioFocusPending = true; app.showLibrary(); app.send({cmd: "library", folder: "radio"}); root.focusRadioWhenReady() }
+                    }
                     SourceAction { text: "Manage sources…"; onTriggered: app.tab = "sources" }
                 }
             }
@@ -156,7 +173,7 @@ Rectangle {
                     model: [
                         ["P / L", "Playlist / library (outside text fields)"],
                         ["⌘F / Ctrl+F", "Clear filters and focus search"],
-                        ["Tab / Shift+Tab", "Cycle Artist → Album → Songs"],
+                        ["Tab / Shift+Tab", "Cycle Artist → Album → Songs; focus radio stations"],
                         ["↑ / ↓ / Home / End", "Select and update child lists; never plays"],
                         ["Space / click", "Select or toggle an artist/album filter"],
                         ["Return / double-click", "Replace queue and play; in playlist, play row"],
@@ -314,7 +331,7 @@ Rectangle {
                 Controls.ComboBox {
                     id: folders
                     objectName: "musicFolders"
-                    visible: app.libraries.length > 0
+                    visible: !root.radioMode && app.libraries.length > 0
                     Layout.preferredWidth: Style.space(135)
                     Layout.preferredHeight: search.implicitHeight
                     currentIndex: app.selectedLibrary ? app.libraries.findIndex(item => item.id === app.selectedLibrary) : 0
@@ -368,7 +385,24 @@ Rectangle {
                 AmpButton { text: "Sources…"; onClicked: app.tab = "sources" }
                 Item { Layout.fillWidth: true }
             }
+            TextList {
+                id: stationList
+                objectName: "radioStations"
+                visible: root.radioMode
+                Layout.fillWidth: true; Layout.fillHeight: true
+                heading: "STATION"
+                rows: root.filtered.map(s => ({key: s.id, label: s.title, detail: s.artist}))
+                selected: [root.station]
+                playing: app.current && app.current.source === "radio" ? app.current.id : ""
+                addEnabled: true; addHeld: app.optionHeld || false
+                emptyText: "No matching stations"
+                onNavigated: function(key) { root.station = key }
+                onChosen: function(key) { root.station = key }
+                onActivated: function(key) { root.playMusic(app.songs.filter(s => s.id === key)) }
+                onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.id === key)) }
+            }
             GridLayout {
+                visible: !root.radioMode
                 columns: 2
                 Layout.fillWidth: true; Layout.fillHeight: true; columnSpacing: Style.space(8); rowSpacing: Style.space(8)
                 TextList {
@@ -409,6 +443,7 @@ Rectangle {
                 }
             }
             RowLayout {
+                visible: !root.radioMode
                 AmpButton { text: "+ ADD " + root.chosenSongs.length; hint: "Add selected songs, album, or artist to playlist"; enabled: root.chosenSongs.length > 0 && !app.busy; onClicked: root.addMusic() }
                 Item { Layout.fillWidth: true }
                 AmpText { text: "⌥ click / Return to add"; font.pixelSize: Style.font.caption; opacity: 0.45 }
@@ -447,7 +482,7 @@ Rectangle {
         }
         AmpText {
             Layout.fillWidth: true
-            text: app.error || (app.busy ? "READING LIBRARY…" : app.tab === "queue" ? app.state.queue.length + " TRACKS  /  " + app.time(app.state.queue.reduce((n,s) => n + s.duration, 0)) + " TOTAL  ·  DOUBLE-CLICK TO PLAY" : app.tab === "library" ? app.songs.length + " SONGS  ·  SELECT MUSIC TO ADD · DOUBLE-CLICK TO PLAY" : "OMAGAWD  /  PERSONAL AUDIO")
+            text: app.error || (app.busy ? "READING LIBRARY…" : app.tab === "queue" ? app.state.queue.length + " TRACKS  /  " + app.time(app.state.queue.reduce((n,s) => n + s.duration, 0)) + " TOTAL  ·  DOUBLE-CLICK TO PLAY" : app.tab === "library" && root.radioMode ? root.filtered.length + " STATIONS · RETURN TO TUNE IN · ALT+RETURN TO ADD" : app.tab === "library" ? app.songs.length + " SONGS  ·  SELECT MUSIC TO ADD · DOUBLE-CLICK TO PLAY" : "OMAGAWD  /  PERSONAL AUDIO")
             color: app.error ? Color.urgent : Color.foreground
             opacity: app.error ? 1 : 0.5
             wrapMode: Text.WordWrap; elide: Text.ElideNone; font.pixelSize: Style.font.caption

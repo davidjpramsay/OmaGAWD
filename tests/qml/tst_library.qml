@@ -26,6 +26,7 @@ Item {
         property var commands: []
         function time(n) { return String(n) }
         function send(command) { commands = commands.concat([command]) }
+        function showLibrary() { tab = "library" }
     }
     Library { id: library; anchors.fill: parent; app: fakeApp }
     TestCase {
@@ -42,6 +43,7 @@ Item {
         }
         function init() {
             fakeApp.tab = "library"
+            fakeApp.selectedLibrary = "local"
             fakeApp.songs = [
                 {id: "1", artist: "A", albumId: "a1", album: "First", title: "One", duration: 1},
                 {id: "2", artist: "A", albumId: "a2", album: "Second", title: "Two", duration: 1},
@@ -50,6 +52,55 @@ Item {
             fakeApp.commands = []
             library.focusSearch()
             wait(30)
+        }
+        function test_radio_navigation_search_and_append() {
+            fakeApp.selectedLibrary = "radio"
+            fakeApp.songs = [
+                {id: "radio:omarchy", title: "Omarchy", artist: "Community", album: "Radio", source: "radio", duration: 0},
+                {id: "radio:lofi", title: "Lofi", artist: "Chillhop", album: "Radio", source: "radio", duration: 0}
+            ]
+            library.cycleLists(false)
+            compare(library.station, "radio:omarchy")
+            grabImage(library).save("/tmp/omagawd-radio-library.png")
+            keyClick(Qt.Key_Down)
+            compare(library.station, "radio:lofi")
+            compare(fakeApp.commands.length, 0)
+            keyClick(Qt.Key_Return, Qt.AltModifier)
+            compare(fakeApp.commands[0].cmd, "add")
+            compare(fakeApp.commands[0].ids, ["radio:lofi"])
+            keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[1].cmd, "replace_play")
+            compare(fakeApp.commands[1].ids, ["radio:lofi"])
+            library.cycleLists(true)
+            verify(list("STATION").listFocused)
+            library.focusSearch()
+            for (let key of [Qt.Key_C, Qt.Key_H, Qt.Key_I, Qt.Key_L, Qt.Key_L]) keyClick(key)
+            compare(library.filtered.length, 1)
+            library.cycleLists(false)
+            compare(library.station, "radio:lofi")
+            library.focusSearch()
+            for (let key of [Qt.Key_M, Qt.Key_I, Qt.Key_S, Qt.Key_S, Qt.Key_I, Qt.Key_N, Qt.Key_G]) keyClick(key)
+            compare(library.filtered.length, 0)
+            library.cycleLists(false)
+            keyClick(Qt.Key_Return)
+            compare(fakeApp.commands.length, 2)
+        }
+        function test_radio_source_focus_waits_for_backend_catalog() {
+            const source = findChild(library, "radioSource")
+            verify(source !== null)
+            fakeApp.busy = true
+            verify(source.enabled)
+            source.triggered()
+            compare(fakeApp.commands[0].folder, "radio")
+            compare(library.radioFocusPending, true)
+            fakeApp.selectedLibrary = "radio"
+            fakeApp.songs = [{id: "radio:omarchy", title: "Omarchy", artist: "Community", album: "Radio", source: "radio", duration: 0}]
+            fakeApp.busy = false
+            wait(30)
+            verify(list("STATION").listFocused)
+            compare(library.station, "radio:omarchy")
+            keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[1].cmd, "replace_play")
         }
         function test_cascade_and_reverse() {
             library.cycleLists(false)

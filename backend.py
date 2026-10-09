@@ -22,6 +22,7 @@ from spectrum import filter_graph, level
 from stream_proxy import StreamProxy
 from process_guard import guard_parent
 from playback_store import identity
+import radio_library as radio
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -166,7 +167,7 @@ class Mpv:
         self.meter_thread.start()
         self.proxy = None
         self.proc = subprocess.Popen(['/usr/bin/python3', os.path.join(os.path.dirname(__file__), 'process_guard.py'), str(os.getpid()), 'mpv', '--no-config', '--idle=yes', '--no-video', '--no-terminal',
-                                      '--audio-display=no',
+                                      '--audio-display=no', '--tls-verify=yes',
                                       '--input-ipc-server=' + path],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.sock = socket.socket(socket.AF_UNIX)
@@ -183,7 +184,7 @@ class Mpv:
             self.close()
             raise RuntimeError('mpv did not become ready.')
         threading.Thread(target=self.read, daemon=True).start()
-        for n, prop in enumerate(['time-pos', 'duration', 'pause', 'idle-active', 'audio-bitrate']):
+        for n, prop in enumerate(['time-pos', 'duration', 'pause', 'idle-active', 'audio-bitrate', 'metadata']):
             self.send('observe_property', n, prop)
 
     def load(self, url, headers, start=0):
@@ -283,6 +284,7 @@ class Player:
         self.queue_identity = None
         self.session_pending = False
         self.session_folder = None
+        self.radio_title = ""
         self.checkpoint_at = time.monotonic()
         self.session_warning = False
         self.store, self.remembered = store, False
@@ -313,7 +315,7 @@ class Player:
     def session_snapshot(self):
         folder = 'local' if self.local and self.local.prefer_local else self.folder or self.session_folder or 'local'
         return {'queue': [dict(row) for row in self.queue], 'index': self.index, 'position': self.position,
-                'idle': self.idle, 'folder': folder, 'library': self.queue_identity if any(s.get('source') != 'local' for s in self.queue) else None}
+                'idle': self.idle, 'folder': folder, 'library': self.queue_identity if any(radio.remote(s) for s in self.queue) else None}
 
     def checkpoint(self):
         if not self.playback_store: return
@@ -327,13 +329,14 @@ class Player:
                 self.session_warning = True
 
     def state(self):
+        if self.idle: self.radio_title = ''
         if not self.paused and not self.idle and time.monotonic() - self.checkpoint_at >= 5:
             self.checkpoint()
         if self.mpv:
             self.mpv.set_meter(self.visible and not self.idle and not self.paused)
         self.emit({'type': 'state', 'queue': self.queue, 'index': self.index, 'position': self.position,
                    'duration': self.duration, 'paused': self.paused, 'idle': self.idle,
-                   'shuffle': self.shuffle, 'repeat': self.repeat, 'volume': self.volume, 'bitrate': self.bitrate, 'reduceMotion': self.reduce_motion})
+                   'shuffle': self.shuffle, 'repeat': self.repeat, 'volume': self.volume, 'bitrate': self.bitrate, 'reduceMotion': self.reduce_motion, 'radioTitle': self.radio_title})
 
     def discard_engine(self):
         old, self.mpv = self.mpv, None
@@ -354,11 +357,22 @@ class Player:
             self.mpv.send('set_property', 'volume', self.volume)
         return self.mpv
 
+    def is_radio(self):
+        return 0 <= self.index < len(self.queue) and self.queue[self.index].get('source') == 'radio'
+
+    def load_radio(self):
+        self.songs = radio.songs()
+        self.folder = self.session_folder = 'radio'
+        if self.local: self.local.prefer_local = False
+        self.emit({'type': 'library', 'songs': self.songs, 'folder': 'radio'})
+        self.checkpoint()
+
     def event(self, event):
         with self.lock:
             if event.get('event') == 'engine-exited':
                 self.discard_engine()
                 self.idle, self.paused, self.position, self.bitrate = True, True, 0, 0
+                self.radio_title = ''
                 self.emit({'type': 'error', 'message': 'Audio player stopped. Press Play to restart playback.'})
                 self.state()
             elif event.get('request_id') == 900:
@@ -368,11 +382,22 @@ class Player:
                 name, value = event.get('name'), event.get('data')
                 mapping = {'time-pos': 'position', 'duration': 'duration', 'pause': 'paused',
                            'idle-active': 'idle', 'audio-bitrate': 'bitrate'}
+                if name == 'metadata' and self.is_radio() and not self.idle:
+                    metadata = value if isinstance(value, dict) else {}
+                    title = next((v for k, v in metadata.items() if k.lower() in ('icy-title', 'streamtitle') and isinstance(v, str)), '')
+                    self.radio_title = ''.join(c for c in title[:512] if c.isprintable()).strip()
+                    self.state()
+                if self.is_radio() and name in ('time-pos', 'duration'): return
                 if name in mapping and value is not None:
                     setattr(self, mapping[name], value)
+                    if name == 'idle-active' and value: self.radio_title = ''
                     self.state()
             elif event.get('event') == 'end-file':
-                if event.get('reason') == 'eof':
+                if self.is_radio() and event.get('reason') in ('eof', 'error'):
+                    self.idle, self.paused, self.radio_title = True, True, ''
+                    self.emit({'type': 'error', 'message': 'Radio station is unavailable. Press Play to reconnect or choose another station.'})
+                    self.state()
+                elif event.get('reason') == 'eof':
                     self.next_track(automatic=True)
                 elif event.get('reason') == 'error':
                     self.idle = True
@@ -383,7 +408,7 @@ class Player:
         if not 0 <= index < len(self.queue):
             return
         track = self.queue[index]
-        if track.get('source') != 'local' and self.queue_identity and self.queue_identity != identity(self.client):
+        if radio.remote(track) and self.queue_identity and self.queue_identity != identity(self.client):
             self.emit({'type': 'error', 'message': 'This playlist belongs to a different Jellyfin account. Reconnect to that account or replace the playlist.'})
             return
         start = self.position if resume and index == self.index else 0
@@ -395,10 +420,17 @@ class Player:
                 self.emit({'type': 'error', 'message': 'This local file is no longer available.'})
                 return
             url, headers = track['path'], []
+        elif track.get('source') == 'radio':
+            url, headers, start = radio.stream(track['id']), [], 0
         elif self.client:
             url, headers = self.client.stream(track['id']), ['Authorization: ' + self.client.authorization()]
         else:
             return
+        # A station switch gets fresh ICY metadata and cannot inherit callbacks.
+        if self.is_radio() or track.get('source') == 'radio': self.discard_engine()
+        self.radio_title = ''
+        self.bitrate = 0
+        self.index = index
         engine = self.engine()
         engine.load(url, headers, start=start)
         engine.send('set_property', 'pause', False)
@@ -438,14 +470,18 @@ class Player:
                 if command['cmd'] == 'restore':
                     stage = 'restore'
                     # Local browsing must not depend on the keyring or server.
-                    if self.local and self.local.prefer_local:
+                    if self.session_folder == 'radio':
+                        with self.lock:
+                            if generation != self.generation: return
+                            self.load_radio()
+                    elif self.local and self.local.prefer_local:
                         self.load_local(generation)
                     saved = self.store.load() if self.store else None
                     if not saved:
                         with self.lock:
                             if generation != self.generation: return
                             self.emit({'type': 'restore_retry', 'value': False})
-                        if self.local and not self.local.prefer_local: self.load_local(generation)
+                        if self.local and not self.local.prefer_local and self.session_folder != 'radio': self.load_local(generation)
                         return
                     with self.lock:
                         if generation != self.generation:
@@ -480,9 +516,10 @@ class Player:
                     self.emit({'type': 'restore_retry', 'value': False})
                     self.emit({'type': 'remembered', 'value': self.remembered})
                     self.emit({'type': 'connected', 'libraries': libraries, 'username': command['username'], 'folder': folder,
-                               'preserveLocal': bool(self.local and self.local.prefer_local and command['cmd'] == 'restore')})
+                               'preserveLocal': bool(self.local and self.local.prefer_local and command['cmd'] == 'restore'),
+                               'preserveRadio': self.session_folder == 'radio' and command['cmd'] == 'restore'})
                 stage = 'library'
-                if self.local and self.local.prefer_local and command['cmd'] == 'restore':
+                if command['cmd'] == 'restore' and (self.session_folder == 'radio' or (self.local and self.local.prefer_local)):
                     with self.lock:
                         if generation == self.generation: self.state()
                     return
@@ -614,7 +651,11 @@ class Player:
                 if self.mpv and self.visible and not self.idle and not self.paused:
                     self.mpv.query_meter()
                 return
-            if cmd in ('local_add', 'local_remove', 'choose_files', 'choose_folder') or (cmd == 'library' and c.get('folder') == 'local'):
+            if cmd == 'library' and c.get('folder') == 'radio':
+                self.generation += 1
+                self.load_radio()
+                self.emit({'type': 'busy', 'value': False})
+            elif cmd in ('local_add', 'local_remove', 'choose_files', 'choose_folder') or (cmd == 'library' and c.get('folder') == 'local'):
                 self.generation += 1
                 self.emit({'type': 'busy', 'value': True})
                 self.work.submit(self.local_command, c, self.generation)
@@ -638,7 +679,7 @@ class Player:
             elif cmd == 'add':
                 ids = set(c.get('ids', []))
                 selected = [dict(s, key=str(uuid.uuid4())) for s in self.songs if s['id'] in ids]
-                if any(s.get('source') != 'local' for s in selected):
+                if any(radio.remote(s) for s in selected):
                     if self.queue_identity and self.queue_identity != identity(self.client):
                         self.emit({'type': 'error', 'message': 'Replace the playlist before adding music from a different Jellyfin account.'})
                         return
@@ -647,9 +688,9 @@ class Player:
             elif cmd == 'replace_play':
                 ids = set(c.get('ids', []))
                 selection = [dict(s, key=str(uuid.uuid4())) for s in self.songs if s['id'] in ids]
-                if selection and (self.client or all(s.get('source') == 'local' for s in selection)):
+                if selection and (self.client or all(not radio.remote(s) for s in selection)):
                     self.queue = selection
-                    self.queue_identity = identity(self.client) if any(s.get("source") != "local" for s in selection) else None
+                    self.queue_identity = identity(self.client) if any(radio.remote(s) for s in selection) else None
                     self.play(0)
             elif cmd == 'remove':
                 keys = set(c.get('keys', []))
@@ -686,6 +727,8 @@ class Player:
             elif cmd == 'pause':
                 if self.idle or self.session_pending or self.mpv is None:
                     self.play(max(0, self.index), resume=self.session_pending)
+                elif self.is_radio() and self.paused:
+                    self.play(self.index)
                 elif self.mpv:
                     self.paused = not self.paused
                     self.mpv.send('set_property', 'pause', self.paused)
@@ -693,12 +736,13 @@ class Player:
                 if self.mpv:
                     self.mpv.send('stop')
                 self.idle, self.paused, self.position = True, True, 0
+                self.radio_title = ''
                 self.session_pending = False
             elif cmd == 'next':
                 self.next_track()
             elif cmd == 'previous':
                 self.play(max(0, self.index - 1))
-            elif cmd == 'seek' and not self.idle:
+            elif cmd == 'seek' and not self.idle and not self.is_radio():
                 value = float(c['seconds'])
                 if not math.isfinite(value): raise ValueError('Seek must be finite.')
                 self.position = max(0, min(value, self.duration))
@@ -750,6 +794,7 @@ class Player:
         self.username, self.folder = "", ""
         self.index, self.position, self.duration, self.bitrate = -1, 0, 0, 0
         self.idle, self.paused = True, True
+        self.radio_title = ''
 
     def close(self):
         self.generation += 1

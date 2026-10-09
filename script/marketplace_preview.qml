@@ -66,7 +66,7 @@ Window {
         Label { text: "OMAGAWD"; font.pixelSize: 34; font.bold: true; font.letterSpacing: 4 }
         Rectangle { width: 330; height: 2; color: Color.accent }
         Label { text: "WINAMP SOUL.\nOMARCHY FIT."; font.pixelSize: 27; lineHeight: 1.2 }
-        Label { text: "JELLYFIN + LOCAL MUSIC"; color: Color.accent; font.pixelSize: 16; font.bold: true }
+        Label { text: "JELLYFIN + LOCAL + RADIO"; color: Color.accent; font.pixelSize: 16; font.bold: true }
         Label { text: "Your theme. Your music.\nReal frequency spectrum.\nA queue that remembers."; font.pixelSize: 16; lineHeight: 1.5; opacity: .8 }
         Rectangle { width: 330; height: 1; color: "#414868" }
         Label { text: "KEYBOARD IN. MUSIC ON."; font.pixelSize: 16; font.bold: true }

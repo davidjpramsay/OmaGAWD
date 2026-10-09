@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import threading
 import urllib.parse
+import radio_library as radio
 from concurrent.futures import ThreadPoolExecutor
 
 MAX_SESSION_BYTES = 64 * 1024 * 1024
@@ -28,6 +29,9 @@ def validate(data):
             raise ValueError('Duplicate queue identity')
         seen.add(row['key'])
         local = row.get('source') == 'local'
+        broadcast = row.get('source') == 'radio'
+        if broadcast and radio.station(row['id']) is None: raise ValueError('Invalid saved radio station')
+        if not broadcast and row['id'].startswith('radio:'): raise ValueError('Invalid radio source')
         if local and (not row['id'].startswith('local:') or not isinstance(row.get('path'), str) or not Path(row['path']).is_absolute()):
             raise ValueError('Invalid saved local track')
         if not local and row['id'].startswith('local:'):
@@ -42,9 +46,11 @@ def validate(data):
             if field in clean and (type(clean[field]) is not int or not 0 <= clean[field] <= 2**31):
                 raise ValueError('Invalid track number')
         clean['duration'] = duration
+        if broadcast:
+            clean = dict(radio.station(row['id']), key=row['key'])
         if not local:
             clean.pop('path', None)
-            clean.pop('source', None)
+            if not broadcast: clean.pop('source', None)
         queue.append(clean)
     index, position = data.get('index', -1), data.get('position', 0)
     if type(index) is not int or index < -1 or index >= len(queue): raise ValueError('Invalid queue index')
@@ -57,11 +63,12 @@ def validate(data):
         url = urllib.parse.urlsplit(library['url'])
         if url.scheme not in ('http', 'https') or not url.hostname or url.username or url.password or url.query or url.fragment:
             raise ValueError('Invalid saved server URL')
-    if any(row.get('source') != 'local' for row in queue) and library is None:
+    if any(radio.remote(row) for row in queue) and library is None:
         raise ValueError('Missing remote library identity')
     folder = data.get('folder', 'local')
     if not isinstance(folder, str): raise ValueError('Invalid saved library')
     duration = queue[index]['duration'] if index >= 0 else 0
+    if index >= 0 and queue[index].get('source') == 'radio': position = 0
     return {'queue': queue, 'index': index, 'position': (min(position, duration) if duration > 0 else position) if index >= 0 else 0,
             'idle': data.get('idle') is not False or index < 0, 'folder': folder, 'library': library}
 
