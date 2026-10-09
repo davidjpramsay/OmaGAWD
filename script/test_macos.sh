@@ -10,9 +10,10 @@ trap 'kill "$FIXTURE_PID" 2>/dev/null || true; wait "$FIXTURE_PID" 2>/dev/null |
 for _ in {1..50}; do [[ -f "$FIXTURE_DIR/port" ]] && break; sleep 0.1; done
 PORT="$(cat "$FIXTURE_DIR/port")"
 REPORT="$ROOT_DIR/dist/smoke-test.txt"
+BUNDLE="${OMAGAWD_TEST_BUNDLE:-$ROOT_DIR/dist/OmaGAWD.app}"
 rm -f "$REPORT"
 pkill -x OmaGAWD >/dev/null 2>&1 || true
-open -n "$ROOT_DIR/dist/OmaGAWD.app" --args --smoke-test "$FIXTURE_DIR/OmaGAWD test tone.wav" "$PORT" "$REPORT"
+open -n "$BUNDLE" --args --smoke-test "$FIXTURE_DIR/OmaGAWD test tone.wav" "$PORT" "$REPORT"
 for _ in {1..60}; do [[ -f "$REPORT" ]] && break; sleep 1; done
 if [[ ! -f "$REPORT" ]]; then echo 'FAIL: smoke test timed out'; exit 1; fi
 cat "$REPORT"

@@ -4,9 +4,7 @@ Native Swift menu bar port of OmaGAWD. Requires macOS 14 or later. AppKit render
 
 ## Download
 
-Download the signed and notarized [macOS beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.1.0-beta.1). Open the DMG, drag OmaGAWD to Applications, and launch it. The universal app supports Apple silicon and Intel on macOS 14 or later.
-
-The published beta predates radio discovery. Build the current `codex/native-macos` source branch for the features described below.
+Download the signed and notarized [macOS 0.2.0 beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.2.0-beta.1), including radio discovery and all three llama dances. Open the DMG, drag OmaGAWD to Applications, and launch it. The universal app supports Apple silicon and Intel on macOS 14 or later.
 
 ## Build and open
 
@@ -68,7 +66,7 @@ Radio accepts direct MP3/AAC streams and HLS links supported by AVFoundation. PL
 
 The development build script ad-hoc signs the app for local use. Published DMGs are Developer ID signed and Apple notarized. App Store sandboxing, automatic updates, and launch-at-login are not configured.
 
-Maintainers can create a universal signed release with `SIGNING_IDENTITY="Developer ID Application: …" NOTARY_PROFILE="your-profile" ./script/release_macos.sh`. This requires a Developer ID certificate/private key and saved notarytool credentials; the script verifies and staples the app and DMG before producing a SHA-256 file. It does not publish automatically.
+Maintainers can create a universal signed release with `SIGNING_IDENTITY="Developer ID Application: …" NOTARY_PROFILE="your-profile" ./script/release_macos.sh`. Packaging stages the app at `dist/release/OmaGAWD.app` without replacing the running development bundle. This requires a Developer ID certificate/private key and saved notarytool credentials; the script verifies and staples the app and DMG before producing a SHA-256 file. It does not publish automatically. To run the muted playback checks against that exact bundle, use `OMAGAWD_TEST_BUNDLE="$PWD/dist/release/OmaGAWD.app" ./script/test_macos.sh --existing-bundle`.
 
 ## Verification
 
