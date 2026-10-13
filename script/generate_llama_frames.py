@@ -117,6 +117,15 @@ def head_mask(ctx, base):
     ctx.line_to(394,base); ctx.line_to(0,base); ctx.close_path()
 
 
+def shoulder_cutout(ctx):
+    # Remove the entire upright neck, including its thin rear outline. A curved
+    # shoulder overlap meets the moving neck without leaving a vertical spike.
+    ctx.move_to(0,1024); ctx.line_to(470,1024); ctx.line_to(470,620)
+    ctx.curve_to(455,600,435,598,410,598)
+    ctx.curve_to(365,598,330,545,300,505)
+    ctx.line_to(0,505); ctx.close_path()
+
+
 def draw_glyph(ctx, glyph):
     ctx.save()
     # The traced SVG has the same 599x731 painted bounds as the original glyph.
@@ -173,12 +182,17 @@ def render(ctx, glyph, dance=None, p=0):
         leg(ctx,(424,446),step,True,dance)
         leg(ctx,(709,447),step+(0 if dance==1 else .5),True,dance)
         if dance == 2:
+            ctx.save(); body_mask(ctx); ctx.clip()
+            ctx.rectangle(0,0,1024,1024); shoulder_cutout(ctx)
+            ctx.set_fill_rule(cairo.FILL_RULE_EVEN_ODD); ctx.clip()
+            draw_glyph(ctx,glyph); ctx.restore()
+            # Draw the moving neck over the shoulder so the coat has no straight
+            # horizontal seam where the two pieces overlap.
             ctx.save(); ctx.translate(365,545); ctx.rotate(head_bang(p)[0]); ctx.translate(-365,-545)
             head_mask(ctx,505); ctx.clip(); draw_glyph(ctx,glyph); ctx.restore()
+            ctx.restore()
+            return
         body_mask(ctx); ctx.clip()
-        if dance == 2:
-            ctx.rectangle(0,0,1024,1024); head_mask(ctx,548)
-            ctx.set_fill_rule(cairo.FILL_RULE_EVEN_ODD); ctx.clip()
     draw_glyph(ctx,glyph)
     ctx.restore()
 
