@@ -6,7 +6,7 @@ Jellyfin, local music, and radio in a compact player that follows your Omarchy t
 
 <img src="preview.png" alt="OmaGAWD in Tokyo Night: music player, spectrum, library, keyboard shortcuts, and dancing llamas. Fictional sample music." width="920">
 
-**Running man + side shuffle + head banging + twerk.** Four Mac-original routines rotate every ten seconds while music plays; the bar icon stays still. Prefer less motion? Toggle **Reduce motion** under **?**.
+**Bad ass llama moves.**
 
 <img src="assets/llama-dances.gif" alt="OmaGAWD llama demonstrating running man, side shuffle, head banging and twerk" width="480">
 
