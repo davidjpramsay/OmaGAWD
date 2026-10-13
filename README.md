@@ -4,7 +4,7 @@
 
 Jellyfin, local music, and radio in a compact player that follows your Omarchy theme. Real frequency spectrum, a clean Artist → Album → Song browser, and keyboard control from search to playlist.
 
-<img src="preview.png" alt="OmaGAWD in Tokyo Night: music player, spectrum, library, keyboard shortcuts, and dancing llamas. Fictional sample music." width="920">
+<img src="preview.png" alt="OmaGAWD in Tokyo Night: real playback of Cog — Anarchy OK, live spectrum, library, keyboard shortcuts, and dancing llamas." width="920">
 
 **Bad ass llama moves.**
 

@@ -1,5 +1,8 @@
 #!/usr/bin/python3
-"""Generate sample-only marketplace art. PySide6/Cairo are dev-only."""
+"""Render marketplace art with sample data or an approved player screenshot.
+
+PySide6/Cairo are dev-only; capture inputs are not copied to the repository.
+"""
 import os
 from pathlib import Path
 import sys
@@ -41,8 +44,12 @@ def dance_gif():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--radio', action='store_true')
+    parser.add_argument('--screenshot', type=Path, help='Use a real, cropped player screenshot in the main promo')
+    parser.add_argument('--output', type=Path, help='Render to this path instead of the repository preview')
     args = parser.parse_args()
-    output = ROOT / 'assets/radio-preview.png' if args.radio else ROOT / 'preview.png'
+    if args.screenshot and (args.radio or not args.screenshot.is_file()):
+        parser.error('--screenshot requires an existing image and cannot be combined with --radio')
+    output = args.output or (ROOT / 'assets/radio-preview.png' if args.radio else ROOT / 'preview.png')
     with tempfile.TemporaryDirectory(prefix='omagawd-art-') as directory:
         modules = Path(directory) / 'qs'
         for name in ('Commons','Ui'): (modules / name).mkdir(parents=True)
@@ -57,6 +64,8 @@ def main():
         (modules/'Ui/PanelToolTip.qml').write_text('import QtQuick.Controls as C\nC.ToolTip {}')
         application = QGuiApplication(sys.argv)
         engine = QQmlApplicationEngine()
+        if args.screenshot:
+            engine.setInitialProperties({'playerScreenshot': QUrl.fromLocalFile(str(args.screenshot.resolve()))})
         engine.warnings.connect(lambda errors: print('\n'.join(error.toString() for error in errors), file=sys.stderr))
         engine.addImportPath(directory)
         engine.load(QUrl.fromLocalFile(str(ROOT / 'script' / ('radio_preview.qml' if args.radio else 'marketplace_preview.qml'))))
@@ -74,7 +83,7 @@ def main():
         QTimer.singleShot(400, capture)
         application.exec()
         if failures: raise failures[0]
-    if not args.radio: dance_gif()
+    if not args.radio and not args.screenshot: dance_gif()
 
 
 if __name__ == '__main__': main()

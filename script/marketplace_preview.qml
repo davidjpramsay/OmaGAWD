@@ -1,4 +1,4 @@
-// Promotional preview: actual player components, fictional music, no backend.
+// Promotional preview: sample components or an approved real-player capture; no backend.
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
@@ -6,7 +6,9 @@ import ".."
 
 Window {
     id: window
-    width: 1040; height: 760
+    property url playerScreenshot: ""
+    width: 1040
+    height: playerScreenshot.toString() ? Math.max(760, playerCard.height + 48) : 760
     visible: true
     color: Color.background
     property alias appObject: demo
@@ -62,7 +64,7 @@ Window {
         border.color: Color.accent
     }
     Column {
-        x: 36; y: 48; spacing: 16
+        x: 36; y: window.playerScreenshot.toString() ? (window.height - height) / 2 : 48; spacing: 16
         Label { text: "OMAGAWD"; font.pixelSize: 34; font.bold: true; font.letterSpacing: 4 }
         Rectangle { width: 330; height: 2; color: Color.accent }
         Label { text: "WINAMP SOUL.\nOMARCHY FIT."; font.pixelSize: 27; lineHeight: 1.2 }
@@ -81,10 +83,22 @@ Window {
         }
     }
     Rectangle {
-        x: 402; y: 24; width: 614; height: 712
+        id: playerCard
+        x: 402; y: 24; width: 614
+        height: window.playerScreenshot.toString() ? playerImage.height + 32 : 712
         color: "#13141d"
         border.color: "#414868"
+        Image {
+            id: playerImage
+            x: 16; y: 16; width: 582
+            height: sourceSize.width > 0 ? width * sourceSize.height / sourceSize.width : 680
+            source: window.playerScreenshot
+            visible: window.playerScreenshot.toString() !== ""
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+        }
         Column {
+            visible: window.playerScreenshot.toString() === ""
             x: 16; y: 16; spacing: 12
             Receiver { width: 582; height: implicitHeight; app: window.appObject }
             Library {
