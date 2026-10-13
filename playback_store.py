@@ -8,6 +8,7 @@ import threading
 import urllib.parse
 import re
 import metadata
+from media_policy import local_name
 import radio_library as radio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -34,8 +35,7 @@ def validate(data):
         broadcast = row.get('source') == 'radio'
         if broadcast: radio.clean_station(row)
         if not broadcast and row['id'].startswith('radio:'): raise ValueError('Invalid radio source')
-        if local and (not row['id'].startswith('local:') or not isinstance(row.get('path'), str) or not Path(row['path']).is_absolute()
-                      or len(row['path']) > 4096 or '\0' in row['path']):
+        if local and (not row['id'].startswith('local:') or not local_name(row.get('path'))):
             raise ValueError('Invalid saved local track')
         if not local and row['id'].startswith('local:'):
             raise ValueError('Invalid remote track')

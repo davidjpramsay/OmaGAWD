@@ -7,16 +7,16 @@ import subprocess
 import uuid
 import tempfile
 import metadata
+from media_policy import EXTENSIONS, FORMAT_WHITELIST, local_file
 from bounded_process import run_bounded
-
-EXTENSIONS = {'.mp3', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.aiff', '.aif', '.alac', '.wma', '.ape', '.wv', '.m4b'}
-
 
 MAX_LOCAL_TRACKS = 100_000
 MAX_PROBE_BYTES = 2 * 1024 * 1024
 MAX_LOCAL_BYTES = 64 * 1024 * 1024
 MAX_SOURCE_BYTES = 1024 * 1024
 MAX_SOURCES = 1000
+MAX_SCAN_ENTRIES = 1_000_000
+MAX_SCAN_DIRECTORIES = 100_000
 
 
 def probe_output(command, timeout=10, cancel=None):
@@ -76,8 +76,10 @@ class LocalLibrary:
         for value in paths:
             if not isinstance(value, str) or not value or len(value) > 4096 or '\0' in value:
                 raise ValueError('Select a valid file or folder.')
-            path = Path(value).expanduser().resolve()
+            chosen = Path(value).expanduser().absolute()
+            path = chosen.resolve()
             if not (path.is_file() or path.is_dir()): raise ValueError('Selected file or folder is no longer available.')
+            if path.is_file(): path = local_file(str(chosen))
             if str(path) not in candidate: candidate.append(str(path))
         previous = self.roots, self.prefer_local
         self.roots, self.prefer_local = candidate, True
@@ -98,14 +100,14 @@ class LocalLibrary:
 
     def scan(self, cancel=None):
         files = set()
+        visited, entries = 0, 0
         def check_cancel():
             if cancel is not None and cancel.is_set(): raise RuntimeError('Local scan cancelled.')
         def include(path):
             check_cancel()
             try:
-                if not path.is_file(): return
-                resolved = path.resolve()
-            except (OSError, RuntimeError): return
+                resolved = local_file(str(path.absolute()))
+            except (OSError, RuntimeError, ValueError): return
             files.add(resolved)
             if len(files) > MAX_LOCAL_TRACKS:
                 raise ValueError(f'Local library exceeds {MAX_LOCAL_TRACKS:,} tracks. Choose smaller music folders.')
@@ -114,13 +116,32 @@ class LocalLibrary:
             check_cancel()
             root = Path(value)
             if root.is_dir():
-                for directory, _, names in os.walk(root, followlinks=False):
+                pending = [root]
+                while pending:
                     check_cancel()
-                    for name in names:
-                        path = Path(directory) / name
-                        if path.suffix.lower() in EXTENSIONS: include(path)
+                    directory = pending.pop()
+                    visited += 1
+                    if visited > MAX_SCAN_DIRECTORIES:
+                        raise ValueError('Local scan exceeds the 100,000-folder safety limit.')
+                    try: children = os.scandir(directory)
+                    except OSError: continue
+                    # Stream entries instead of os.walk's unbounded per-folder
+                    # lists. Reject excessive breadth before any metadata probe.
+                    with children:
+                        for entry in children:
+                            check_cancel()
+                            entries += 1
+                            if entries > MAX_SCAN_ENTRIES:
+                                raise ValueError('Local scan exceeds the 1,000,000-entry safety limit.')
+                            try: is_dir = entry.is_dir(follow_symlinks=False)
+                            except OSError: continue
+                            if is_dir:
+                                if visited + len(pending) >= MAX_SCAN_DIRECTORIES:
+                                    raise ValueError('Local scan exceeds the 100,000-folder safety limit.')
+                                pending.append(Path(entry.path))
+                            elif Path(entry.name).suffix.lower() in EXTENSIONS: include(Path(entry.path))
             elif root.is_file(): include(root)
-        songs, skipped, total_bytes = [], 0, 0
+        songs, skipped, total_bytes, next_cache = [], 0, 0, {}
         for path in sorted(files):
             check_cancel()
             try:
@@ -131,6 +152,7 @@ class LocalLibrary:
                     item = cached[1]
                 else:
                     raw = probe_output(['ffprobe', '-v', 'error', '-protocol_whitelist', 'file',
+                                        '-format_whitelist', FORMAT_WHITELIST,
                                         '-show_format', '-show_streams', '-of', 'json', str(path)], cancel=cancel)
                     data = json.loads(raw)
                     if not isinstance(data, dict) or not isinstance(data.get('streams'), list) or not isinstance(data.get('format', {}), dict):
@@ -147,14 +169,16 @@ class LocalLibrary:
                             'albumId': 'local:' + hashlib.sha256((str(path.parent) + '\0' + album).encode()).hexdigest(),
                             'duration': metadata.number(float(data.get('format', {}).get('duration') or audio.get('duration') or 0)),
                             'track': int(metadata.number(number('track'))), 'disc': int(metadata.number(number('disc')))}
-                    self.cache[str(path)] = (stamp, item)
             except (OSError, ValueError, TypeError, AttributeError, OverflowError, RecursionError, StopIteration, subprocess.TimeoutExpired):
                 skipped += 1
                 continue
             total_bytes += len(json.dumps(item, ensure_ascii=False, allow_nan=False).encode())
             if total_bytes > MAX_LOCAL_BYTES:
                 raise ValueError('Local library exceeds the 64 MiB metadata safety limit. Choose smaller music folders.')
+            next_cache[str(path)] = (stamp, item)
             songs.append(item)
-        self.cache = {str(p): self.cache[str(p)] for p in files if str(p) in self.cache}
+        # Failed scans keep the previous bounded cache, rather than accumulating
+        # partial results on every failed refresh.
+        self.cache = next_cache
         songs.sort(key=lambda s: (s['artist'].casefold(), s['album'].casefold(), s['disc'], s['track'], s['title'].casefold()))
         return songs, skipped

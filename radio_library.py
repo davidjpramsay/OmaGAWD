@@ -73,7 +73,7 @@ def stream_url(value):
     secret_keys = {'token', 'access_token', 'api_key', 'apikey', 'password', 'auth', 'authorization'}
     if any(k.lower() in secret_keys for k, _ in urllib.parse.parse_qsl(url.query)):
         raise ValueError('Use a public radio stream link without login credentials.')
-    if url.path.lower().endswith(('.pls', '.m3u', '.xspf')):
+    if url.path.lower().endswith(('.pls', '.m3u', '.m3u8', '.xspf', '.ffconcat', '.avs', '.vpy')):
         raise ValueError('Paste the direct audio stream link instead of a playlist file.')
     return urllib.parse.urlunsplit((url.scheme, url.netloc, url.path, url.query, ''))
 

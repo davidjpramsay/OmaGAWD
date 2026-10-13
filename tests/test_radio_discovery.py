@@ -130,7 +130,8 @@ class CustomPlaybackTests(unittest.TestCase):
         engine = self.p.mpv
         self.assertIn(('loadfile', 'https://radio.example/stream', 'replace'), engine.commands)
         self.assertIn(('set_property', 'http-header-fields', []), engine.commands)
-        self.assertIn(('set_property', 'options/demuxer-lavf-o', {'protocol_whitelist': 'http,https,tcp,tls,crypto'}), engine.commands)
+        from media_policy import demux_options
+        self.assertIn(('set_property', 'options/demuxer-lavf-o', demux_options()), engine.commands)
         self.p.handle({'cmd': 'radio_remove', 'id': custom['id']})
         self.assertNotIn(custom['id'], [s['id'] for s in self.p.songs])
         self.assertIs(self.p.mpv, engine)

@@ -28,6 +28,7 @@ from radio_browser import RadioBrowser, PAGE_SIZE, MAX_RESULTS
 from clipboard_io import read_clipboard
 from bounded_process import run_bounded
 import metadata
+from media_policy import AUDIO_FILTER, FORMAT_WHITELIST, local_file, demux_options
 from playback_store import MAX_QUEUE_TRACKS, MAX_SESSION_BYTES
 
 
@@ -195,6 +196,8 @@ class Mpv:
         self.proxy = None
         self.proc = subprocess.Popen(['/usr/bin/python3', os.path.join(os.path.dirname(__file__), 'process_guard.py'), str(os.getpid()), 'mpv', '--no-config', '--idle=yes', '--no-video', '--no-terminal',
                                       '--audio-display=no', '--tls-verify=yes', '--ytdl=no', '--load-unsafe-playlists=no',
+                                      '--demuxer=lavf', '--access-references=no', '--autoload-files=no', '--load-scripts=no',
+                                      '--demuxer-lavf-o=format_whitelist=[' + FORMAT_WHITELIST + ']',
                                       '--input-ipc-server=' + path],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.sock = socket.socket(socket.AF_UNIX)
@@ -454,13 +457,15 @@ class Player:
             return
         start = self.position if resume and index == self.index else 0
         if track.get('source') == 'local':
-            if not os.path.isfile(track['path']):
+            try:
+                path = local_file(track.get('path'))
+            except (OSError, ValueError, RuntimeError):
                 if self.mpv: self.mpv.send('stop')
                 self.index, self.position = index, 0
                 self.idle, self.paused = True, True
-                self.emit({'type': 'error', 'message': 'This local file is no longer available.'})
+                self.emit({'type': 'error', 'message': 'This local file is unavailable or is not a supported audio file.'})
                 return
-            url, headers = track['path'], []
+            url, headers = str(path), []
         elif track.get('source') == 'radio':
             url, headers, start = radio.stream(track if 'radioUrl' in track else track['id']), [], 0
         elif self.client:
@@ -473,7 +478,7 @@ class Player:
         self.bitrate = 0
         self.index = index
         engine = self.engine()
-        engine.send('set_property', 'options/demuxer-lavf-o', {'protocol_whitelist': 'http,https,tcp,tls,crypto'} if track.get('source') == 'radio' else {})
+        engine.send('set_property', 'options/demuxer-lavf-o', demux_options(track.get('source') == 'local'))
         engine.load(url, headers, start=start)
         engine.send('set_property', 'pause', False)
         self.index, self.position = index, start
@@ -661,7 +666,7 @@ class Player:
             if picker:
                 args = ['zenity', '--file-selection', '--title=OmaGAWD · Add music']
                 if command['cmd'] == 'choose_folder': args += ['--directory']
-                else: args += ['--multiple', '--separator=\n', '--file-filter=Audio | *.mp3 *.flac *.m4a *.aac *.ogg *.opus *.wav *.aiff *.aif *.alac *.wma *.ape *.wv *.m4b', '--file-filter=All files | *']
+                else: args += ['--multiple', '--separator=\n', '--file-filter=' + AUDIO_FILTER]
                 # Let the desktop portal provide the native file/folder picker.
                 result = run_bounded(args, limit=1024*1024, timeout=3600, cancel=self.closing)
                 if result.returncode == 1: return
