@@ -20,7 +20,7 @@ Your queue, playback position, volume, shuffle, and repeat are remembered. Resta
 omarchy plugin add https://github.com/davidjpramsay/OmaGAWD.git --enable
 ```
 
-Requires Omarchy/Quickshell, mpv, Python 3 with python-gobject, libsecret (`secret-tool`), ffmpeg (`ffprobe`), and zenity. Use a direct Jellyfin URL; audio redirects are blocked. No pip/npm dependencies.
+Requires Omarchy/Quickshell, mpv, Python 3 with python-gobject, libsecret (`secret-tool`), ffmpeg (`ffprobe`), zenity, and wl-clipboard (`wl-paste`). Use a direct Jellyfin URL; audio redirects are blocked. No pip/npm dependencies.
 
 Open the llama in the bar. **?** shows the full shortcut guide.
 
@@ -40,6 +40,8 @@ Open the llama in the bar. **?** shows the full shortcut guide.
 
 P/L apply outside text fields. Option is Alt. Command accepts Meta and translated Control.
 
+Text fields support typing, selection, undo and explicit paste (Command/Ctrl+V, Shift+Insert, middle-click or the context menu). Clipboard reads run outside the shell with a 64 KiB / 2-second limit. IME composition is temporarily unsupported; compose elsewhere and paste.
+
 Suggested global binding: **Super+Alt+O** (Command+Option+O on Mac keys), if free. Bind it to:
 
 ```sh
@@ -48,7 +50,7 @@ omarchy-shell shell summon david.omaamp '{}'
 
 The **↑** notice shows available OmaGAWD releases; **? → Updates** checks manually and opens the normal updater after saving playback. Updating pauses music. You can also update with `omarchy plugin update david.omaamp`. Remove with `omarchy plugin remove david.omaamp`. The script-installed launcher/icon live at `~/.local/share/applications/omaamp.desktop` and `~/.local/share/icons/hicolor/scalable/apps/omaamp.svg`; remove those separately. Music, saved sources, playback settings, and keyring sign-in remain.
 
-Spectrum analysis stops while hidden or paused. Server-playlist sync, file drag-and-drop, playlist import/export are not implemented. Radio accepts direct public HTTP(S) stream links; PLS/M3U playlist-file links are unsupported. Safety limits: 8 MiB per API response, 100,000 tracks per local scan or 100,000 tracks / 64 MiB per Jellyfin scan, 2 MiB of metadata per local file, 2 MiB per radio-directory response, and 1,000 saved stations/search results.
+Spectrum analysis stops while hidden or paused. Server-playlist sync, file drag-and-drop, playlist import/export are not implemented. Radio accepts direct public HTTP(S) stream links; PLS/M3U playlist-file links are unsupported. Safety limits: 8 MiB per API response, 100,000 tracks / 64 MiB per library or playlist, 2 MiB of metadata per local file, 512 characters per music label, 1 MiB / 1,000 local sources, 2 MiB per radio-directory response, and 1,000 saved stations/search results.
 
 ## macOS
 

@@ -16,4 +16,10 @@ def guard_parent(expected, death_signal=signal.SIGTERM):
 
 if __name__ == '__main__':
     guard_parent(int(sys.argv[1]), signal.SIGKILL)
-    os.execvp(sys.argv[2], sys.argv[2:])
+    command = sys.argv[2:]
+    if command[0] == '--memory-bytes':
+        import resource
+        budget = int(command[1])
+        resource.setrlimit(resource.RLIMIT_AS, (budget, budget))
+        command = command[2:]
+    os.execvp(command[0], command)

@@ -14,7 +14,10 @@ Item {
     property bool opened: false
     property bool optionHeld: false
     onOpenedChanged: {
-        if (!opened) { optionHeld = false; levels = Array(16).fill(0) }
+        if (!opened) {
+            optionHeld = false; levels = Array(16).fill(0)
+            if (pasteTarget) { pasteTarget = null; pasteTimeout.stop() }
+        }
         syncVisibility()
         if (opened) checkUpdates(false)
     }
@@ -51,6 +54,28 @@ Item {
         onTriggered: root.refreshLibrary()
     }
     property string error: ""
+    property var pasteTarget: null
+    property int pasteRevision: -1
+    property int pasteRequest: 0
+    function pasteInto(field, primary) {
+        if (!opened || !ready || pasteTarget || !field.activeFocus || !field.enabled) return
+        pasteRequest++; pasteTarget = field; pasteRevision = field.editRevision
+        pasteTimeout.restart()
+        bridge.write(JSON.stringify({cmd: "clipboard_paste", request: pasteRequest, primary: primary}) + "\n")
+    }
+    function pasted(data) {
+        if (data.request !== pasteRequest || !pasteTarget) return
+        const field = pasteTarget
+        pasteTarget = null; pasteTimeout.stop()
+        if (!opened || !field.activeFocus || !field.visible || !field.enabled || field.editRevision !== pasteRevision) return
+        if (data.error) error = data.error
+        else if (typeof data.text === "string" && data.text.length <= 65536) field.replaceSelection(data.text)
+    }
+    Timer {
+        id: pasteTimeout
+        interval: 3500
+        onTriggered: { root.pasteTarget = null; root.error = "Clipboard paste timed out. Try copying the text again." }
+    }
     property var updateInfo: ({})
     property bool updateChecking: false
     property bool updateInstalling: false
@@ -191,6 +216,7 @@ Item {
     }
     function receive(data) {
         if (data.type === "ready") { ready = true; syncVisibility() }
+        else if (data.type === "clipboard") pasted(data)
         else if (data.type === "update_ready" && data.request === updateRequest && updateInstalling && updatePrepareTimeout.running) {
             updatePrepareTimeout.stop(); close(); updateLauncher.running = true
         }
@@ -244,6 +270,7 @@ Item {
             }
         }
         onExited: {
+            pasteTimeout.stop(); root.pasteTarget = null
             updatePrepareTimeout.stop(); root.updateInstalling = false
             root.ready = false; root.busy = false; root.restoreRetry = false
             root.connected = false; root.remembered = false; root.remoteLibraries = []; root.songs = []

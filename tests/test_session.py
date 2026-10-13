@@ -9,11 +9,11 @@ class SessionTests(unittest.TestCase):
     def test_store_sends_secret_over_stdin(self):
         client = Jellyfin('https://example.com')
         client.token, client.user = 'private-token', 'u'
-        with patch('session_store.subprocess.run', return_value=Mock(returncode=0, stdout='', stderr='')) as run:
+        with patch('session_store.run_bounded', return_value=Mock(returncode=0, stdout=b'', stderr=b'')) as run:
             SessionStore().save(client, 'david')
         args, kw = run.call_args
         self.assertNotIn('private-token', str(args))
-        data = json.loads(kw['input'])
+        data = json.loads(kw['payload'])
         self.assertEqual(data['token'], 'private-token')
         self.assertNotIn('password', data)
     def test_restore_uses_saved_device_and_never_password_login(self):

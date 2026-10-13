@@ -6,6 +6,8 @@ from pathlib import Path
 import tempfile
 import threading
 import urllib.parse
+import re
+import metadata
 import radio_library as radio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -25,14 +27,15 @@ def validate(data):
     for row in data['queue']:
         if not isinstance(row, dict) or any(not isinstance(row.get(k), str) for k in ('id', 'key', 'title', 'artist', 'album')):
             raise ValueError('Invalid saved track')
-        if not row['key'] or row['key'] in seen:
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', row['key']) or row['key'] in seen:
             raise ValueError('Duplicate queue identity')
         seen.add(row['key'])
         local = row.get('source') == 'local'
         broadcast = row.get('source') == 'radio'
         if broadcast: radio.clean_station(row)
         if not broadcast and row['id'].startswith('radio:'): raise ValueError('Invalid radio source')
-        if local and (not row['id'].startswith('local:') or not isinstance(row.get('path'), str) or not Path(row['path']).is_absolute()):
+        if local and (not row['id'].startswith('local:') or not isinstance(row.get('path'), str) or not Path(row['path']).is_absolute()
+                      or len(row['path']) > 4096 or '\0' in row['path']):
             raise ValueError('Invalid saved local track')
         if not local and row['id'].startswith('local:'):
             raise ValueError('Invalid remote track')
@@ -40,6 +43,9 @@ def validate(data):
         if type(duration) not in (int, float) or not 0 <= duration <= 2**31 or not math.isfinite(duration):
             raise ValueError('Invalid duration')
         clean = {k: row[k] for k in FIELDS if k in row}
+        if not 0 < len(row['id']) <= 512: raise ValueError('Invalid saved track identity')
+        for field in ('title', 'artist', 'album'):
+            clean[field] = metadata.text(clean[field])
         if 'albumId' in clean and not isinstance(clean['albumId'], str):
             raise ValueError('Invalid album identity')
         for field in ('track', 'disc'):

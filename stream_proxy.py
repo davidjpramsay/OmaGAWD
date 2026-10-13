@@ -60,6 +60,9 @@ class LimitedHTTPServer(ThreadingHTTPServer):
 class StreamProxy:
     def __init__(self):
         self.route = None
+        self.closed = False
+        self.upstreams = {}
+        self.upstreams_lock = threading.Lock()
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -93,6 +96,12 @@ class StreamProxy:
                     self.send_error(502)
                     return
                 try:
+                    upstream_socket = getattr(getattr(getattr(response, 'fp', None), 'raw', None), '_sock', None)
+                    with owner.upstreams_lock:
+                        if owner.closed:
+                            response.close()
+                            return
+                        owner.upstreams[response] = upstream_socket
                     with response:
                         self.send_response(response.status)
                         for name in ('Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges', 'ETag', 'Last-Modified'):
@@ -100,10 +109,15 @@ class StreamProxy:
                                 self.send_header(name, response.headers[name])
                         self.end_headers()
                         if not head:
-                            while chunk := response.read(64 * 1024):
+                            while not owner.closed and owner.route is route:
+                                chunk = response.read1(64 * 1024)
+                                if not chunk: break
                                 self.wfile.write(chunk)
-                except OSError:
+                except (OSError, ValueError):
                     pass  # Seeking/stopping closes the previous request.
+                finally:
+                    with owner.upstreams_lock:
+                        owner.upstreams.pop(response, None)
 
         self.server = LimitedHTTPServer(('127.0.0.1', 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -116,6 +130,14 @@ class StreamProxy:
 
     def close(self):
         self.route = None
+        with self.upstreams_lock:
+            self.closed = True
+            upstream_sockets = list(self.upstreams.values())
+        # Interrupt blocked upstream reads before closing their buffered streams.
+        for upstream in upstream_sockets:
+            if upstream:
+                try: upstream.shutdown(socket.SHUT_RDWR)
+                except OSError: pass
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)

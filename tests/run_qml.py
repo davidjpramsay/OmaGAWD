@@ -4,11 +4,12 @@ import shutil
 import os
 import subprocess
 import tempfile
+import importlib.util
 # Only theme/controls are stubbed; tests load the real library and list components.
 os.chdir(Path(__file__).resolve().parents[1])
 workspace = tempfile.TemporaryDirectory(prefix='omagawd-qml-')
 root = Path(workspace.name)
-for file in ['Library.qml', 'TextList.qml', 'AmpText.qml', 'AmpButton.qml', 'DancingLlama.qml', 'Receiver.qml', 'AmpSlider.qml', 'Visualizer.qml']:
+for file in ['AmpTextField.qml', 'Library.qml', 'TextList.qml', 'AmpText.qml', 'AmpButton.qml', 'DancingLlama.qml', 'Receiver.qml', 'AmpSlider.qml', 'Visualizer.qml']:
     shutil.copy(file, root / file)
 (root / 'tests/qml').mkdir(parents=True, exist_ok=True)
 for test in Path('tests/qml').glob('tst_*.qml'):
@@ -25,13 +26,15 @@ commons.mkdir(parents=True, exist_ok=True)
 ui = root / 'qs/Ui'
 ui.mkdir(exist_ok=True)
 (ui / 'qmldir').write_text('module qs.Ui\nTextField 1.0 TextField.qml\nPanelToolTip 1.0 PanelToolTip.qml\n')
-(ui / 'TextField.qml').write_text('import QtQuick\nimport QtQuick.Controls as C\nimport qs.Commons\nC.TextField { property real verticalPadding: 5; property bool password: false; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; color: Color.foreground; placeholderTextColor: Qt.darker(Color.foreground, 1.5); background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Color.foreground, Color.accent) } }')
+(ui / 'TextField.qml').write_text('import QtQuick\nimport QtQuick.Controls as C\nimport qs.Commons\nC.TextField { property real verticalPadding: 5; property bool password: false; echoMode: password ? TextInput.Password : TextInput.Normal; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; color: Color.foreground; placeholderTextColor: Qt.darker(Color.foreground, 1.5); background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Color.foreground, Color.accent) } }')
 (ui / 'PanelToolTip.qml').write_text('import QtQuick.Controls as C\nC.ToolTip {}')
 
 runner = shutil.which("qmltestrunner") or "/usr/lib/qt6/bin/qmltestrunner"
 env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QPA_PLATFORMTHEME="generic", QT_QUICK_CONTROLS_STYLE="Basic")
 try:
     result = subprocess.run([runner, "-input", str(root / "tests/qml"), "-import", str(root)], env=env)
+    if result.returncode == 0 and importlib.util.find_spec("PySide6"):
+        result = subprocess.run(["/usr/bin/python3", "tests/clipboard_probe.py", str(root)], env=env)
 finally:
     workspace.cleanup()
 raise SystemExit(result.returncode)

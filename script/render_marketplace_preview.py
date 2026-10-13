@@ -53,7 +53,7 @@ def main():
             style = style.replace('display: 32', 'display: 24')
         (modules/'Commons/Style.qml').write_text(style)
         (modules/'Ui/qmldir').write_text('module qs.Ui\nTextField 1.0 TextField.qml\nPanelToolTip 1.0 PanelToolTip.qml\n')
-        (modules/'Ui/TextField.qml').write_text('import QtQuick\nimport QtQuick.Controls as C\nimport qs.Commons\nC.TextField { property real verticalPadding: 5; property bool password: false; implicitHeight: 30; font.family: "monospace"; font.pixelSize: 13; color: Color.foreground; placeholderTextColor: "#737aa2"; background: Rectangle { color: Style.normalFill; border.color: "#545c7e" } }')
+        (modules/'Ui/TextField.qml').write_text('import QtQuick\nimport QtQuick.Controls as C\nimport qs.Commons\nC.TextField { property real verticalPadding: 5; property bool password: false; echoMode: password ? TextInput.Password : TextInput.Normal; implicitHeight: 30; font.family: "monospace"; font.pixelSize: 13; color: Color.foreground; placeholderTextColor: "#737aa2"; background: Rectangle { color: Style.normalFill; border.color: "#545c7e" } }')
         (modules/'Ui/PanelToolTip.qml').write_text('import QtQuick.Controls as C\nC.ToolTip {}')
         application = QGuiApplication(sys.argv)
         engine = QQmlApplicationEngine()

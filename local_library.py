@@ -4,43 +4,26 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import shutil
 import uuid
-import selectors
-import time
+import tempfile
+import metadata
+from bounded_process import run_bounded
 
 EXTENSIONS = {'.mp3', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.aiff', '.aif', '.alac', '.wma', '.ape', '.wv', '.m4b'}
 
 
 MAX_LOCAL_TRACKS = 100_000
 MAX_PROBE_BYTES = 2 * 1024 * 1024
+MAX_LOCAL_BYTES = 64 * 1024 * 1024
+MAX_SOURCE_BYTES = 1024 * 1024
+MAX_SOURCES = 1000
 
 
-def probe_output(command, timeout=10):
+def probe_output(command, timeout=10, cancel=None):
     """Drain ffprobe incrementally; hostile tags cannot fill captured stdout."""
-    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
-        try:
-            data = bytearray()
-            deadline = time.monotonic() + timeout
-            with selectors.DefaultSelector() as selector:
-                selector.register(process.stdout, selectors.EVENT_READ)
-                while True:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0 or not selector.select(remaining):
-                        raise ValueError('Audio metadata scan timed out.')
-                    chunk = os.read(process.stdout.fileno(), min(65536, MAX_PROBE_BYTES + 1 - len(data)))
-                    if not chunk:
-                        break
-                    data.extend(chunk)
-                    if len(data) > MAX_PROBE_BYTES:
-                        raise ValueError('Audio metadata exceeds the 2 MiB safety limit.')
-            if process.wait(timeout=max(.01, deadline - time.monotonic())):
-                raise ValueError('Unreadable audio')
-            return data
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait()
+    result = run_bounded(command, limit=MAX_PROBE_BYTES, timeout=timeout, cancel=cancel)
+    if result.returncode: raise ValueError('Unreadable audio')
+    return result.stdout
 
 
 class LocalLibrary:
@@ -50,15 +33,20 @@ class LocalLibrary:
         self.warning = ''
         if self.path.exists():
             try:
-                data = json.loads(self.path.read_text())
+                with self.path.open('rb') as stream: raw = stream.read(MAX_SOURCE_BYTES + 1)
+                if len(raw) > MAX_SOURCE_BYTES: raise ValueError('Local settings exceed the safety limit.')
+                data = json.loads(raw)
                 if not isinstance(data, dict) or not isinstance(data.get('paths', []), list):
                     raise ValueError('Invalid local settings')
-                self.roots = [str(Path(p).expanduser().resolve()) for p in data.get('paths', []) if isinstance(p, str)]
+                paths = data.get('paths', [])
+                if len(paths) > MAX_SOURCES or any(not isinstance(p,str) or not p or len(p)>4096 or '\0' in p for p in paths):
+                    raise ValueError('Invalid local sources')
+                self.roots = list(dict.fromkeys(str(Path(p).expanduser().resolve()) for p in paths))
                 self.prefer_local = bool(data.get('preferLocal', False))
-            except (OSError, ValueError, RuntimeError):
+            except (OSError, ValueError, RuntimeError, TypeError, RecursionError):
                 backup = self.path.with_name(self.path.name + '.damaged-' + uuid.uuid4().hex)
                 try:
-                    shutil.copy2(self.path, backup)
+                    self.path.rename(backup)
                     self.warning = 'Local settings were unreadable. A backup was kept; add your music sources again.'
                 except OSError:
                     self.warning = 'Local settings could not be read or backed up. Check file permissions.'
@@ -69,15 +57,27 @@ class LocalLibrary:
         if self.path is None:
             raise RuntimeError('Local settings are not writable. Check file permissions and reopen the player.')
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        temp = self.path.with_suffix('.tmp')
-        temp.write_text(json.dumps({'paths': self.roots, 'preferLocal': self.prefer_local}))
-        temp.replace(self.path)
+        raw = json.dumps({'paths': self.roots, 'preferLocal': self.prefer_local}).encode()
+        if len(self.roots) > MAX_SOURCES or len(raw) > MAX_SOURCE_BYTES:
+            raise ValueError('Local settings exceed the 1 MiB / 1,000-source safety limit.')
+        name = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self.path.parent, prefix='.local-', delete=False) as stream:
+                name = stream.name
+                stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+            os.replace(name, self.path)
+        finally:
+            if name and os.path.exists(name): os.unlink(name)
 
     def add(self, paths):
+        if not isinstance(paths, list) or len(paths) > MAX_SOURCES:
+            raise ValueError('Select at most 1,000 files or folders.')
         candidate = list(self.roots)
         for value in paths:
+            if not isinstance(value, str) or not value or len(value) > 4096 or '\0' in value:
+                raise ValueError('Select a valid file or folder.')
             path = Path(value).expanduser().resolve()
-            if not path.exists(): raise ValueError('Selected file or folder is no longer available.')
+            if not (path.is_file() or path.is_dir()): raise ValueError('Selected file or folder is no longer available.')
             if str(path) not in candidate: candidate.append(str(path))
         previous = self.roots, self.prefer_local
         self.roots, self.prefer_local = candidate, True
@@ -96,23 +96,33 @@ class LocalLibrary:
             self.roots = previous
             raise
 
-    def scan(self):
+    def scan(self, cancel=None):
         files = set()
+        def check_cancel():
+            if cancel is not None and cancel.is_set(): raise RuntimeError('Local scan cancelled.')
         def include(path):
-            files.add(path.resolve())
+            check_cancel()
+            try:
+                if not path.is_file(): return
+                resolved = path.resolve()
+            except (OSError, RuntimeError): return
+            files.add(resolved)
             if len(files) > MAX_LOCAL_TRACKS:
                 raise ValueError(f'Local library exceeds {MAX_LOCAL_TRACKS:,} tracks. Choose smaller music folders.')
 
         for value in self.roots:
+            check_cancel()
             root = Path(value)
             if root.is_dir():
                 for directory, _, names in os.walk(root, followlinks=False):
+                    check_cancel()
                     for name in names:
                         path = Path(directory) / name
                         if path.suffix.lower() in EXTENSIONS: include(path)
             elif root.is_file(): include(root)
-        songs, skipped = [], 0
+        songs, skipped, total_bytes = [], 0, 0
         for path in sorted(files):
+            check_cancel()
             try:
                 stat = path.stat()
                 stamp = (stat.st_mtime_ns, stat.st_size)
@@ -121,23 +131,30 @@ class LocalLibrary:
                     item = cached[1]
                 else:
                     raw = probe_output(['ffprobe', '-v', 'error', '-protocol_whitelist', 'file',
-                                        '-show_format', '-show_streams', '-of', 'json', str(path)])
+                                        '-show_format', '-show_streams', '-of', 'json', str(path)], cancel=cancel)
                     data = json.loads(raw)
+                    if not isinstance(data, dict) or not isinstance(data.get('streams'), list) or not isinstance(data.get('format', {}), dict):
+                        raise ValueError('Unreadable audio metadata')
                     audio = next(s for s in data.get('streams', []) if s.get('codec_type') == 'audio')
                     tags = {k.lower(): v for k, v in {**data.get('format', {}).get('tags', {}), **audio.get('tags', {})}.items()}
                     def number(key):
                         try: return int(str(tags.get(key, 0)).split('/')[0])
                         except ValueError: return 0
-                    artist = tags.get('album_artist') or tags.get('albumartist') or tags.get('artist') or 'Unknown artist'
-                    album = tags.get('album') or path.parent.name or 'Unknown album'
+                    artist = metadata.text(tags.get('album_artist') or tags.get('albumartist') or tags.get('artist'), 'Unknown artist')
+                    album = metadata.text(tags.get('album'), metadata.text(path.parent.name, 'Unknown album'))
                     item = {'id': 'local:' + hashlib.sha256(str(path).encode()).hexdigest(), 'source': 'local',
-                            'path': str(path), 'title': tags.get('title') or path.stem, 'artist': artist, 'album': album,
+                            'path': str(path), 'title': metadata.text(tags.get('title'), metadata.text(path.stem)), 'artist': artist, 'album': album,
                             'albumId': 'local:' + hashlib.sha256((str(path.parent) + '\0' + album).encode()).hexdigest(),
-                            'duration': float(data.get('format', {}).get('duration') or audio.get('duration') or 0),
-                            'track': number('track'), 'disc': number('disc')}
+                            'duration': metadata.number(float(data.get('format', {}).get('duration') or audio.get('duration') or 0)),
+                            'track': int(metadata.number(number('track'))), 'disc': int(metadata.number(number('disc')))}
                     self.cache[str(path)] = (stamp, item)
-                songs.append(item)
-            except (OSError, ValueError, RecursionError, StopIteration, subprocess.TimeoutExpired): skipped += 1
+            except (OSError, ValueError, TypeError, AttributeError, OverflowError, RecursionError, StopIteration, subprocess.TimeoutExpired):
+                skipped += 1
+                continue
+            total_bytes += len(json.dumps(item, ensure_ascii=False, allow_nan=False).encode())
+            if total_bytes > MAX_LOCAL_BYTES:
+                raise ValueError('Local library exceeds the 64 MiB metadata safety limit. Choose smaller music folders.')
+            songs.append(item)
         self.cache = {str(p): self.cache[str(p)] for p in files if str(p) in self.cache}
         songs.sort(key=lambda s: (s['artist'].casefold(), s['album'].casefold(), s['disc'], s['track'], s['title'].casefold()))
         return songs, skipped

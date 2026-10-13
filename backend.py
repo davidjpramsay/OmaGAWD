@@ -25,6 +25,10 @@ from playback_store import identity
 import radio_library as radio
 from radio_store import RadioStore
 from radio_browser import RadioBrowser, PAGE_SIZE, MAX_RESULTS
+from clipboard_io import read_clipboard
+from bounded_process import run_bounded
+import metadata
+from playback_store import MAX_QUEUE_TRACKS, MAX_SESSION_BYTES
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -35,6 +39,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 MAX_API_BYTES = 8 * 1024 * 1024
 MAX_LIBRARY_BYTES = 64 * 1024 * 1024
 MAX_LIBRARY_TRACKS = 100000
+MAX_NUMBER_TICKS = 2**31 * 10000000
+MAX_IPC_BYTES = 4 * 1024 * 1024
 
 
 def read_api_body(response):
@@ -111,11 +117,23 @@ class Jellyfin:
 
     def login(self, username, password):
         data = self.request('/Users/AuthenticateByName', body={'Username': username, 'Pw': password})
-        self.token, self.user = data['AccessToken'], data['User']['Id']
+        token, user = data.get('AccessToken'), data.get('User')
+        if not isinstance(token, str) or not 0 < len(token) <= 4096 or not isinstance(user, dict) or not isinstance(user.get('Id'), str) or not 0 < len(user['Id']) <= 512:
+            raise ValueError('Jellyfin returned an invalid sign-in response.')
+        self.token, self.user = token, user['Id']
 
     def libraries(self):
         data = self.request('/UserViews', {'UserId': self.user})
-        return [{'id': i['Id'], 'name': i['Name']} for i in data.get('Items', []) if i.get('CollectionType') == 'music']
+        rows = data.get('Items', [])
+        if not isinstance(rows, list): raise ValueError('Jellyfin returned invalid libraries.')
+        result = []
+        for row in rows:
+            if not isinstance(row, dict): raise ValueError('Jellyfin returned an invalid library.')
+            if row.get('CollectionType') != 'music': continue
+            if not isinstance(row.get('Id'), str) or not 0 < len(row['Id']) <= 512:
+                raise ValueError('Jellyfin returned an invalid library identity.')
+            result.append({'id': row['Id'], 'name': metadata.text(row.get('Name'), 'Music')})
+        return result
 
     def songs(self, folder):
         result, seen, total_bytes = [], set(), 0
@@ -133,17 +151,24 @@ class Jellyfin:
             if total_bytes > MAX_LIBRARY_BYTES or len(result) + len(batch) > MAX_LIBRARY_TRACKS:
                 raise ValueError('Jellyfin library exceeds the safety limit (100,000 tracks / 64 MiB).')
             for i in batch:
-                if not isinstance(i, dict) or not isinstance(i.get('Id'), str) or not i['Id']:
+                if not isinstance(i, dict) or not isinstance(i.get('Id'), str) or not 0 < len(i['Id']) <= 512:
                     raise ValueError('Jellyfin returned an invalid track.')
                 if i['Id'] in seen:
                     raise ValueError('Jellyfin repeated tracks while paging. Refresh the library and try again.')
                 seen.add(i['Id'])
-                result.append({'id': i['Id'], 'title': i.get('Name', 'Untitled'),
-                               'artist': i.get('AlbumArtist') or ', '.join(i.get('Artists') or []) or 'Unknown artist',
-                               'album': i.get('Album') or 'Unknown album', 'albumId': i.get('AlbumId') or i.get('Album', ''),
-                               'duration': i.get('RunTimeTicks', 0) / 10000000,
-                               'track': i.get('IndexNumber', 0), 'disc': i.get('ParentIndexNumber', 0)})
-            if not batch or len(result) >= data.get('TotalRecordCount', len(result)):
+                artists = i.get('Artists')
+                artists = ', '.join(metadata.text(a) for a in artists[:32]) if isinstance(artists, list) else ''
+                ticks = i.get('RunTimeTicks', 0)
+                duration = ticks / 10000000 if type(ticks) in (int, float) and 0 <= ticks <= MAX_NUMBER_TICKS else 0
+                result.append({'id': i['Id'], 'title': metadata.text(i.get('Name'), 'Untitled'),
+                               'artist': metadata.text(i.get('AlbumArtist'), metadata.text(artists, 'Unknown artist')),
+                               'album': metadata.text(i.get('Album'), 'Unknown album'), 'albumId': metadata.text(i.get('AlbumId'), metadata.text(i.get('Album'))),
+                               'duration': metadata.number(duration),
+                               'track': int(metadata.number(i.get('IndexNumber', 0))), 'disc': int(metadata.number(i.get('ParentIndexNumber', 0)))})
+            total = data.get('TotalRecordCount', len(result))
+            if type(total) is not int or not 0 <= total <= MAX_LIBRARY_TRACKS:
+                raise ValueError('Jellyfin returned an invalid library size.')
+            if not batch or len(result) >= total:
                 return result
 
     def stream(self, item):
@@ -244,10 +269,15 @@ class Mpv:
 
     def read(self):
         try:
-            with self.sock.makefile() as stream:
-                for line in stream:
-                    self.callback(json.loads(line))
-        except (OSError, ValueError):
+            with self.sock.makefile('rb') as stream:
+                while True:
+                    line = stream.readline(MAX_IPC_BYTES + 1)
+                    if not line: break
+                    if len(line) > MAX_IPC_BYTES: raise ValueError('Playback metadata exceeds the safety limit.')
+                    event = json.loads(line)
+                    if not isinstance(event, dict): raise ValueError('Invalid playback event.')
+                    self.callback(event)
+        except (OSError, ValueError, RecursionError):
             pass
         finally:
             if not self.closing:
@@ -284,6 +314,9 @@ class Player:
         self.radio_generation = 0
         self.radio_future = None
         self.radio_work = ThreadPoolExecutor(max_workers=1)
+        self.clipboard_work = ThreadPoolExecutor(max_workers=1)
+        self.clipboard_future = None
+        self.closing = threading.Event()
         self.local = local
         self.preferences = preferences
         self.reduce_motion = False
@@ -596,7 +629,7 @@ class Player:
 
     def load_local(self, generation):
         if not self.local: raise RuntimeError('Local library unavailable.')
-        songs, skipped = self.local.scan()
+        songs, skipped = self.local.scan(cancel=self.closing)
         with self.lock:
             if generation != self.generation: return
             self.songs = songs
@@ -614,6 +647,8 @@ class Player:
     def local_command(self, command, generation):
         picker = command['cmd'] in ('choose_files', 'choose_folder')
         try:
+            with self.lock:
+                if generation != self.generation: return
             if not self.local: raise RuntimeError('Local library unavailable.')
             paths = command.get('paths', [])
             if command['cmd'] == 'local_remove':
@@ -628,10 +663,10 @@ class Player:
                 if command['cmd'] == 'choose_folder': args += ['--directory']
                 else: args += ['--multiple', '--separator=\n', '--file-filter=Audio | *.mp3 *.flac *.m4a *.aac *.ogg *.opus *.wav *.aiff *.aif *.alac *.wma *.ape *.wv *.m4b', '--file-filter=All files | *']
                 # Let the desktop portal provide the native file/folder picker.
-                result = subprocess.run(args, capture_output=True, text=True)
+                result = run_bounded(args, limit=1024*1024, timeout=3600, cancel=self.closing)
                 if result.returncode == 1: return
                 if result.returncode: raise RuntimeError('Could not open the file picker. Check that zenity is installed.')
-                paths = result.stdout.rstrip('\n').split('\n')
+                paths = result.stdout.decode('utf-8').rstrip('\n').split('\n')
             with self.lock:
                 if generation != self.generation: return
                 if paths:
@@ -646,7 +681,7 @@ class Player:
             with self.lock:
                 if generation == self.generation:
                     self.emit({'type': 'busy', 'value': False})
-                if picker: self.emit({'type': 'picker_closed'})
+                if picker and generation == self.generation: self.emit({'type': 'picker_closed'})
 
     def search_radio(self, command, generation):
         try:
@@ -672,9 +707,36 @@ class Player:
     def available_tracks(self):
         return self.songs + self.radio_results if self.folder == 'radio' else self.songs
 
+    def queue_fits(self, rows):
+        if len(rows) > MAX_QUEUE_TRACKS:
+            self.emit({'type': 'error', 'message': 'Playlist exceeds the 100,000-track safety limit.'})
+            return False
+        # Count encoded pieces, rather than constructing an oversized JSON string.
+        total = 0
+        for block in json.JSONEncoder(ensure_ascii=False, allow_nan=False).iterencode(rows):
+            total += len(block.encode('utf-8'))
+            if total > MAX_SESSION_BYTES - 65536:
+                self.emit({'type': 'error', 'message': 'Playlist exceeds the 64 MiB safety limit.'})
+                return False
+        return True
+
+    def paste_clipboard(self, request, primary):
+        try:
+            text = read_clipboard(primary)
+            self.emit({'type': 'clipboard', 'request': request, 'text': text})
+        except (OSError, ValueError, subprocess.SubprocessError):
+            self.emit({'type': 'clipboard', 'request': request,
+                       'error': 'Clipboard paste failed or exceeded its 64 KiB / 2-second limit. Copy a smaller amount of text and try again.'})
+
     def handle(self, c):
         with self.lock:
             cmd = c.get('cmd')
+            if cmd == 'clipboard_paste':
+                if not self.clipboard_future or self.clipboard_future.done():
+                    self.clipboard_future = self.clipboard_work.submit(self.paste_clipboard, c.get('request', 0), c.get('primary') is True)
+                else:
+                    self.emit({'type': 'clipboard', 'request': c.get('request', 0), 'error': 'A paste is already in progress.'})
+                return
             if cmd == 'prepare_update':
                 self.paused = True
                 if self.mpv and not self.idle:
@@ -754,6 +816,7 @@ class Player:
             elif cmd == 'add':
                 ids = set(c.get('ids', []))
                 selected = [dict(s, key=str(uuid.uuid4())) for s in {row['id']: row for row in self.available_tracks()}.values() if s['id'] in ids]
+                if not self.queue_fits(self.queue + selected): return
                 if any(radio.remote(s) for s in selected):
                     if self.queue_identity and self.queue_identity != identity(self.client):
                         self.emit({'type': 'error', 'message': 'Replace the playlist before adding music from a different Jellyfin account.'})
@@ -763,6 +826,7 @@ class Player:
             elif cmd == 'replace_play':
                 ids = set(c.get('ids', []))
                 selection = [dict(s, key=str(uuid.uuid4())) for s in {row['id']: row for row in self.available_tracks()}.values() if s['id'] in ids]
+                if not self.queue_fits(selection): return
                 if selection and (self.client or all(not radio.remote(s) for s in selection)):
                     self.queue = selection
                     self.queue_identity = identity(self.client) if any(radio.remote(s) for s in selection) else None
@@ -872,9 +936,11 @@ class Player:
         self.radio_title = ''
 
     def close(self):
+        with self.lock: self.generation += 1
+        self.closing.set()
+        self.clipboard_work.shutdown(wait=True, cancel_futures=True)
         self.radio_generation += 1
         self.radio_work.shutdown(wait=True, cancel_futures=True)
-        self.generation += 1
         with self.lock:
             if self.playback_store:
                 try: self.playback_store.close(self.session_snapshot())

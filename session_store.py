@@ -1,6 +1,7 @@
 """Store OmaGAWD's reconnect session and selected library in Secret Service."""
 import json
 import subprocess
+from bounded_process import run_bounded
 
 
 class SessionStore:
@@ -11,13 +12,14 @@ class SessionStore:
         if action == 'store':
             args += ['--label=OmaGAWD Jellyfin sign-in']
         try:
-            result = subprocess.run(args + self.attributes, input=payload, text=True,
-                                    capture_output=True, timeout=20)
-        except (OSError, subprocess.TimeoutExpired) as exc:
+            result = run_bounded(args + self.attributes, payload=payload.encode() if payload is not None else None,
+                                 limit=65536, timeout=20)
+            output = result.stdout.decode('utf-8')
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
             raise RuntimeError('System keyring unavailable. Unlock your keyring to remember sign-in.') from exc
         if result.returncode and not (action in ('lookup', 'clear') and not result.stderr.strip()):
             raise RuntimeError('System keyring unavailable. Unlock your keyring to remember sign-in.')
-        return result.stdout
+        return output
 
     def load(self):
         raw = self.run('lookup')
@@ -25,10 +27,11 @@ class SessionStore:
             return None
         try:
             session = json.loads(raw)
-            if not all(isinstance(session.get(k), str) and session[k] for k in ('url', 'username', 'token', 'user', 'device')):
+            limits = {'url': 4096, 'username': 256, 'token': 4096, 'user': 512, 'device': 512}
+            if not all(isinstance(session.get(k), str) and 0 < len(session[k]) <= n for k,n in limits.items()):
                 raise ValueError()
             return session
-        except (ValueError, TypeError, AttributeError) as exc:
+        except (ValueError, TypeError, AttributeError, RecursionError) as exc:
             raise RuntimeError('Saved sign-in is unreadable. Sign in again to replace it.') from exc
 
     def save(self, client, username, folder=""):

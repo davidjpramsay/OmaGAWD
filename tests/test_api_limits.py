@@ -78,7 +78,7 @@ class ApiLimitTests(unittest.TestCase):
 
     def test_pagination_cannot_repeat_forever(self):
         client=Jellyfin('https://example.invalid')
-        with patch.object(client,'request',return_value={'Items':[{'Id':'1'}],'TotalRecordCount':1000000}) as request:
+        with patch.object(client,'request',return_value={'Items':[{'Id':'1'}],'TotalRecordCount':100000}) as request:
             with self.assertRaisesRegex(ValueError,'repeated'): client.songs('music')
             self.assertEqual(request.call_count,2)
 

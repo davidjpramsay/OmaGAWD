@@ -332,19 +332,19 @@ Rectangle {
             AmpText { text: app.connected ? "You’re tuned in." : "Tune into your collection."; font.pixelSize: Style.font.title; Layout.fillWidth: true }
             AmpText { text: app.connected ? "Connected to Jellyfin as " + app.username : "Your server. Your records. One little receiver."; opacity: 0.55; Layout.fillWidth: true }
             AmpText { text: "JELLYFIN SERVER"; font.pixelSize: Style.font.caption; visible: !app.connected }
-            UI.TextField { font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); id: server; Layout.fillWidth: true; text: app.serverUrl; placeholderText: "https://music.example.com"; visible: !app.connected; enabled: !app.busy; Accessible.name: "Jellyfin server URL" }
+            AmpTextField { app: root.app; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); id: server; objectName: "serverInput"; maximumLength: 4096; Layout.fillWidth: true; text: app.serverUrl; placeholderText: "https://music.example.com"; visible: !app.connected; enabled: !app.busy; Accessible.name: "Jellyfin server URL" }
             RowLayout {
                 visible: !app.connected
                 Layout.fillWidth: true; spacing: Style.space(8)
                 ColumnLayout {
                     Layout.fillWidth: true
                     AmpText { text: "USERNAME"; font.pixelSize: Style.font.caption }
-                    UI.TextField { font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); id: username; text: app.savedUsername; Layout.fillWidth: true; placeholderText: "Username"; enabled: !app.busy; Accessible.name: "Username" }
+                    AmpTextField { app: root.app; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); id: username; objectName: "usernameInput"; maximumLength: 256; text: app.savedUsername; Layout.fillWidth: true; placeholderText: "Username"; enabled: !app.busy; Accessible.name: "Username" }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     AmpText { text: "PASSWORD"; font.pixelSize: Style.font.caption }
-                    UI.TextField { font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); id: password; Layout.fillWidth: true; password: true; placeholderText: "Password"; enabled: !app.busy; Accessible.name: "Password"; onAccepted: login.clicked() }
+                    AmpTextField { app: root.app; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); id: password; objectName: "passwordInput"; maximumLength: 4096; Layout.fillWidth: true; password: true; placeholderText: "Password"; enabled: !app.busy; Accessible.name: "Password"; onAccepted: login.clicked() }
                 }
             }
             RowLayout {
@@ -368,7 +368,7 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 visible: !root.radioMode || !root.radioAdding
-                UI.TextField {
+                AmpTextField { app: root.app;
                     id: search
                     objectName: "librarySearch"
                     Layout.fillWidth: true
@@ -470,9 +470,9 @@ Rectangle {
             RowLayout {
                 visible: root.radioMode && root.radioTab === "discover" && !root.radioAdding
                 Layout.fillWidth: true
-                UI.TextField { id: radioGenre; objectName: "radioGenre"; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Genre"; Accessible.name: "Radio genre"; onTextChanged: root.radioEdited(); onAccepted: root.discoverRadio() }
-                UI.TextField { id: radioCountry; objectName: "radioCountry"; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Country"; Accessible.name: "Radio country"; onTextChanged: root.radioEdited(); onAccepted: root.discoverRadio() }
-                UI.TextField { id: radioLanguage; objectName: "radioLanguage"; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Language"; Accessible.name: "Radio language"; onTextChanged: root.radioEdited(); onAccepted: root.discoverRadio() }
+                AmpTextField { app: root.app; id: radioGenre; objectName: "radioGenre"; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Genre"; Accessible.name: "Radio genre"; onTextChanged: root.radioEdited(); onAccepted: root.discoverRadio() }
+                AmpTextField { app: root.app; id: radioCountry; objectName: "radioCountry"; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Country"; Accessible.name: "Radio country"; onTextChanged: root.radioEdited(); onAccepted: root.discoverRadio() }
+                AmpTextField { app: root.app; id: radioLanguage; objectName: "radioLanguage"; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Language"; Accessible.name: "Radio language"; onTextChanged: root.radioEdited(); onAccepted: root.discoverRadio() }
                 AmpButton { objectName: "radioSearchButton"; text: "SEARCH"; enabled: !app.radioBusy; onClicked: root.discoverRadio() }
             }
             ColumnLayout {
@@ -480,8 +480,8 @@ Rectangle {
                 Layout.fillWidth: true; Layout.fillHeight: true
                 spacing: Style.space(10)
                 AmpText { text: "ADD RADIO STATION"; font.bold: true }
-                UI.TextField { id: radioName; objectName: "radioName"; Layout.fillWidth: true; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Station name"; Accessible.name: "Station name"; onAccepted: radioUrl.forceActiveFocus(Qt.TabFocusReason) }
-                UI.TextField { id: radioUrl; objectName: "radioUrl"; Layout.fillWidth: true; maximumLength: 4096; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "https://… / stream"; Accessible.name: "Radio stream link"; onAccepted: if (radioName.text.trim() && radioUrl.text.trim()) root.saveManualStation() }
+                AmpTextField { app: root.app; id: radioName; objectName: "radioName"; Layout.fillWidth: true; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Station name"; Accessible.name: "Station name"; onAccepted: radioUrl.forceActiveFocus(Qt.TabFocusReason) }
+                AmpTextField { app: root.app; id: radioUrl; objectName: "radioUrl"; Layout.fillWidth: true; maximumLength: 4096; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "https://… / stream"; Accessible.name: "Radio stream link"; onAccepted: if (radioName.text.trim() && radioUrl.text.trim()) root.saveManualStation() }
                 AmpText { Layout.fillWidth: true; text: "Paste the direct audio stream link, rather than the station website."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.55 }
                 RowLayout {
                     AmpButton { objectName: "saveManualRadio"; text: "SAVE STATION"; enabled: !!radioName.text.trim() && !!radioUrl.text.trim(); onClicked: root.saveManualStation() }

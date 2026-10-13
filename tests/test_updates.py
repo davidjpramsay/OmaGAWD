@@ -58,7 +58,8 @@ class ReleaseChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             installed = Path(home) / '.config/omarchy/plugins/david.omaamp'
             installed.mkdir(parents=True)
-            with patch.object(updates.subprocess, 'run') as run:
+            with patch.object(updates, 'run_bounded') as run:
+                run.return_value.returncode = 0
                 self.assertFalse(updates.managed_install(installed, home))
                 (installed / '.git').mkdir()
                 run.return_value.stdout = b'git@github.com:davidjpramsay/OmaGAWD.git\n'

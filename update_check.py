@@ -7,6 +7,7 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+from bounded_process import run_bounded
 
 RELEASES = 'https://api.github.com/repos/davidjpramsay/OmaGAWD/releases?per_page=100'
 MAX_BYTES = 1024 * 1024
@@ -34,9 +35,9 @@ def managed_install(directory, home=None):
     if expected.is_symlink() or directory != expected.resolve() or not (directory / '.git').is_dir():
         return False
     try:
-        result = subprocess.run(['/usr/bin/git', '-C', str(directory), 'config', '--get', 'remote.origin.url'],
-                                capture_output=True, timeout=3, check=True)
-        return len(result.stdout) < 1024 and result.stdout.decode().strip().lower() in ORIGINS
+        result = run_bounded(['/usr/bin/git', '-C', str(directory), 'config', '--get', 'remote.origin.url'],
+                             limit=1024, timeout=3)
+        return result.returncode == 0 and len(result.stdout) < 1024 and result.stdout.decode().strip().lower() in ORIGINS
     except (OSError, ValueError, subprocess.SubprocessError):
         return False
 
@@ -87,7 +88,7 @@ def check(directory, opener=None, clock=time.monotonic):
         while True:
             if clock() >= deadline:
                 raise ValueError('Release check timed out')
-            block = response.read(min(16384, MAX_BYTES + 1 - len(raw)))
+            block = response.read1(min(16384, MAX_BYTES + 1 - len(raw)))
             if clock() >= deadline:
                 raise ValueError('Release check timed out')
             if not block:

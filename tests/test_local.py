@@ -107,15 +107,12 @@ class LocalTests(unittest.TestCase):
     def test_folder_picker_uses_desktop_defaults_and_imports_selection(self):
         events = []
         p = Player(events.append, FakeMpv, local=self.local)
-        real_run = subprocess.run
         calls = []
         def run(args, **kwargs):
-            if args[0] == 'zenity':
-                calls.append((args, kwargs))
-                return Mock(returncode=0, stdout=str(self.music) + '\n', stderr='')
-            return real_run(args, **kwargs)
+            calls.append((args, kwargs))
+            return Mock(returncode=0, stdout=(str(self.music) + '\n').encode(), stderr=b'')
         try:
-            with patch('backend.subprocess.run', side_effect=run):
+            with patch('backend.run_bounded', side_effect=run):
                 p.local_command({'cmd': 'choose_folder'}, 0)
             self.assertIn('--directory', calls[0][0])
             self.assertNotIn('env', calls[0][1])
@@ -127,7 +124,7 @@ class LocalTests(unittest.TestCase):
         events = []
         p = Player(events.append, FakeMpv, local=self.local)
         try:
-            with patch('backend.subprocess.run', return_value=Mock(returncode=1)):
+            with patch('backend.run_bounded', return_value=Mock(returncode=1)):
                 p.local_command({'cmd': 'choose_folder'}, 0)
             self.assertEqual(self.local.roots, [])
             self.assertFalse(any(e.get('type') == 'error' for e in events))
