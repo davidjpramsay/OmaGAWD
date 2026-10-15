@@ -36,7 +36,9 @@ def wait_for(predicate):
 
 class HostedTests(unittest.TestCase):
     def setUp(self):
-        self.calls = []; self.created = []
+        self.calls = []; self.created = []; self.deleted = False
+        self.can_delete = True; self.delete_status = 204; self.bad_delete_reply = False
+        self.delete_item = {'Id': key(10), 'Type': 'Playlist', 'MediaType': 'Audio', 'CanDelete': True}
         self.items = [item(1), item(2), item(1)]
         self.deny = False; self.fail_preview = False; self.bad_creation_reply = False
         self.server_version = '10.11.0'
@@ -51,12 +53,13 @@ class HostedTests(unittest.TestCase):
             def do_GET(self):
                 owner.calls.append(('GET', self.path, self.headers.get('Authorization')))
                 path = urlsplit(self.path).path
-                if '/Playlists/' in path and owner.gate:
+                if ('/Playlists/' in path or 'Ids=' in self.path) and owner.gate:
                     owner.entered.set(); owner.gate.wait(3)
                 if owner.deny: self.send_error(403); return
                 if path == '/jellyfin/System/Info/Public': self.answer({'Version':owner.server_version})
                 elif path == '/jellyfin/Items':
-                    self.answer({'Items': [{'Id': key(10), 'Name': 'Server mix', 'Type': 'Playlist', 'MediaType': 'Audio', 'ChildCount': 3}], 'TotalRecordCount': 1})
+                    if 'Ids=' in self.path: self.answer({'Items': [dict(owner.delete_item, CanDelete=owner.can_delete)], 'TotalRecordCount': 1})
+                    else: self.answer({'Items': [] if owner.deleted else [{'Id': key(10), 'Name': 'Server mix', 'Type': 'Playlist', 'MediaType': 'Audio', 'ChildCount': 3, 'CanDelete': owner.can_delete}], 'TotalRecordCount': 0 if owner.deleted else 1})
                 elif '/Playlists/' in path:
                     if owner.fail_preview: self.send_error(404); return
                     params = parse_qs(urlsplit(self.path).query); offset = int(params['StartIndex'][0]); limit = int(params['Limit'][0])
@@ -66,6 +69,16 @@ class HostedTests(unittest.TestCase):
                     self.send_response(200); self.send_header('Content-Type', 'audio/wav'); self.send_header('Content-Length', str(len(raw)))
                     self.end_headers(); self.wfile.write(raw)
                 else: self.send_error(404)
+            def do_DELETE(self):
+                owner.calls.append(('DELETE', self.path, self.headers.get('Authorization')))
+                if owner.deny or owner.delete_status != 204:
+                    self.send_error(403 if owner.deny else owner.delete_status); return
+                if self.path != '/jellyfin/Items/' + key(10): self.send_error(400); return
+                owner.deleted = True
+                if owner.bad_delete_reply:
+                    self.send_response(200); self.send_header('Content-Length', '7'); self.end_headers(); self.wfile.write(b'invalid')
+                else:
+                    self.send_response(204); self.send_header('Content-Length', '0'); self.end_headers()
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 owner.calls.append(('POST', self.path, self.headers.get('Authorization')))
@@ -91,6 +104,61 @@ class HostedTests(unittest.TestCase):
     def run_command(self, cmd, **kw):
         self.player.handle(dict(cmd=cmd, request=1, **kw))
         self.player.hosted_work.submit(lambda: None).result(timeout=4)
+
+    def test_delete_confirmed_playlist_keeps_playing_queue_and_audio(self):
+        self.run_command('hosted_list')
+        engine, queue, commands = self.player.mpv, list(self.player.queue), list(self.player.mpv.commands)
+        self.run_command('hosted_delete', id=key(10), confirmed=True)
+        self.assertTrue(self.deleted); self.assertEqual(self.player.hosted_playlists, [])
+        self.assertTrue(any(e['type'] == 'hosted_deleted' for e in self.events))
+        self.assertEqual(next(e for e in reversed(self.events) if e['type'] == 'hosted_items')['songs'], [])
+        self.assertIs(self.player.mpv, engine); self.assertEqual(self.player.queue, queue)
+        self.assertEqual(self.player.position, 42); self.assertEqual(self.player.mpv.commands, commands)
+        self.assertEqual([c[1] for c in self.calls if c[0] == 'DELETE'], ['/jellyfin/Items/' + key(10)])
+        self.assertTrue(all('fixture-token' in c[2] and 'fixture-token' not in c[1] for c in self.calls))
+
+    def test_delete_requires_confirmation_selection_and_fresh_permission(self):
+        self.run_command('hosted_list'); self.calls.clear()
+        for value in (None, False, 1, 'true'):
+            self.run_command('hosted_delete', id=key(10), confirmed=value)
+        self.run_command('hosted_delete', id=key(99), confirmed=True)
+        self.assertEqual(self.calls, [])
+        for permission in (False, None, 1, 'true'):
+            self.can_delete = permission
+            self.run_command('hosted_delete', id=key(10), confirmed=True)
+        self.assertFalse(any(c[0] == 'DELETE' for c in self.calls))
+        self.assertFalse(self.deleted); self.assertEqual(len(self.player.hosted_playlists), 1)
+        self.assertIn('permission', next(e['message'] for e in reversed(self.events) if e['type'] == 'hosted_error'))
+
+    def test_delete_rejects_non_playlist_wrong_id_or_non_music(self):
+        self.run_command('hosted_list')
+        for changed in ({'Type': 'Audio'}, {'Type': None}, {'MediaType': 'Video'}, {'MediaType': None}, {'Id': key(1)}, {'Id': 'bad'}):
+            self.delete_item = dict(Id=key(10), Type='Playlist', MediaType='Audio')
+            self.delete_item.update(changed)
+            self.run_command('hosted_delete', id=key(10), confirmed=True)
+        self.assertFalse(any(c[0] == 'DELETE' for c in self.calls)); self.assertFalse(self.deleted)
+
+    def test_delete_server_denial_and_uncertain_response_do_not_retry(self):
+        self.run_command('hosted_list')
+        self.delete_status = 403
+        self.run_command('hosted_delete', id=key(10), confirmed=True)
+        self.assertFalse(self.deleted); self.assertEqual(len(self.player.hosted_playlists), 1)
+        self.delete_status = 204; self.bad_delete_reply = True
+        self.run_command('hosted_delete', id=key(10), confirmed=True)
+        self.assertTrue(self.deleted); self.assertEqual(len(self.player.hosted_playlists), 1)
+        self.assertEqual(len([c for c in self.calls if c[0] == 'DELETE']), 2)
+        self.assertIn('could not be confirmed', next(e['message'] for e in reversed(self.events) if e['type'] == 'hosted_error'))
+        self.run_command('hosted_list'); self.assertEqual(self.player.hosted_playlists, [])
+
+    def test_account_change_during_delete_permission_check_cancels_mutation(self):
+        self.run_command('hosted_list')
+        self.gate = threading.Event()
+        self.player.handle({'cmd': 'hosted_delete', 'id': key(10), 'confirmed': True, 'request': 2})
+        self.assertTrue(self.entered.wait(1))
+        with self.player.lock: self.player.client = Jellyfin('https://other.example'); self.player.clear_hosted()
+        self.gate.set(); self.player.hosted_work.submit(lambda: None).result(timeout=4)
+        self.assertFalse(any(c[0] == 'DELETE' for c in self.calls))
+        self.assertFalse(any(e['type'] == 'hosted_deleted' for e in self.events))
 
     def test_read_and_private_creation_preserve_playback_order_and_duplicates(self):
         engine, queue = self.player.mpv, list(self.player.queue)

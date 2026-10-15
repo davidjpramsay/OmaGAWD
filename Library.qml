@@ -21,12 +21,22 @@ Rectangle {
     readonly property bool hostedMode: app.tab === "saved" && savedScope === "jellyfin"
     property string hostedPlaylistId: ""
     property string hostedSong: ""
+    property string hostedDeleteId: ""
+    property string hostedDeleteName: ""
+    property bool hostedDeleteFocusPending: false
+    readonly property var hostedSelected: (app.hostedPlaylists || []).find(r => r.id === root.hostedPlaylistId) || null
+    onHostedPlaylistIdChanged: hostedDeleteId = ""
     property bool hostedFocusPending: false
     readonly property bool hostedQueue: app.connected && app.state.queue.length > 0 && app.state.queue.every(r => (!r.source || r.source === "jellyfin") && !r.path && !r.radioUrl)
     function openHosted() { if (hostedMode && app.refreshHosted) app.refreshHosted(false) }
-    onHostedModeChanged: if (hostedMode) Qt.callLater(function() { root.openHosted(); root.focusSaved() })
+    onHostedModeChanged: { hostedDeleteId = ""; hostedDeleteFocusPending = false; if (hostedMode) Qt.callLater(function() { root.openHosted(); root.focusSaved() }) }
     function chooseHosted(key) { if (hostedPlaylistId !== key) { hostedPlaylistId = key; hostedSong = ""; app.readHosted(key) } }
     function cycleHosted(backward) {
+        if (hostedDeleteId) {
+            if (cancelHostedDelete.activeFocus) confirmHostedDelete.forceActiveFocus()
+            else cancelHostedDelete.forceActiveFocus()
+            return
+        }
         if (hostedList.listFocused) hostedTracks.focusList()
         else if (hostedTracks.listFocused || !backward) hostedList.focusList()
         else hostedTracks.focusList()
@@ -135,7 +145,14 @@ Rectangle {
             if (root.radioMode && root.radioTab === "discover" && !root.radioRows.some(row => row.id === root.station)) root.station = ""
         }
         function onSavedPlaylistsChanged() { if (!(app.savedPlaylists || []).some(r => r.id === root.savedPlaylistId)) root.savedPlaylistId = "" }
-        function onConnectedChanged() { if (app.connected) Qt.callLater(root.openHosted) }
+        function onConnectedChanged() { root.hostedDeleteId = ""; if (app.connected) Qt.callLater(root.openHosted) }
+        function onOpenedChanged() { if (!app.opened) root.hostedDeleteId = "" }
+        function onHostedBusyChanged() {
+            if (!app.hostedBusy && root.hostedDeleteFocusPending) {
+                root.hostedDeleteFocusPending = false
+                if (root.hostedMode) Qt.callLater(root.focusSaved)
+            }
+        }
         function onReadyChanged() { if (app.ready) Qt.callLater(root.openHosted) }
         function onHostedPlaylistsChanged() {
             if (!(app.hostedPlaylists || []).some(r => r.id === root.hostedPlaylistId)) { root.hostedPlaylistId = ""; root.hostedSong = "" }
@@ -292,10 +309,21 @@ Rectangle {
             }
             AmpText { Layout.fillWidth: true; visible: !!app.hostedNotice; text: app.hostedNotice || ""; color: Color.accent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
             AmpText { Layout.fillWidth: true; visible: !!app.hostedError; text: app.hostedError || ""; color: Color.urgent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
+            ColumnLayout {
+                visible: !!root.hostedDeleteId
+                Layout.fillWidth: true
+                AmpText { text: "Delete “" + root.hostedDeleteName + "” from Jellyfin? Songs and the current queue are kept."; Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone }
+                RowLayout {
+                    AmpButton { id: cancelHostedDelete; objectName: "cancelHostedDelete"; text: "CANCEL"; enabled: !app.hostedBusy; onClicked: { root.hostedDeleteId = ""; root.focusSaved() } Keys.onEscapePressed: clicked(); Keys.onReturnPressed: clicked(); Keys.onEnterPressed: clicked() }
+                    AmpButton { id: confirmHostedDelete; objectName: "confirmHostedDelete"; text: "DELETE"; enabled: !!root.hostedDeleteId && app.connected && !app.hostedBusy; onClicked: { const key = root.hostedDeleteId; root.hostedDeleteId = ""; root.hostedDeleteFocusPending = true; app.deleteHosted(key) } Keys.onEscapePressed: cancelHostedDelete.clicked(); Keys.onReturnPressed: clicked(); Keys.onEnterPressed: clicked() }
+                }
+            }
             RowLayout {
+                visible: !root.hostedDeleteId
                 AmpButton { objectName: "loadHostedPlaylist"; text: "LOAD"; hint: "Load into the queue, paused"; enabled: !!root.hostedPlaylistId && !app.hostedBusy; onClicked: app.loadHosted(root.hostedPlaylistId, false, 0) }
                 AmpButton { objectName: "playHostedPlaylist"; text: "PLAY"; enabled: !!root.hostedPlaylistId && !app.hostedBusy; onClicked: app.loadHosted(root.hostedPlaylistId, true, 0) }
                 Item { Layout.fillWidth: true }
+                AmpButton { objectName: "deleteHostedPlaylist"; text: "DELETE"; hint: "Delete the selected playlist from Jellyfin"; enabled: !!root.hostedSelected && root.hostedSelected.canDelete !== false && app.connected && !app.hostedBusy; onClicked: { root.hostedDeleteName = root.hostedSelected.name; root.hostedDeleteId = root.hostedPlaylistId; cancelHostedDelete.forceActiveFocus() } }
                 AmpButton { objectName: "retryHostedPlaylists"; text: "RETRY"; visible: !!app.hostedError; enabled: !app.hostedBusy; onClicked: app.refreshHosted(true) }
             }
         }

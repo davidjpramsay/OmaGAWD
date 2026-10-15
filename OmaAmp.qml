@@ -53,8 +53,9 @@ Item {
         if (!ready || !connected || (hostedBusy && hostedAction === "write")) return
         hostedRequest++; command.request = hostedRequest
         hostedRefreshSelection = false
-        hostedError = ""; hostedNotice = ""
-        hostedBusy = true; hostedAction = command.cmd === "hosted_create" || command.cmd === "hosted_load" ? "write" : "read"
+        hostedError = ""
+        if (command.cmd !== "hosted_items") hostedNotice = ""
+        hostedBusy = true; hostedAction = ["hosted_create", "hosted_load", "hosted_delete"].indexOf(command.cmd) >= 0 ? "write" : "read"
         send(command)
     }
     function refreshHosted(force) {
@@ -68,6 +69,7 @@ Item {
     }
     function loadHosted(key, play, index) { hostedCommand({cmd: "hosted_load", id: key, play: play, index: index || 0}) }
     function createHosted(name) { hostedCommand({cmd: "hosted_create", name: name}) }
+    function deleteHosted(key) { hostedCommand({cmd: "hosted_delete", id: key, confirmed: true}) }
     function resetHosted() {
         hostedRequest++; hostedPlaylists = []; hostedSongs = []; hostedItemsId = ""
         hostedBusy = false; hostedAction = ""; hostedError = ""; hostedNotice = ""; hostedLastRefresh = 0; hostedRefreshSelection = false
@@ -298,6 +300,7 @@ Item {
         }
         else if (data.type === "hosted_error" && data.request >= hostedRequest) { hostedRequest = data.request; hostedError = data.message; hostedBusy = false; hostedAction = ""; hostedLastRefresh = 0 }
         else if (data.type === "hosted_created" && data.request >= hostedRequest) { hostedRequest = data.request; hostedNotice = "Created on Jellyfin · " + data.name; hostedCreated(data.id) }
+        else if (data.type === "hosted_deleted" && data.request >= hostedRequest) { hostedRequest = data.request; hostedNotice = "Playlist deleted from Jellyfin." }
         else if (data.type === "restore_retry") restoreRetry = data.value
         else if (data.type === "remote_libraries") remoteLibraries = data.libraries
         else if (data.type === "local_sources") { hasLocalSources = data.available; localSources = data.paths || [] }

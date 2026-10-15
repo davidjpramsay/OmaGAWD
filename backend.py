@@ -109,12 +109,12 @@ class Jellyfin:
             values['Token'] = self.token
         return 'MediaBrowser ' + ', '.join(k + '="' + urllib.parse.quote(v, safe='') + '"' for k, v in values.items())
 
-    def request(self, path, params=None, body=None):
+    def request(self, path, params=None, body=None, method=None):
         url = self.url + path
         if params:
             url += '?' + urllib.parse.urlencode(params)
         headers = {'Authorization': self.authorization(), 'Content-Type': 'application/json', 'Accept-Encoding': 'identity'}
-        request = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, headers=headers)
+        request = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, headers=headers, method=method)
         with self.opener.open(request, timeout=20) as response:
             raw = read_api_body(response)
             self.response_bytes = len(raw)
@@ -488,10 +488,15 @@ class Player:
         if not client or not client.user or not client.token:
             self.emit({'type': 'hosted_error', 'request': request, 'message': 'Connect to Jellyfin to use server playlists.'})
             return
-        mutating = command['cmd'] in ('hosted_create', 'hosted_load')
+        mutating = command['cmd'] in ('hosted_create', 'hosted_load', 'hosted_delete')
         if self.hosted_active and (mutating or self.hosted_mutating):
             self.emit({'type': 'hosted_error', 'request': request, 'message': 'A playlist request is still running. Try again in a moment.'})
             return
+        if command['cmd'] == 'hosted_delete':
+            key = hosted.item_id(command.get('id'))
+            if command.get('confirmed') is not True or not any(row['id'] == key for row in self.hosted_playlists):
+                self.emit({'type': 'hosted_error', 'request': request, 'message': 'Select a Jellyfin playlist and confirm its deletion first.'})
+                return
         rows = [dict(row) for row in self.queue] if command['cmd'] == 'hosted_create' else None
         if rows is not None and self.queue_identity != identity(client):
             self.emit({'type': 'hosted_error', 'request': request, 'message': 'The queue must belong to the connected Jellyfin account.'})
@@ -528,6 +533,15 @@ class Player:
                         if current():
                             self.hosted_playlists = result
                             self.emit({'type': 'hosted_playlists', 'request': request, 'playlists': result})
+                elif cmd == 'hosted_delete':
+                    key = hosted.item_id(command.get('id'))
+                    hosted.delete(client, key, lambda: not current())
+                    with self.lock:
+                        if not current(): raise hosted.Cancelled()
+                        self.hosted_playlists = [row for row in self.hosted_playlists if row['id'] != key]
+                        self.emit({'type': 'hosted_playlists', 'request': request, 'playlists': self.hosted_playlists})
+                        self.emit({'type': 'hosted_items', 'request': request, 'id': '', 'songs': []})
+                        self.emit({'type': 'hosted_deleted', 'request': request, 'id': key})
                 else:
                     key = command.get('id')
                     if cmd == 'hosted_create':
@@ -568,7 +582,9 @@ class Player:
                     message = 'Jellyfin denied playlist access. Check this account’s permissions.' if status in (401, 403) else 'This Jellyfin playlist is no longer available.' if status == 404 else 'Jellyfin could not complete the playlist request.'
                     if command['cmd'] == 'hosted_create' and status not in (401, 403, 400, 422):
                         message += ' Check Jellyfin before retrying; the playlist may already exist.'
-                elif isinstance(exc, hosted.CreationUncertain): message = str(exc)
+                    if command['cmd'] == 'hosted_delete' and status not in (401, 403, 400, 422, 404):
+                        message += ' Refresh the list before trying to delete it again; it may already be gone.'
+                elif isinstance(exc, (hosted.CreationUncertain, hosted.DeletionUncertain)): message = str(exc)
                 elif isinstance(exc, ValueError): message = str(exc) if not isinstance(exc, json.JSONDecodeError) else 'Jellyfin returned invalid playlist data.'
                 else: message = 'Could not reach Jellyfin. If you were creating a playlist, check Jellyfin before retrying; it may already exist.'
                 if created: message = 'Playlist created, but its tracks could not be loaded. Open it again to retry.'
@@ -1053,7 +1069,7 @@ class Player:
                     self.emit({'type': 'local_manager_closed'})
                     raise
                 return
-            if cmd in ('hosted_list', 'hosted_items', 'hosted_create', 'hosted_load'):
+            if cmd in ('hosted_list', 'hosted_items', 'hosted_create', 'hosted_load', 'hosted_delete'):
                 self.submit_hosted(c)
                 return
             if cmd in ('add', 'replace_play', 'remove', 'move', 'clear', 'play', 'pause', 'stop', 'next', 'previous', 'seek', 'collection_load', 'prepare_update'):

@@ -33,6 +33,7 @@ Item {
         function refreshHosted(force) { send({cmd: "hosted_list", force: force}) }
         function readHosted(key) { send({cmd: "hosted_items", id: key}) }
         function loadHosted(key, play, index) { send({cmd: "hosted_load", id: key, play: play, index: index}) }
+        function deleteHosted(key) { send({cmd: "hosted_delete", id: key, confirmed: true}) }
         function createHosted(name) { send({cmd: "hosted_create", name: name}) }
         property string username: ""
         property string savedUsername: ""
@@ -80,7 +81,7 @@ Item {
             fakeApp.selectedLibrary = "local"
             fakeApp.connected = false
             library.savedScope = "device"
-            library.hostedPlaylistId = ""; library.hostedSong = ""
+            library.hostedPlaylistId = ""; library.hostedSong = ""; library.hostedDeleteFocusPending = false
             fakeApp.hostedPlaylists = []; fakeApp.hostedSongs = []; fakeApp.hostedItemsId = ""
             fakeApp.hostedBusy = false; fakeApp.hostedAction = ""; fakeApp.hostedError = ""; fakeApp.hostedNotice = ""
             fakeApp.lastRemoteLibrary = ""
@@ -413,6 +414,30 @@ Item {
             fakeApp.hostedCreated("new")
             compare(library.hostedPlaylistId, "new"); compare(field.text, "")
             grabImage(library).save("/tmp/omagawd-hosted-playlists-qml.png")
+        }
+        function test_hosted_delete_confirmation_permissions_and_keyboard() {
+            fakeApp.connected = true; fakeApp.tab = "saved"; library.savedScope = "jellyfin"
+            fakeApp.hostedPlaylists = [{id: "first", name: "Driving", count: 2, canDelete: true}, {id: "second", name: "Shared", count: 3, canDelete: false}]
+            wait(30); library.hostedPlaylistId = "first"; fakeApp.commands = []
+            const remove = findChild(library, "deleteHostedPlaylist")
+            remove.clicked(); compare(fakeApp.commands.length, 0)
+            compare(library.hostedDeleteId, "first")
+            verify(findChild(library, "cancelHostedDelete").activeFocus)
+            keyClick(Qt.Key_Return); compare(library.hostedDeleteId, "")
+            verify(!fakeApp.commands.some(c => c.cmd === "hosted_delete"))
+            remove.clicked(); library.hostedPlaylistId = "second"
+            compare(library.hostedDeleteId, ""); verify(!remove.enabled)
+            library.hostedPlaylistId = "first"; fakeApp.commands = []; remove.clicked()
+            library.cycleHosted(false)
+            verify(findChild(library, "confirmHostedDelete").activeFocus)
+            keyClick(Qt.Key_Return)
+            compare(fakeApp.commands, [{cmd: "hosted_delete", id: "first", confirmed: true}])
+            fakeApp.hostedBusy = true; verify(!remove.enabled)
+            fakeApp.hostedBusy = false; wait(30); verify(findChild(library, "hostedPlaylistList").listFocused)
+            remove.clicked(); keyClick(Qt.Key_Escape)
+            compare(library.hostedDeleteId, "")
+            remove.clicked(); fakeApp.hostedPlaylists = []
+            compare(library.hostedDeleteId, ""); verify(!remove.enabled)
         }
         function test_refresh_validates_child_selection() {
             library.artist = "A"

@@ -19,6 +19,10 @@ class CreationUncertain(RuntimeError):
     pass
 
 
+class DeletionUncertain(RuntimeError):
+    pass
+
+
 def item_id(value):
     if not isinstance(value, str) or len(value) not in (32, 36):
         raise ValueError('Jellyfin returned an invalid playlist or track identity.')
@@ -67,7 +71,7 @@ def pages(client, path, params, maximum, cancelled):
 def catalog(client, cancelled=lambda: False):
     result, seen = [], set()
     params = {'UserId': client.user, 'IncludeItemTypes': 'Playlist', 'MediaTypes': 'Audio',
-              'Recursive': 'true', 'SortBy': 'SortName', 'SortOrder': 'Ascending', 'Fields': 'ChildCount'}
+              'Recursive': 'true', 'SortBy': 'SortName', 'SortOrder': 'Ascending', 'Fields': 'ChildCount,CanDelete'}
     for page in pages(client, '/Items', params, MAX_PLAYLISTS, cancelled):
         for row in page:
             if not isinstance(row, dict): raise ValueError('Jellyfin returned an invalid playlist.')
@@ -79,7 +83,8 @@ def catalog(client, cancelled=lambda: False):
             count = row.get('ChildCount')
             if count is not None and (type(count) is not int or not 0 <= count <= MAX_TRACKS):
                 raise ValueError('Jellyfin returned an invalid playlist size.')
-            result.append({'id': key, 'name': metadata.text(row.get('Name'), 'Untitled playlist'), 'count': count})
+            result.append({'id': key, 'name': metadata.text(row.get('Name'), 'Untitled playlist'), 'count': count,
+                           'canDelete': row.get('CanDelete') is True})
     return result
 
 
@@ -94,6 +99,31 @@ def tracks(client, playlist, cancelled=lambda: False):
             song['entry'] = str(len(result))
             result.append(song)
     return result
+
+
+def delete(client, playlist, cancelled=lambda: False):
+    key, user = item_id(playlist), item_id(client.user)
+    if cancelled(): raise Cancelled()
+    # DELETE /Items also deletes media. Recheck the exact item and current
+    # account permission immediately before sending it; never trust cached UI.
+    data = client.request('/Items', {'Ids': key, 'UserId': user, 'Fields': 'CanDelete', 'Limit': 1})
+    if cancelled(): raise Cancelled()
+    rows = data.get('Items')
+    if not isinstance(rows, list) or len(rows) != 1:
+        raise ValueError('This Jellyfin playlist is no longer available. Refresh the list.')
+    row = rows[0]
+    if (not isinstance(row, dict) or item_id(row.get('Id')) != key
+            or row.get('Type') != 'Playlist' or row.get('MediaType') != 'Audio'):
+        raise ValueError('Only a verified Jellyfin music playlist can be deleted.')
+    if row.get('CanDelete') is not True:
+        raise ValueError('This Jellyfin account does not have permission to delete this playlist.')
+    if cancelled(): raise Cancelled()
+    # No automatic retry: a lost response may mean deletion already succeeded.
+    try:
+        client.request('/Items/' + key, method='DELETE')
+    except urllib.error.HTTPError: raise
+    except Exception as exc:
+        raise DeletionUncertain('Deletion could not be confirmed. Refresh the playlist list before trying again; it may already be gone.') from exc
 
 
 def create(client, title, rows, cancelled=lambda: False):
