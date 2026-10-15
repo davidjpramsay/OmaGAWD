@@ -133,7 +133,10 @@ final class DockedPlayerPanel: NSPanel {
     private(set) var collectionPane: CollectionPane!
     private var playlistSection = 0
     private let playlistSections = NSSegmentedControl(labels: ["Queue", "Saved", "Recent"], trackingMode: .selectOne, target: nil, action: nil)
-    private(set) var settingsController: PlayerSettings?
+    private(set) var settingsPane: PlayerSettings!
+    private(set) var settingsVisible = false
+    private var settingsReturnCompact = false
+    private var settingsButton: NSButton!
     let source = NSPopUpButton()
     let footer = label("", size: 10, color: .secondaryLabelColor)
     let artistTable = MusicTable(), albumTable = MusicTable(), songTable = MusicTable(), queueTable = MusicTable()
@@ -150,7 +153,6 @@ final class DockedPlayerPanel: NSPanel {
     private var outsideClickMonitor: Any?
     var timer: Timer?
     var playButton: ActionButton!, shuffleButton: ActionButton!, repeatButton: ActionButton!, playlistButton: ActionButton!, libraryButton: ActionButton!
-    var accountWindow: NSWindow?
     var hotKeyWarning: String?
     private var placementScreenNumber: NSNumber?
     private var positioning = false
@@ -194,6 +196,7 @@ final class DockedPlayerPanel: NSPanel {
     private func build() {
         guard let content = window?.contentView else { return }
         let settings = NSButton(image: NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")!, target: self, action: #selector(showSettings(_:)))
+        settingsButton = settings
         settings.isBordered = false
         settings.imageScaling = .scaleProportionallyDown
         settings.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
@@ -264,7 +267,8 @@ final class DockedPlayerPanel: NSPanel {
         collectionPane = CollectionPane(model: model); collectionPane.isHidden = true
         queuePane = column([playlistSections, queueScroll, queueActions, collectionPane]); queuePane.isHidden = true
         radioPane = RadioPane(player: model); radioPane.isHidden = true
-        desk = column([tabs, libraryPane, radioPane, queuePane]); desk.setContentHuggingPriority(.init(1), for: .vertical)
+        settingsPane = PlayerSettings(model: model, player: self); settingsPane.isHidden = true
+        desk = column([tabs, libraryPane, radioPane, queuePane, settingsPane]); desk.setContentHuggingPriority(.init(1), for: .vertical)
         footer.maximumNumberOfLines = 2; footer.lineBreakMode = .byWordWrapping
         let root = column([branding, display, row([seek,total]), controls, desk, footer], spacing: 10)
         contentStack = root
@@ -341,11 +345,10 @@ final class DockedPlayerPanel: NSPanel {
         }
         if let item = source.itemArray.first(where: { ($0.representedObject as? String) == model.selectedFolder }) { source.select(item) }
         footer.stringValue = model.message; footer.textColor = model.error ? .systemOrange : .secondaryLabelColor
-        libraryPane.isHidden = playlist || model.selectedFolder == "radio"
-        radioPane.isHidden = playlist || model.selectedFolder != "radio"; radioPane.reload()
+        updateDeskPanes(); radioPane.reload()
         playlistButton.title = "PLAYLIST \(model.queue.entries.count)"; source.isEnabled = !model.busy
         refreshButton.isEnabled = !model.busy && !model.refreshingFolders
-        collectionPane.reload(); settingsController?.refresh()
+        collectionPane.reload(); settingsPane.refresh()
         tick()
     }
     func tick() {
@@ -368,7 +371,9 @@ final class DockedPlayerPanel: NSPanel {
         shuffleButton.contentTintColor = model.queue.shuffle ? .systemBlue : nil
         repeatButton.title = model.queue.repeatMode == .one ? "RPT 1" : "RPT"
         repeatButton.contentTintColor = model.queue.repeatMode == .off ? nil : .systemBlue
-        playlistButton.contentTintColor = playlist ? .systemBlue : nil; libraryButton.contentTintColor = playlist ? nil : .systemBlue
+        playlistButton.contentTintColor = !settingsVisible && playlist ? .systemBlue : nil
+        libraryButton.contentTintColor = !settingsVisible && !playlist ? .systemBlue : nil
+        settingsButton.contentTintColor = settingsVisible ? .systemBlue : .secondaryLabelColor
         updateSpectrumTimer()
         if !model.playing { spectrum.levels = Array(repeating: 0, count: 16) }
     }
@@ -398,7 +403,8 @@ final class DockedPlayerPanel: NSPanel {
         model.move(model.queue.entries[i].id, by: delta); queueTable.selectRowIndexes(IndexSet(integer: i + delta), byExtendingSelection: false); queueTable.scrollRowToVisible(i + delta)
     }
     func showPlaylist(_ value: Bool) {
-        if compact { toggleCompact() }; playlist = value; libraryPane.isHidden = value || model.selectedFolder == "radio"; radioPane.isHidden = value || model.selectedFolder != "radio"; queuePane.isHidden = !value
+        settingsVisible = false; settingsReturnCompact = false
+        if compact { toggleCompact() }; playlist = value; updateDeskPanes()
         collectionPane.setActive(value && playlistSection != 0 && model.visible)
         if !value && model.selectedFolder == "radio" { radioPane.focusStations() } else if value && playlistSection != 0 { collectionPane.show(playlistSection == 1 ? .saved : .recent) } else { window?.makeFirstResponder(value ? queueTable : artistTable) }; tick()
     }
@@ -415,7 +421,7 @@ final class DockedPlayerPanel: NSPanel {
     }
     func toggleCompact() {
         compact.toggle(); desk.isHidden = compact
-        collectionPane.setActive(!compact && playlist && playlistSection != 0 && model.visible)
+        collectionPane.setActive(!settingsVisible && !compact && playlist && playlistSection != 0 && model.visible)
         footer.isHidden = compact
         positionAtTopRight()
     }
@@ -426,8 +432,8 @@ final class DockedPlayerPanel: NSPanel {
             if model.selectedFolder == "radio" { showPlaylist(false); radioPane.clearSearch(); return true }
             showPlaylist(false); search.stringValue = ""; artist = nil; album = nil; filter(); window?.makeFirstResponder(search); return true
         }
-        if playlist && playlistSection != 0 && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) && !(window?.firstResponder is NSTextView) { collectionPane.cycleFocus(); return true }
-        if !playlist && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) {
+        if !settingsVisible && playlist && playlistSection != 0 && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) && !(window?.firstResponder is NSTextView) { collectionPane.cycleFocus(); return true }
+        if !settingsVisible && !playlist && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) {
             if model.selectedFolder == "radio" { radioPane.cycleFocus(backward: flags.contains(.shift)); return true }
             let tables = [artistTable, albumTable, songTable]; let current = tables.firstIndex { $0 === window?.firstResponder }
             let next = current.map { ($0 + (flags.contains(.shift) ? 2 : 1)) % 3 } ?? (flags.contains(.shift) ? 2 : 0)
@@ -442,8 +448,8 @@ final class DockedPlayerPanel: NSPanel {
         }
         if window?.firstResponder is NSTextView { return false }
         if flags.isDisjoint(with: [.command,.control,.option]), let key = event.charactersIgnoringModifiers?.lowercased() {
-            if key == "p" { if playlist && !compact { toggleCompact() } else { showPlaylist(true) }; return true }
-            if key == "l" { if !playlist && !compact { toggleCompact() } else { showPlaylist(false) }; return true }
+            if key == "p" { if !settingsVisible && playlist && !compact { toggleCompact() } else { showPlaylist(true) }; return true }
+            if key == "l" { if !settingsVisible && !playlist && !compact { toggleCompact() } else { showPlaylist(false) }; return true }
         }
         return false
     }
@@ -457,10 +463,10 @@ final class DockedPlayerPanel: NSPanel {
         placementScreenNumber = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         positionAtTopRight()
         NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil); model.visible = true
-        collectionPane.setActive(playlist && playlistSection != 0 && !compact)
+        collectionPane.setActive(!settingsVisible && playlist && playlistSection != 0 && !compact)
         if outsideClickMonitor == nil {
-            // Global mouse monitors exclude this app, so menus, sheets and source
-            // windows remain interactive and the status button keeps its toggle.
+            // Global mouse monitors exclude this app. A file-picker sheet keeps
+            // its parent visible until the user finishes or cancels it.
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
                 self?.hide()
             }
@@ -507,48 +513,40 @@ final class DockedPlayerPanel: NSPanel {
         }
     }
     func hide() {
+        if let sheet = window?.attachedSheet { sheet.makeKeyAndOrderFront(nil); return }
         if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor); self.outsideClickMonitor = nil }
         collectionPane.setActive(false); window?.orderOut(nil); model.visible = false; updateSpectrumTimer()
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { hide(); return false }
-    func windowDidChangeOcclusionState(_ notification: Notification) { model.visible = window?.occlusionState.contains(.visible) == true; collectionPane.setActive(model.visible && playlist && playlistSection != 0 && !compact); updateSpectrumTimer() }
+    func windowDidChangeOcclusionState(_ notification: Notification) { model.visible = window?.occlusionState.contains(.visible) == true; collectionPane.setActive(model.visible && !settingsVisible && playlist && playlistSection != 0 && !compact); updateSpectrumTimer() }
     @objc private func showSettings(_ sender: NSButton) { openSettings() }
     func openSettings(section: Int = 0) {
-        if settingsController == nil { settingsController = PlayerSettings(model: model, player: self) }
-        settingsController?.show(section: section)
+        if !settingsVisible { settingsReturnCompact = compact }
+        if compact { toggleCompact() }
+        settingsVisible = true; updateDeskPanes(); settingsPane.show(section: section)
+        if window?.isVisible != true { show() }
+        tick()
     }
-    @objc func manageSources() { openSettings(section: 1) }
-    func showAccount() {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 290), styleMask: [.titled,.closable], backing: .buffered, defer: false)
-        panel.title = "Jellyfin"; panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: .darkAqua); accountWindow = panel
-        let server = NSTextField(string: model.account?.server.absoluteString ?? ""); server.placeholderString = "https://music.example.com"; server.setAccessibilityLabel("Jellyfin server")
-        let username = NSTextField(string: model.account?.username ?? ""); username.placeholderString = "Username"; username.setAccessibilityLabel("Username")
-        let password = NSSecureTextField(); password.placeholderString = "Password"; password.setAccessibilityLabel("Password")
-        for field in [server, username, password] { styleSquareInput(field) }
-        let status = label(model.account.map { "Connected as \($0.username). Sign-in saved in Keychain." } ?? "Your server. Your records.", size: 11, color: .secondaryLabelColor); status.maximumNumberOfLines = 3; status.lineBreakMode = .byWordWrapping
-        let connect = ActionButton(model.account == nil ? "Connect" : "Sign out") {}
-        connect.perform = { [weak self, weak connect, weak panel] in
-            guard let self else { return }
-            if self.model.account != nil {
-                connect?.isEnabled = false; status.stringValue = "Signing out…"
-                Task {
-                    do { try await self.model.disconnect(); panel?.close() }
-                    catch { status.stringValue = error.localizedDescription; status.textColor = .systemOrange; connect?.isEnabled = true }
-                }
-                return
-            }
-            connect?.isEnabled = false; status.stringValue = "Connecting…"
-            let secret = password.stringValue; password.stringValue = ""
-            Task {
-                do { try await self.model.connect(server: server.stringValue, username: username.stringValue, password: secret); panel?.close() }
-                catch { status.stringValue = error.localizedDescription; status.textColor = .systemOrange; connect?.isEnabled = true }
-            }
+    func closeSettings() {
+        guard settingsVisible else { return }
+        settingsVisible = false; updateDeskPanes()
+        if settingsReturnCompact && !compact { toggleCompact() }
+        settingsReturnCompact = false
+        if !compact {
+            if playlist && playlistSection != 0 { collectionPane.focus() }
+            else if !playlist && model.selectedFolder == "radio" { radioPane.focusStations() }
+            else { window?.makeFirstResponder(playlist ? queueTable : artistTable) }
         }
-        connect.keyEquivalent = "\r"
-        let root = column([label("TUNE INTO YOUR COLLECTION", size: 14), server, username, password, status, connect], spacing: 12)
-        if model.account != nil { server.isEditable = false; username.isEditable = false; password.isHidden = true }
-        root.translatesAutoresizingMaskIntoConstraints = false; panel.contentView!.addSubview(root)
-        NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: panel.contentView!.leadingAnchor, constant: 20),root.trailingAnchor.constraint(equalTo: panel.contentView!.trailingAnchor, constant: -20),root.topAnchor.constraint(equalTo: panel.contentView!.topAnchor, constant: 20)])
-        panel.center(); panel.makeKeyAndOrderFront(nil)
+        tick()
     }
+    private func updateDeskPanes() {
+        libraryPane.isHidden = settingsVisible || playlist || model.selectedFolder == "radio"
+        radioPane.isHidden = settingsVisible || playlist || model.selectedFolder != "radio"
+        queuePane.isHidden = settingsVisible || !playlist
+        settingsPane.isHidden = !settingsVisible
+        collectionPane.setActive(!settingsVisible && !compact && playlist && playlistSection != 0 && model.visible)
+    }
+    func refitAfterPicker() { positionAtTopRight() }
+    @objc func manageSources() { openSettings(section: 1) }
+    func showAccount() { openSettings(section: 1); settingsPane.showAccount() }
 }

@@ -67,6 +67,7 @@ import OmaCore
         if value && !wasActive && hostedMode { refreshHosted() }
         if !value { readTask?.cancel(); revision += 1; busy = writeTask != nil }
     }
+    func focus() { window?.makeFirstResponder(list) }
     func cycleFocus() { window?.makeFirstResponder(window?.firstResponder === list ? tracks : list) }
     @objc private func scopeChanged() { show(.saved) }
     func reload() {

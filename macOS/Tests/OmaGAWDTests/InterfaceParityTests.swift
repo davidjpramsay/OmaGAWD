@@ -13,7 +13,7 @@ import OmaCore
         let controller = PlayerWindow(model: model); return (model, controller)
     }
     func testPlaylistSectionsAndSettingsStayInsideSmallDisplayAndLongSourcesWrap() {
-        let (model, controller) = fixture(); defer { controller.settingsController?.close(); model.shutdown() }
+        let (model, controller) = fixture(); defer { controller.hide(); model.shutdown() }
         controller.layout(in: NSRect(x: 0, y: 0, width: 600, height: 850))
         for section in 0...2 {
             controller.showCollectionSection(section); controller.layout(in: NSRect(x: 0, y: 0, width: 600, height: 850))
@@ -24,11 +24,13 @@ import OmaCore
         model.sources = [URL(fileURLWithPath: "/" + String(repeating: "A very long folder name/", count: 30))]
         for section in 0...3 {
             controller.openSettings(section: section)
-            let settings = controller.settingsController!.window!
-            settings.contentView!.layoutSubtreeIfNeeded()
-            XCTAssertLessThanOrEqual(settings.contentView!.fittingSize.width, 580)
-            XCTAssertEqual(settings.title, "OmaGAWD Settings")
-            XCTAssertTrue(descendants(settings.contentView!).contains { ($0 as? NSSegmentedControl)?.segmentCount == 4 })
+            controller.layout(in: NSRect(x: 0, y: 0, width: 600, height: 850))
+            let settings = controller.settingsPane!
+            controller.window!.contentView!.layoutSubtreeIfNeeded()
+            XCTAssertTrue(settings.window === controller.window)
+            XCTAssertTrue(controller.settingsVisible)
+            XCTAssertLessThanOrEqual(controller.window!.contentView!.fittingSize.width, 584)
+            XCTAssertTrue(descendants(settings).contains { ($0 as? NSSegmentedControl)?.segmentCount == 4 })
         }
     }
     func testAddRequiresSelectionAndSourceMenuOnlySwitchesSources() {
@@ -42,9 +44,9 @@ import OmaCore
         XCTAssertTrue(controller.window!.contentView is MusicDropView)
     }
     func testPlaybackTogglesPersistAndReduceMotionStopsDance() {
-        let (model, controller) = fixture(); defer { controller.settingsController?.close(); model.shutdown() }
+        let (model, controller) = fixture(); defer { controller.hide(); model.shutdown() }
         controller.openSettings(section: 0)
-        let buttons = descendants(controller.settingsController!.window!.contentView!).compactMap { $0 as? SettingsToggle }
+        let buttons = descendants(controller.settingsPane).compactMap { $0 as? SettingsToggle }
         XCTAssertEqual(buttons.count, 4)
         let gapless = buttons.first { $0.title == "Gapless albums" }!
         gapless.performClick(nil); XCTAssertFalse(model.gapless)
@@ -53,6 +55,36 @@ import OmaCore
         let motion = buttons.first { $0.title == "Reduce motion" }!
         motion.performClick(nil); XCTAssertTrue(model.reduceMotion)
         XCTAssertFalse(controller.dancingLlama.isDancing)
+    }
+    func testSettingsAndAccountStayInPlayerAndDoneRestoresMusic() {
+        let (model, controller) = fixture(); defer { controller.hide(); model.shutdown() }
+        model.append([Song(id: "kept", title: "Kept queue", file: URL(fileURLWithPath: "/fixture.wav"))])
+        let ids = model.queue.entries.map(\.id)
+        controller.showCollectionSection(2)
+        // AppKit can create a hidden, untitled text-input helper on first focus.
+        // Count every visible or titled window so an actual popout still fails.
+        let appWindows = { Set(NSApp.windows.filter { $0.isVisible || !$0.title.isEmpty }.map(ObjectIdentifier.init)) }
+        let windows = appWindows()
+        controller.openSettings(section: 1); controller.showAccount()
+        let windowNames = NSApp.windows.map { String(describing: type(of: $0)) + ": " + $0.title + ": " + String($0.isVisible) }
+        XCTAssertEqual(appWindows(), windows, windowNames.description)
+        XCTAssertTrue(controller.settingsPane.window === controller.window)
+        let server = descendants(controller.settingsPane).compactMap { $0 as? NSTextField }.first { $0.placeholderString == "https://music.example.com" }!
+        server.stringValue = "https://draft.example.com"
+        controller.reload()
+        XCTAssertTrue(descendants(controller.settingsPane).contains { $0 === server })
+        XCTAssertEqual(server.stringValue, "https://draft.example.com")
+        let back = descendants(controller.settingsPane).compactMap { $0 as? ActionButton }.first { $0.title == "Back" }!
+        back.perform()
+        let done = descendants(controller.settingsPane).compactMap { $0 as? ActionButton }.first { $0.title == "DONE" }!
+        done.perform()
+        XCTAssertFalse(controller.settingsVisible); XCTAssertFalse(controller.queuePane.isHidden)
+        XCTAssertFalse(controller.collectionPane.isHidden); XCTAssertTrue(controller.settingsPane.isHidden)
+        XCTAssertFalse((controller.window?.firstResponder as? NSView)?.isHiddenOrHasHiddenAncestor ?? true)
+        controller.toggleCompact(); XCTAssertTrue(controller.compact)
+        controller.openSettings(section: 1); XCTAssertFalse(controller.compact)
+        controller.closeSettings(); XCTAssertTrue(controller.compact)
+        XCTAssertEqual(model.queue.entries.map(\.id), ids)
     }
     func testLeavingSlowHostedReadDoesNotLeaveOtherSectionsBusy() async throws {
         let (model, controller) = fixture(); defer { model.shutdown() }
