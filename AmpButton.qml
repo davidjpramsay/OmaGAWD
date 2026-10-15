@@ -5,6 +5,7 @@ import qs.Ui as UI
 Button {
     id: root
     property bool lit: false
+    property bool iconOnly: false
     property string hint: text
     implicitHeight: Style.space(24)
     implicitWidth: Math.max(Style.space(28), label.implicitWidth + Style.space(14))
@@ -22,7 +23,8 @@ Button {
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         color: root.lit ? Color.accent : Color.foreground
-        font.bold: root.lit
+        font.pixelSize: root.iconOnly ? Style.font.icon : Style.font.bodySmall
+        font.bold: root.lit && !root.iconOnly
     }
     background: Rectangle {
         radius: Math.min(Style.cornerRadius, Style.space(4))

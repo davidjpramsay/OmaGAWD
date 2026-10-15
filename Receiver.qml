@@ -35,7 +35,7 @@ Rectangle {
                 onClicked: app.showUpdates()
             }
             AmpText { text: root.radio || (!app.current && app.selectedLibrary === "radio") ? "RADIO" : app.current && app.current.source === "local" ? "LOCAL" : app.selectedLibrary === "local" && !app.current ? "LOCAL" : "JELLYFIN"; font.pixelSize: Style.font.caption; opacity: 0.55 }
-            AmpButton { objectName: "settingsButton"; text: "⚙"; hint: "Settings"; lit: app.tab === "settings"; implicitHeight: Style.space(22); onClicked: app.showSettings() }
+            AmpButton { objectName: "settingsButton"; text: "󰒓"; iconOnly: true; hint: "Settings"; lit: app.tab === "settings"; implicitHeight: Style.space(22); onClicked: app.showSettings() }
         }
         Rectangle {
             Layout.fillWidth: true; Layout.preferredHeight: Style.space(90)
