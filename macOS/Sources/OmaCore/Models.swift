@@ -71,7 +71,8 @@ public enum LibraryFilter {
 }
 public enum ServerAddress {
     public static func parse(_ text: String) -> URL? {
-        guard let c = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)), ["https", "http"].contains(c.scheme?.lowercased() ?? ""), let host = c.host, !host.isEmpty, c.user == nil, c.password == nil, c.query == nil, c.fragment == nil else { return nil }
+        let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard raw.utf8.count <= 4096, !raw.contains("\\"), !raw.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }), let c = URLComponents(string: raw), ["https", "http"].contains(c.scheme?.lowercased() ?? ""), let host = c.host, !host.isEmpty, c.user == nil, c.password == nil, c.query == nil, c.fragment == nil else { return nil }
         return c.url
     }
 }

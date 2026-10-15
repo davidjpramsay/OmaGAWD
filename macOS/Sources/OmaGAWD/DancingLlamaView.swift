@@ -175,33 +175,31 @@ final class DancingLlamaView: NSView {
             drawLeg(context, hip: CGPoint(x: 709, y: 447), step: step + nearRearOffset, near: true, dance: dance)
 
             if dance == .headBang {
-                // Pivot the original head and neck behind the stationary shoulder.
-                // A small overlap hides the join as the neck swings forward.
-                context.saveGState()
-                context.translateBy(x: 365, y: 545)
-                context.rotate(by: headBangMotion(at: phase).angle)
-                context.translateBy(x: -365, y: -545)
+                context.saveGState(); context.addPath(bodyMask()); context.clip()
+                context.addRect(CGRect(x: 0, y: 0, width: 1024, height: 1024)); context.addPath(shoulderCutout()); context.clip(using: .evenOdd)
+                glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024)); context.restoreGState()
+                // The moving neck overlaps a curved shoulder, without the old
+                // upright outline or a horizontal join across the coat.
+                context.saveGState(); context.translateBy(x: 365, y: 545)
+                context.rotate(by: headBangMotion(at: phase).angle); context.translateBy(x: -365, y: -545)
                 context.addPath(headMask(base: 505)); context.clip()
-                glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024))
-                context.restoreGState()
-            }
-
-            // Keep the familiar emoji's head, neck, coat and tail. The curved belly
-            // mask replaces the original legs so knees can actually bend.
-            context.addPath(bodyMask())
-            context.clip()
-            if dance == .headBang {
-                context.addRect(CGRect(x: 0, y: 0, width: 1024, height: 1024))
-                context.addPath(headMask(base: 548))
-                context.clip(using: .evenOdd)
-            }
+                glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024)); context.restoreGState()
+            } else { context.addPath(bodyMask()); context.clip() }
         }
         if dance == .twerk { drawTwerk(context, phase: phase) }
-        else { glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024)) }
+        else if dance != .headBang { glyph.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024)) }
         NSGraphicsContext.restoreGraphicsState()
         let image = NSImage(size: size)
         image.addRepresentation(bitmap)
         return image
+    }
+
+    private static func shoulderCutout() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 1024)); path.addLine(to: CGPoint(x: 470, y: 1024)); path.addLine(to: CGPoint(x: 470, y: 620))
+        path.addCurve(to: CGPoint(x: 410, y: 598), control1: CGPoint(x: 455, y: 600), control2: CGPoint(x: 435, y: 598))
+        path.addCurve(to: CGPoint(x: 300, y: 505), control1: CGPoint(x: 365, y: 598), control2: CGPoint(x: 330, y: 545))
+        path.addLine(to: CGPoint(x: 0, y: 505)); path.closeSubpath(); return path
     }
 
     private static func bodyMask() -> CGPath {

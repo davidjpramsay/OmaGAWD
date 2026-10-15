@@ -52,6 +52,10 @@ final class AudioResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URLSes
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         guard let request = requests[dataTask.taskIdentifier], let response = response as? HTTPURLResponse, [200,206].contains(response.statusCode) else { completionHandler(.cancel); return }
+        let mime = response.mimeType?.lowercased() ?? ""
+        guard !["application/vnd.apple.mpegurl", "application/x-mpegurl", "audio/x-mpegurl", "audio/x-scpls", "application/dash+xml", "text/html"].contains(mime) else {
+            request.finishLoading(with: MusicError.message("Jellyfin must return a direct music stream, not a playlist or web page.")); completionHandler(.cancel); return
+        }
         let offset = request.dataRequest.map { max($0.currentOffset, $0.requestedOffset) } ?? 0
         if response.statusCode == 200 && offset > 0 { request.finishLoading(with: MusicError.message("This server does not support seeking by byte range.")); completionHandler(.cancel); return }
         var length = response.expectedContentLength
@@ -75,6 +79,11 @@ final class AudioResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URLSes
 final class Spectrum {
     let lock = NSLock()
     private var enabled = false
+    private var normalize = false
+    var normalizationEnabled: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return normalize }
+        set { lock.lock(); normalize = newValue; lock.unlock() }
+    }
     private var levels = [Float](repeating: 0, count: 16)
     private var samples = [Float](repeating: 0, count: 1024)
     private var window = [Float](repeating: 0, count: 1024)
@@ -95,8 +104,9 @@ final class Spectrum {
         lock.lock(); defer { lock.unlock() }
         format = value; count = 0; skipped = 0; framesProcessed = 0; levels = Array(repeating: 0, count: 16)
     }
-    func consume(_ buffers: UnsafeMutablePointer<AudioBufferList>, frames: Int) {
+    func consume(_ buffers: UnsafeMutablePointer<AudioBufferList>, frames: Int, format incoming: AudioStreamBasicDescription) {
         guard lock.try() else { return }; defer { lock.unlock() }
+        if format.mSampleRate != incoming.mSampleRate || format.mChannelsPerFrame != incoming.mChannelsPerFrame || format.mFormatFlags != incoming.mFormatFlags { format = incoming; count = 0; skipped = 0 }
         guard enabled, format.mFormatFlags & kAudioFormatFlagIsFloat != 0, format.mBitsPerChannel == 32 else { return }
         let list = UnsafeMutableAudioBufferListPointer(buffers)
         guard let first = list.first, let pointer = first.mData?.assumingMemoryBound(to: Float.self) else { return }
@@ -128,14 +138,7 @@ final class Spectrum {
         }
     }
     func mix(for track: AVAssetTrack? = nil) -> AVAudioMix? {
-        var callbacks = MTAudioProcessingTapCallbacks(version: kMTAudioProcessingTapCallbacksVersion_0, clientInfo: Unmanaged.passRetained(self).toOpaque(), init: { _, info, storage in storage.pointee = info }, finalize: { tap in
-            Unmanaged<Spectrum>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release()
-        }, prepare: { tap, _, format in
-            Unmanaged<Spectrum>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue().setFormat(format.pointee)
-        }, unprepare: { _ in }, process: { tap, frames, flags, buffers, framesOut, flagsOut in
-            let status = MTAudioProcessingTapGetSourceAudio(tap, frames, buffers, flagsOut, nil, framesOut)
-            if status == noErr { Unmanaged<Spectrum>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue().consume(buffers, frames: Int(framesOut.pointee)) }
-        })
+        var callbacks = Self.tapCallbacks(for: self)
         var tap: MTAudioProcessingTap?
         let status: OSStatus
         if track == nil, #available(macOS 27.0, *),
@@ -158,7 +161,7 @@ final class Spectrum {
             status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
         }
         guard status == noErr, let tap else {
-            Unmanaged<Spectrum>.fromOpaque(callbacks.clientInfo!).release(); return nil
+            Self.releaseTapInfo(callbacks.clientInfo!); return nil
         }
         // The parameterless initializer targets the mixed output on macOS 27+.
         // The prepare callback observes the negotiated PCM format, including its

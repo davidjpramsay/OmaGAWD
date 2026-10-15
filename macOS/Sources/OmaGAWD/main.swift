@@ -11,10 +11,12 @@ import Carbon
     private var smokeDefaultsDomain: String?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        let smoke = CommandLine.arguments.contains("--smoke-test")
+        let preview = CommandLine.arguments.contains("--fixture-preview")
+        let smoke = CommandLine.arguments.contains("--smoke-test") || preview
         updates = AppUpdates(startingUpdater: !smoke)
         let menu = NSMenu(); let appItem = NSMenuItem(); menu.addItem(appItem)
         let appMenu = NSMenu(); appMenu.addItem(updates.menuItem()); appMenu.addItem(.separator())
+        let settingsItem = appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ","); settingsItem.target = self
         appMenu.addItem(withTitle: "Quit OmaGAWD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); appItem.submenu = appMenu
         let editItem = NSMenuItem(); menu.addItem(editItem); let edit = NSMenu(title: "Edit"); editItem.submenu = edit
         for (name, action, key) in [("Cut", #selector(NSText.cut(_:)), "x"), ("Copy", #selector(NSText.copy(_:)), "c"), ("Paste", #selector(NSText.paste(_:)), "v"), ("Select All", #selector(NSText.selectAll(_:)), "a")] { edit.addItem(withTitle: name, action: action, keyEquivalent: key) }
@@ -23,12 +25,12 @@ import Carbon
             NSApp.applicationIconImage = icon
         }
         if smoke { smokeDefaultsDomain = "OmaGAWD.smoke.\(UUID().uuidString)" }
-        model = PlayerModel(defaults: smokeDefaultsDomain.flatMap { UserDefaults(suiteName: $0) } ?? .standard, sessionStore: smoke ? nil : PlayerSessionStore())
+        model = PlayerModel(defaults: smokeDefaultsDomain.flatMap { UserDefaults(suiteName: $0) } ?? .standard, sessionStore: smoke ? nil : PlayerSessionStore(), loadAccount: { smoke ? nil : try await Keychain.load() })
         controller = PlayerWindow(model: model)
         controller.updates = updates
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = status.button {
-            let iconHeight: CGFloat = 16
+            let iconHeight: CGFloat = 17
             let image: NSImage
             if let url = Bundle.main.url(forResource: "MenuBarIcon", withExtension: "svg"),
                let vector = NSImage(contentsOf: url), vector.size.height > 0 {
@@ -63,17 +65,19 @@ import Carbon
             Task { await smokeTest(model: model, controller: controller, fixture: CommandLine.arguments[i + 1], port: CommandLine.arguments[i + 2], report: CommandLine.arguments[i + 3], defaultsDomain: smokeDefaultsDomain) }; return
         }
         model.start()
+        if preview { model.player.volume = 0 }
         if let i = CommandLine.arguments.firstIndex(of: "--test-audio"), CommandLine.arguments.indices.contains(i + 1) {
             let url = URL(fileURLWithPath: CommandLine.arguments[i + 1])
             Task {
-                do { let songs = try await model.local.scan([url]); model.songs = songs; model.replace(songs) }
+                do { let songs = try await model.local.scan([url]); model.songs = songs; model.replace(songs); if preview { model.addSources([url]); await model.savePlaylist("Playback check") } }
                 catch { model.report(error) }
             }
         }
     }
+    @objc func showSettings() { controller.openSettings() }
     @objc func toggle(_ sender: NSStatusBarButton? = nil) { if controller.window?.isVisible == true { controller.hide() } else { controller.show(near: sender) } }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { controller.show(); return true }
-    func applicationWillTerminate(_ notification: Notification) { if let hotKey { UnregisterEventHotKey(hotKey) }; if let handler { RemoveEventHandler(handler) }; model.shutdown() }
+    func applicationWillTerminate(_ notification: Notification) { if let smokeDefaultsDomain { UserDefaults.standard.removePersistentDomain(forName: smokeDefaultsDomain) }; if let hotKey { UnregisterEventHotKey(hotKey) }; if let handler { RemoveEventHandler(handler) }; model.shutdown() }
 }
 MainActor.assumeIsolated {
     let app = NSApplication.shared
