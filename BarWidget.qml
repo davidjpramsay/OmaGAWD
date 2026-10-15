@@ -42,8 +42,8 @@ UI.BarWidget {
         tooltipText: "OmaGAWD · Music"
         slotSize: Style.bar.statusSlot
         // The SVG fills its canvas; font icons have inner line-box padding.
-        // Match their painted height rather than the larger shared canvas.
-        opticalSize: Math.min(Style.bar.iconCanvas, Math.max(1, statusGlyphMetrics.tightBoundingRect.height))
+        // Give the narrow llama a little extra visual weight within that canvas.
+        opticalSize: Math.min(Style.bar.iconCanvas, Math.max(1, Math.round(statusGlyphMetrics.tightBoundingRect.height * 1.2)))
         iconComponent: Component {
             Item {
                 Image {
