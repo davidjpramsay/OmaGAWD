@@ -40,8 +40,8 @@ class LocalMusicWindow:
         self.pending = None; self.inflight = False; self.proc = None
 
     def start(self, paths, theme):
-        args = ['/usr/bin/python3', str(Path(__file__).with_name('process_guard.py')), str(os.getpid()),
-                '--memory-bytes', str(1024 * 1024 * 1024), '/usr/bin/python3', str(Path(__file__))]
+        args = ['/usr/bin/python3', '-B', str(Path(__file__).with_name('process_guard.py')), str(os.getpid()),
+                '--memory-bytes', str(1024 * 1024 * 1024), '/usr/bin/python3', '-B', str(Path(__file__))]
         self.proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, start_new_session=True)
         os.set_blocking(self.proc.stdin.fileno(), False)

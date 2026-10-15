@@ -106,7 +106,7 @@ def launch(directory):
         raise RuntimeError('Use a Git-managed OmaGAWD installation to update here.')
     if not shutil.which('omarchy-launch-terminal'):
         raise RuntimeError('Could not open Omarchy’s terminal. Run omarchy plugin update david.omaamp.')
-    process = subprocess.Popen(['omarchy-launch-terminal', '/usr/bin/python3', str(Path(__file__).resolve()), '--apply'],
+    process = subprocess.Popen(['omarchy-launch-terminal', '/usr/bin/python3', '-B', str(Path(__file__).resolve()), '--apply'],
                                start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         if process.wait(timeout=1) != 0:

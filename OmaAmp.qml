@@ -175,7 +175,7 @@ Item {
     }
     Process {
         id: updateChecker
-        command: ["/usr/bin/python3", root.updateScript, "--check"]
+        command: ["/usr/bin/python3", "-B", root.updateScript, "--check"]
         property bool received: false
         onStarted: received = false
         stdout: SplitParser {
@@ -195,7 +195,7 @@ Item {
     }
     Process {
         id: updateLauncher
-        command: ["/usr/bin/python3", root.updateScript, "--launch"]
+        command: ["/usr/bin/python3", "-B", root.updateScript, "--launch"]
         property bool received: false
         onStarted: received = false
         stdout: SplitParser {
@@ -339,7 +339,8 @@ Item {
     Process {
         id: bridge
         objectName: "backendBridge"
-        command: ["/usr/bin/python3", decodeURIComponent(Qt.resolvedUrl("backend.py").toString().replace(/^file:\/\//, ""))]
+        // Cache writes inside an installed plugin trigger Omarchy's file watcher.
+        command: ["/usr/bin/python3", "-B", decodeURIComponent(Qt.resolvedUrl("backend.py").toString().replace(/^file:\/\//, ""))]
         running: true
         stdinEnabled: true
         stdout: SplitParser {

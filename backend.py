@@ -944,13 +944,13 @@ class Player:
                 return
             if picker:
                 if command['cmd'] == 'choose_drop':
-                    args = ['/usr/bin/python3', os.path.join(os.path.dirname(__file__), 'drop_receiver.py')]
+                    args = ['/usr/bin/python3', '-B', os.path.join(os.path.dirname(__file__), 'drop_receiver.py')]
                     result = run_bounded(args, limit=65536, timeout=300, cancel=self.closing, memory_limit=1024*1024*1024)
                     if result.returncode == 1: return
                     if result.returncode: raise RuntimeError('Could not open the native drop window. Check GTK 4 is installed.')
                     paths = json.loads(result.stdout)
                 else:
-                    args = ['/usr/bin/python3', os.path.join(os.path.dirname(__file__), 'file_picker.py')]
+                    args = ['/usr/bin/python3', '-B', os.path.join(os.path.dirname(__file__), 'file_picker.py')]
                     if command['cmd'] == 'choose_folder': args += ['--folder']
                     result = run_bounded(args, limit=65536, timeout=3610, cancel=self.closing, memory_limit=1024*1024*1024)
                     if result.returncode == 1: return

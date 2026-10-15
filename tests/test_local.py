@@ -115,7 +115,8 @@ class LocalTests(unittest.TestCase):
             with patch('backend.run_bounded', side_effect=run):
                 p.local_command({'cmd': 'choose_folder'}, 0)
             self.assertIn('--folder', calls[0][0])
-            self.assertTrue(calls[0][0][1].endswith('file_picker.py'))
+            self.assertEqual(calls[0][0][1], '-B')
+            self.assertTrue(calls[0][0][2].endswith('file_picker.py'))
             self.assertEqual(calls[0][1]['memory_limit'], 1024*1024*1024)
             self.assertNotIn('env', calls[0][1])
             self.assertEqual(len(p.songs), 1)

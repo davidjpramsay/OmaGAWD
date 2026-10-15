@@ -71,7 +71,8 @@ class ImportBoundaryTests(unittest.TestCase):
                 with patch('backend.run_bounded', return_value=Mock(returncode=0, stdout=json.dumps([str(script)]).encode())) as picker:
                     p.local_command({'cmd': 'choose_files'}, 0)
                 args = picker.call_args.args[0]
-                self.assertTrue(args[1].endswith('file_picker.py'))
+                self.assertEqual(args[1], '-B')
+                self.assertTrue(args[2].endswith('file_picker.py'))
                 self.assertNotIn('zenity', args)
                 self.assertEqual(local.roots, [])
                 self.assertTrue(any(e.get('type') == 'error' for e in events))

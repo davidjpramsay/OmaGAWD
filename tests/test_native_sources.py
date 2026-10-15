@@ -1,5 +1,6 @@
 """Portal requests and the native manager's bounded, acknowledged source edits."""
 import json
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -73,6 +74,22 @@ class PortalTests(unittest.TestCase):
 
 
 class ManagerTests(unittest.TestCase):
+    def test_cold_manager_startup_does_not_write_plugin_cache_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            for name in ('process_guard.py','file_picker.py','drop_receiver.py','media_policy.py'):
+                shutil.copy(Path(__file__).resolve().parents[1]/name,root/name)
+            helper=root/'local_music_window.py'
+            helper.write_text("import file_picker,drop_receiver,json,sys\njson.loads(sys.stdin.readline())\nprint(json.dumps({'cmd':'local_add','paths':['/tmp/music']}),flush=True)\nassert json.loads(sys.stdin.readline())['paths']==['/tmp/music']\n")
+            seen=[];done=threading.Event()
+            window=LocalMusicWindow(lambda c:(seen.append(c),window.update(['/tmp/music'])),done.set)
+            try:
+                with patch('local_music_window.__file__',str(helper)):window.start([], {})
+                self.assertTrue(done.wait(4));self.assertEqual(len(seen),1)
+                self.assertEqual(list(root.rglob('*.pyc')),[])
+                self.assertFalse((root/'__pycache__').exists())
+            finally:window.close()
+
     def test_start_failure_restores_the_settings_view_and_keeps_playback(self):
         with tempfile.TemporaryDirectory() as d:
             events=[]; p=Player(events.append,FakeMpv,local=LocalLibrary(Path(d)/'local.json'))

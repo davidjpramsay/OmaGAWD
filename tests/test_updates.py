@@ -95,6 +95,7 @@ class ReleaseChecks(unittest.TestCase):
             spawn.return_value.wait.return_value = 0
             updates.launch(Path('/sample'))
             self.assertEqual(spawn.call_args.args[0][:2], ['omarchy-launch-terminal', '/usr/bin/python3'])
+            self.assertEqual(spawn.call_args.args[0][2], '-B')
             self.assertEqual(spawn.call_args.args[0][-1], '--apply')
 
 
