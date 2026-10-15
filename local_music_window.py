@@ -1,6 +1,6 @@
 """Isolated native source manager with bounded, single-flight backend IPC.
 
-GTK receives explicit URI drops here, never in the shared Quickshell process.
+Files and folders are chosen through the configured desktop FileChooser portal.
 Only the backend commits source changes and acknowledges the displayed list.
 """
 import json
@@ -151,8 +151,7 @@ def main(smoke=False):
     if not isinstance(initial, dict): return 2
     import gi
     gi.require_version('Gtk', '4.0')
-    from gi.repository import Gtk, Gdk, GLib, Pango
-    from drop_receiver import read_drop
+    from gi.repository import Gtk, GLib, Pango
     from file_picker import FilePicker
     app = Gtk.Application(application_id=None)
     state = {'busy': False, 'picker': None, 'pending': bytearray(remaining)}
@@ -211,7 +210,7 @@ def main(smoke=False):
                 info.append(title); info.append(detail); row.append(info)
                 remove = Gtk.Button(label='Remove'); remove.connect('clicked', lambda _, p=path: action('local_remove', [p])); row.append(remove); listing.append(row)
             text = data.get('message')
-            message.set_text(text[:512] if isinstance(text, str) and text else 'Drop music files or folders anywhere in this window.')
+            message.set_text(text[:512] if isinstance(text, str) and text else 'Choose + Files or + Folder to add music.')
             busy(False)
 
         def choose(folder):
@@ -226,14 +225,6 @@ def main(smoke=False):
                 busy(False); message.set_text('Could not open your desktop file picker.')
         for label, folder in (('+ Files', False), ('+ Folder', True)):
             button = Gtk.Button(label=label); button.connect('clicked', lambda _, f=folder: choose(f)); controls.append(button)
-        target = Gtk.DropTargetAsync.new(Gdk.ContentFormats.new(['text/uri-list']), Gdk.DragAction.COPY)
-        def dropped(controller, drop, x, y):
-            if state['busy']: return False
-            busy(True)
-            def success(paths): busy(False); action('local_add', paths)
-            def error(text): busy(False); message.set_text(text)
-            read_drop(drop, success, error); return True
-        target.connect('drop', dropped); window.add_controller(target)
         os.set_blocking(sys.stdin.fileno(), False)
         def consume():
             while b'\n' in state['pending']:

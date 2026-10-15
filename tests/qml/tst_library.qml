@@ -91,7 +91,7 @@ Item {
             fakeApp.updateChecking = false; fakeApp.updateInstalling = false; fakeApp.updateTerminalOpened = false
             library.radioTab = "saved"
             fakeApp.settingsSection = "playback"
-            fakeApp.savedPlaylists = []; fakeApp.recentItems = []
+            fakeApp.savedPlaylists = []; fakeApp.recentItems = []; fakeApp.localSources = []
             fakeApp.cancelRadioSearch()
             fakeApp.songs = [
                 {id: "1", artist: "A", albumId: "a1", album: "First", title: "One", duration: 1},
@@ -366,6 +366,25 @@ Item {
             compare(fakeApp.commands[0], {cmd: "manage_local"})
             verify(findChild(library, "dropMusic") === null)
             grabImage(library).save("/tmp/omagawd-local-settings.png")
+        }
+        function test_local_sources_show_paths_and_scroll_at_panel_width() {
+            fakeApp.tab = "settings"; fakeApp.settingsSection = "sources"
+            const listing = findChild(library, "localSourceList")
+            verify(!listing.visible)
+            const paths = ["/home/example/Music/Favourite Albums", "/home/example/Music/track.flac", "/home/example/Music/" + "Long folder name ".repeat(12)]
+            fakeApp.localSources = paths; wait(30)
+            compare(listing.count, 3); verify(listing.visible)
+            compare(findChild(listing.itemAtIndex(0), "localSourcePath").text, paths[0])
+            compare(findChild(listing.itemAtIndex(1), "localSourcePath").text, paths[1])
+            compare(findChild(listing.itemAtIndex(2), "localSourcePath").text, paths[2])
+            verify(listing.width <= 460)
+            fakeApp.localSources = Array.from({length: 1000}, (_, i) => "/home/example/Music/Folder " + i)
+            wait(50); compare(listing.count, 1000)
+            verify(listing.contentHeight > listing.height)
+            listing.positionViewAtEnd(); wait(30)
+            verify(listing.contentY > 0)
+            fakeApp.localSources = []; wait(30); verify(!listing.visible)
+            compare(fakeApp.commands.length, 0)
         }
         function test_named_playlist_and_recent_keyboard_actions() {
             fakeApp.state = {queue: [{key: "track", artist: "A", title: "One", duration: 1}]}

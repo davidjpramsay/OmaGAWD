@@ -461,9 +461,27 @@ Rectangle {
                 AmpText { text: "LOCAL MUSIC"; font.pixelSize: Style.font.caption; Layout.fillWidth: true }
                 AmpButton { objectName: "localMusicManager"; text: "Local Music…"; hint: "Manage local files and folders"; enabled: !app.busy; onClicked: app.manageLocal() }
             }
-            AmpText { text: "Add files or folders, or drag them into the Local Music window."; Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.65 }
-            AmpText { text: (app.localSources || []).length ? (app.localSources || []).length + " saved source" + ((app.localSources || []).length === 1 ? "" : "s") : "No local music added yet."; Layout.fillWidth: true; opacity: 0.6 }
-            Item { Layout.fillHeight: true }
+            AmpText { text: "Choose files or folders in Local Music."; Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.65 }
+            ListView {
+                id: localSourceList
+                objectName: "localSourceList"
+                visible: count > 0
+                Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: Style.space(90)
+                clip: true; spacing: Style.space(10)
+                boundsBehavior: Flickable.StopAtBounds
+                model: app.localSources || []
+                Controls.ScrollBar.vertical: Controls.ScrollBar { }
+                delegate: Column {
+                    required property string modelData
+                    width: localSourceList.width
+                    spacing: Style.space(4)
+                    AmpText { width: parent.width; text: modelData.split("/").filter(Boolean).pop() || "/"; wrapMode: Text.WrapAnywhere; elide: Text.ElideNone }
+                    AmpText { objectName: "localSourcePath"; width: parent.width; text: modelData; font.pixelSize: Style.font.caption; wrapMode: Text.WrapAnywhere; elide: Text.ElideNone; opacity: 0.6 }
+                    Rectangle { width: parent.width; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+                }
+            }
+            AmpText { visible: !localSourceList.count; text: "No local music added yet."; Layout.fillWidth: true; opacity: 0.6 }
+            Item { visible: !localSourceList.count; Layout.fillHeight: true }
             AmpButton { text: "Back to settings"; onClicked: app.settingsSection = "playback" }
         }
         ColumnLayout {

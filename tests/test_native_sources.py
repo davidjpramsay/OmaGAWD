@@ -80,7 +80,7 @@ class ManagerTests(unittest.TestCase):
             for name in ('process_guard.py','file_picker.py','drop_receiver.py','media_policy.py'):
                 shutil.copy(Path(__file__).resolve().parents[1]/name,root/name)
             helper=root/'local_music_window.py'
-            helper.write_text("import file_picker,drop_receiver,json,sys\njson.loads(sys.stdin.readline())\nprint(json.dumps({'cmd':'local_add','paths':['/tmp/music']}),flush=True)\nassert json.loads(sys.stdin.readline())['paths']==['/tmp/music']\n")
+            helper.write_text("import file_picker,json,sys\njson.loads(sys.stdin.readline())\nprint(json.dumps({'cmd':'local_add','paths':['/tmp/music']}),flush=True)\nassert json.loads(sys.stdin.readline())['paths']==['/tmp/music']\n")
             seen=[];done=threading.Event()
             window=LocalMusicWindow(lambda c:(seen.append(c),window.update(['/tmp/music'])),done.set)
             try:

@@ -28,7 +28,7 @@ def wait_for(predicate, timeout=5):
 
 
 class DailyUseTests(unittest.TestCase):
-    def test_drop_source_switch_save_and_full_restart_preserve_music(self):
+    def test_folder_source_switch_save_and_full_restart_preserve_music(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d); album = root / 'Album'; album.mkdir()
             for i in range(2):
@@ -56,7 +56,7 @@ class DailyUseTests(unittest.TestCase):
                 self.assertIs(p.mpv, engine); self.assertEqual([r['key'] for r in p.queue], keys)
                 paths = paths_from_uris(added.as_uri().encode())
                 with patch('backend.run_bounded', return_value=SimpleNamespace(returncode=0, stdout=json.dumps(paths).encode())):
-                    p.local_command({'cmd': 'choose_drop'}, p.generation)
+                    p.local_command({'cmd': 'choose_folder'}, p.generation)
                 self.assertIs(p.mpv, engine); self.assertEqual([r['key'] for r in p.queue], keys)
                 self.assertEqual(len(p.songs), 3)
                 p.handle({'cmd': 'pause'})
