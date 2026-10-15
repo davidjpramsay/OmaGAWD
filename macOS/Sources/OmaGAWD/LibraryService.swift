@@ -64,12 +64,13 @@ final class Jellyfin {
     let account: Account
     static let session = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
     init(_ account: Account) { self.account = account }
-    static func request(server: URL, path: String, auth: String, params: [String: String] = [:], body: [String: String]? = nil) async throws -> (Data, HTTPURLResponse) {
+    static func request(server: URL, path: String, auth: String, params: [String: String] = [:], body: [String: Any]? = nil, method: String? = nil) async throws -> (Data, HTTPURLResponse) {
         var components = URLComponents(url: server.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         components.queryItems = params.isEmpty ? nil : params.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         var request = URLRequest(url: components.url!); request.timeoutInterval = 25
         request.setValue(auth, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let method { request.httpMethod = method }
         if let body { request.httpMethod = "POST"; request.httpBody = try JSONSerialization.data(withJSONObject: body) }
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { throw MusicError.message("Jellyfin rejected the request. Check your server URL and sign-in; redirects are not allowed.") }
@@ -105,9 +106,10 @@ final class Jellyfin {
             let page = try JSONDecoder().decode(Response.self, from: data)
             guard page.Items.count <= 500, count <= 64 * 1024 * 1024, result.count + page.Items.count <= 100_000 else { throw MusicError.message("Library exceeds the 100,000 track / 64 MiB limit.") }
             for item in page.Items {
-                guard !item.Id.isEmpty, seen.insert(item.Id).inserted else { throw MusicError.message("Jellyfin returned duplicate or invalid tracks.") }
-                result.append(Song(id: item.Id, title: item.Name ?? "Untitled", artist: item.AlbumArtist ?? item.Artists?.joined(separator: ", ") ?? "Unknown artist", album: item.Album ?? "Unknown album", albumID: item.AlbumId ?? "\(item.AlbumArtist ?? "")/\(item.Album ?? "")", duration: max(0, (item.RunTimeTicks ?? 0) / 10_000_000), track: item.IndexNumber ?? 0, disc: item.ParentIndexNumber ?? 0))
+                guard !item.Id.isEmpty, item.Id.count <= 512, seen.insert(item.Id).inserted else { throw MusicError.message("Jellyfin returned duplicate or invalid tracks.") }
+                result.append(Song(id: item.Id, title: MediaPolicy.text(item.Name ?? "", fallback: "Untitled"), artist: MediaPolicy.text(item.AlbumArtist ?? item.Artists?.prefix(32).joined(separator: ", ") ?? "", fallback: "Unknown artist"), album: MediaPolicy.text(item.Album ?? "", fallback: "Unknown album"), albumID: MediaPolicy.text(item.AlbumId ?? "\(item.AlbumArtist ?? "")/\(item.Album ?? "")"), duration: max(0, (item.RunTimeTicks ?? 0) / 10_000_000), track: item.IndexNumber ?? 0, disc: item.ParentIndexNumber ?? 0))
             }
+            if let total = page.TotalRecordCount { guard total >= 0, total <= 100_000, !page.Items.isEmpty || result.count >= total else { throw MusicError.message("Jellyfin returned an incomplete or oversized library.") } }
             if page.Items.isEmpty || result.count >= (page.TotalRecordCount ?? Int.max) { return result }
         }
     }
@@ -123,7 +125,7 @@ actor LocalLibrary {
         let directory = cacheDirectory ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("com.davidjpramsay.OmaGAWD")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         cacheURL = directory.appendingPathComponent("metadata-v2.json")
-        if let data = try? Data(contentsOf: cacheURL), let saved = try? JSONDecoder().decode([String: Cached].self, from: data) { cache = saved }
+        if let size = try? cacheURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 64 * 1024 * 1024, let data = try? Data(contentsOf: cacheURL), data.count <= 64 * 1024 * 1024, let saved = try? JSONDecoder().decode([String: Cached].self, from: data) { cache = saved }
     }
     private static func number(_ item: AVMetadataItem, binary: Bool) async -> Int {
         if binary, let data = try? await item.load(.dataValue), data.count >= 4 {
@@ -133,9 +135,9 @@ actor LocalLibrary {
         return (try? await item.load(.numberValue))?.intValue ?? 0
     }
     func scan(_ sources: [URL]) async throws -> [Song] {
-        let extensions: Set<String> = ["mp3", "m4a", "aac", "flac", "wav", "aiff", "aif", "alac", "caf", "mp4"]
+        let extensions = MediaPolicy.extensions
         warnings = []
-        var urls = Set<URL>()
+        var urls = Set<URL>(), visited = 0, folders = 0
         for source in sources {
             try Task.checkCancellation()
             guard let info = try? source.resourceValues(forKeys: [.isDirectoryKey]) else { warnings.append("Unavailable source: \(source.lastPathComponent)"); continue }
@@ -143,6 +145,9 @@ actor LocalLibrary {
                 let iterator = FileManager.default.enumerator(at: source, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles, .skipsPackageDescendants])
                 while let url = iterator?.nextObject() as? URL {
                     try Task.checkCancellation()
+                    visited += 1
+                    if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { folders += 1 }
+                    guard visited <= 1_000_000, folders <= 100_000 else { throw MusicError.message("Local scan exceeds 1,000,000 entries or 100,000 folders.") }
                     if extensions.contains(url.pathExtension.lowercased()), (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true { urls.insert(url.standardizedFileURL) }
                     guard urls.count <= 100_000 else { throw MusicError.message("Local library exceeds 100,000 tracks.") }
                 }
@@ -154,6 +159,7 @@ actor LocalLibrary {
             try Task.checkCancellation()
             guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) else { warnings.append("Unavailable file: \(url.lastPathComponent)"); continue }
             let date = values.contentModificationDate ?? .distantPast; let size = values.fileSize ?? 0
+            guard (try? MediaPolicy.localFile(url)) != nil else { warnings.append("Unsupported file: \(url.lastPathComponent)"); continue }
             if let entry = cache[url.path], entry.modified == date, entry.size == size { songs.append(entry.song); updated[url.path] = entry; continue }
             let asset = AVURLAsset(url: url)
             var title = url.deletingPathExtension().lastPathComponent, artist = "Unknown artist", album = "Unknown album"
@@ -177,7 +183,7 @@ actor LocalLibrary {
                 else if ["TPOS", "DISCNUMBER"].contains(key.uppercased()) { disc = await Self.number(item, binary: false) }
             }
             let duration = (try? await asset.load(.duration).seconds) ?? 0
-            let song = Song(id: url.absoluteString, title: title, artist: artist, album: album, albumID: "\(artist)/\(album)", duration: duration.isFinite ? duration : 0, track: track, disc: disc, file: url)
+            let song = Song(id: url.absoluteString, title: MediaPolicy.text(title, fallback: "Untitled"), artist: MediaPolicy.text(artist, fallback: "Unknown artist"), album: MediaPolicy.text(album, fallback: "Unknown album"), albumID: "\(MediaPolicy.text(artist))/\(MediaPolicy.text(album))", duration: duration.isFinite ? duration : 0, track: track, disc: disc, file: url)
             songs.append(song); updated[url.path] = Cached(modified: date, size: size, song: song)
         }
         cache = updated

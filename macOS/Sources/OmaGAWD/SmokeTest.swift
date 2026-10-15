@@ -23,6 +23,12 @@ import OmaCore
         model.songs = songs; model.visible = true; model.queue.repeatMode = .off; model.queue.shuffle = false
         model.replace(songs); await settle(2)
         try check(model.playing && model.position > 0, "Local AVFoundation playback")
+        controller.show()
+        for _ in 0..<40 {
+            if !model.visible { controller.show() }
+            if model.spectrum.read().max() ?? 0 > 0 { break }
+            await settle(0.05)
+        }
         try check(model.spectrum.read().max() ?? 0 > 0, "Real FFT spectrum receives PCM")
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         try check(controller.dancingLlama.isDancing == !reduceMotion, "Llama follows playback and Reduce Motion")
@@ -97,6 +103,39 @@ import OmaCore
         }
         try check(model.spectrum.read().max() ?? 0 > 0, "Streaming FFT spectrum receives PCM")
         model.seek(15); await settle(0.8); try check(model.position >= 15 && model.position < 18, "Remote byte-range seek")
+        let hostedAPI = JellyfinPlaylists(account)
+        let hosted = try await hostedAPI.catalog()
+        try check(hosted.count == 1 && hosted[0].canDelete, "HTTP Jellyfin playlist catalogue")
+        let hostedSongs = try await hostedAPI.songs(hosted[0].id)
+        try check(hostedSongs.count == 2 && hostedSongs[0].id == hostedSongs[1].id, "Hosted playlist duplicate positions")
+        let queueBefore = model.queue.entries.map(\.id)
+        let created = try await hostedAPI.create("Native Mac fixture", songs: hostedSongs)
+        let afterCreate = try await hostedAPI.catalog()
+        try check(afterCreate.contains { $0.id == created.id }, "Private Jellyfin playlist creation over HTTP")
+        try await hostedAPI.delete(created.id)
+        let afterDelete = try await hostedAPI.catalog()
+        try check(!afterDelete.contains { $0.id == created.id } && model.queue.entries.map(\.id) == queueBefore, "Confirmed playlist deletion keeps songs and queue")
+        await model.savePlaylist("Fixture on device")
+        try check(model.collections.playlists.count == 1, "Save named playlist on device")
+        if let saved = model.collections.playlists.first {
+            await model.renamePlaylist(saved.id, name: "Renamed fixture")
+            try check(model.collections.playlists.first?.name == "Renamed fixture", "Rename saved playlist")
+            model.loadCollection(saved, autoplay: false); await settle(0.4)
+            try check(!model.playing && !model.stopped && model.queue.entries.count == saved.snapshot.entries.count, "Load saved playlist paused")
+            await model.forgetPlaylist(saved.id)
+            try check(model.collections.playlists.isEmpty && !model.queue.entries.isEmpty, "Forget saved playlist keeps queue")
+            model.resume(); await settle(0.2)
+        }
+        model.replace(hostedSongs)
+        for _ in 0..<40 { if model.player.items().count == 2 && model.playing { break }; await settle(0.05) }
+        try check(model.player.items().count == 2, "Authenticated music preloads next item")
+        let preparedNext = model.player.items()[1]
+        model.seek(44.5)
+        for _ in 0..<80 { if model.queue.index == 1 { break }; await settle(0.05) }
+        try check(model.queue.index == 1 && model.player.currentItem === preparedNext, "Remote gapless transition uses prepared item")
+        model.normalization = true
+        try check(model.spectrum.normalizationEnabled && model.player.currentItem === preparedNext, "Normalization switches live without replacing playback")
+        model.normalization = false
         controller.hide(); await settle(0.2); try check(model.spectrum.read().allSatisfy { $0 == 0 }, "Hidden spectrum sleeps")
         try check(!controller.dancingLlama.isDancing && controller.timer == nil, "Hidden llama sleeps without an animation timer")
         model.stop()
@@ -141,5 +180,5 @@ import OmaCore
     } catch {
         try? (["FAIL", error.localizedDescription] + checks).joined(separator: "\n").write(toFile: report, atomically: true, encoding: .utf8)
     }
-    model.stop()
+    model.stop(); NSApp.terminate(nil)
 }

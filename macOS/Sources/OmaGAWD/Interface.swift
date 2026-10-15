@@ -129,6 +129,11 @@ final class DockedPlayerPanel: NSPanel {
     let volume = NSSlider(value: 0.7, minValue: 0, maxValue: 1, target: nil, action: nil)
     let search = NSSearchField()
     private var refreshButton: ActionButton!
+    private var addButton: ActionButton!
+    private(set) var collectionPane: CollectionPane!
+    private var playlistSection = 0
+    private let playlistSections = NSSegmentedControl(labels: ["Queue", "Saved", "Recent"], trackingMode: .selectOne, target: nil, action: nil)
+    private(set) var settingsController: PlayerSettings?
     let source = NSPopUpButton()
     let footer = label("", size: 10, color: .secondaryLabelColor)
     let artistTable = MusicTable(), albumTable = MusicTable(), songTable = MusicTable(), queueTable = MusicTable()
@@ -146,7 +151,6 @@ final class DockedPlayerPanel: NSPanel {
     var timer: Timer?
     var playButton: ActionButton!, shuffleButton: ActionButton!, repeatButton: ActionButton!, playlistButton: ActionButton!, libraryButton: ActionButton!
     var accountWindow: NSWindow?
-    var sourcesWindow: NSWindow?
     var hotKeyWarning: String?
     private var placementScreenNumber: NSNumber?
     private var positioning = false
@@ -161,9 +165,11 @@ final class DockedPlayerPanel: NSPanel {
         panel.isMovable = false; panel.isMovableByWindowBackground = false
         panel.isRestorable = false; panel.hasShadow = true
         panel.appearance = NSAppearance(named: .darkAqua)
+        panel.contentView = MusicDropView(frame: panel.contentView?.bounds ?? .zero)
         panel.backgroundColor = NSColor(calibratedRed: 0.085, green: 0.09, blue: 0.125, alpha: 1)
         super.init(window: panel); panel.delegate = self
         build()
+        (panel.contentView as? MusicDropView)?.importMusic = { [weak model] in model?.dropMusic($0, append: true) }
         model.onChange = { [weak self] in self?.reload() }; model.onTick = { [weak self] in self?.tick() }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window else { return event }
@@ -249,10 +255,14 @@ final class DockedPlayerPanel: NSPanel {
         filterTablesHeight.isActive = true
         artistScroll.heightAnchor.constraint(equalTo: filterTables.heightAnchor).isActive = true; albumScroll.heightAnchor.constraint(equalTo: filterTables.heightAnchor).isActive = true
         songScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 90).isActive = true
-        let add = row([ActionButton("+ ADD", help: "Add selected music to queue") { [weak self] in guard let self else { return }; self.model.append(self.chosenSongs()) }, spacer(), label("⌥ click / Return to add", size: 10, color: .secondaryLabelColor)])
+        addButton = ActionButton("+ ADD", help: "Add selected artist, album or songs to queue") { [weak self] in guard let self else { return }; self.model.append(self.chosenSongs()) }
+        addButton.isEnabled = false
+        let add = row([addButton, spacer(), label("⌥ click / Return to add", size: 10, color: .secondaryLabelColor)])
         libraryPane = column([searchRow, filterTables, songScroll, add])
         let queueActions = row([ActionButton("− SELECTED") { [weak self] in self?.removeQueue() }, ActionButton("↑") { [weak self] in self?.moveQueue(-1) }, ActionButton("↓") { [weak self] in self?.moveQueue(1) }, spacer(), ActionButton("CLEAR") { [weak model] in model?.clear() }])
-        queuePane = column([queueScroll, queueActions]); queuePane.isHidden = true
+        playlistSections.selectedSegment = 0; playlistSections.target = self; playlistSections.action = #selector(playlistSectionChanged)
+        collectionPane = CollectionPane(model: model); collectionPane.isHidden = true
+        queuePane = column([playlistSections, queueScroll, queueActions, collectionPane]); queuePane.isHidden = true
         radioPane = RadioPane(player: model); radioPane.isHidden = true
         desk = column([tabs, libraryPane, radioPane, queuePane]); desk.setContentHuggingPriority(.init(1), for: .vertical)
         footer.maximumNumberOfLines = 2; footer.lineBreakMode = .byWordWrapping
@@ -298,6 +308,7 @@ final class DockedPlayerPanel: NSPanel {
         guard !refreshing, let table = notification.object as? NSTableView else { return }
         if table === artistTable { artist = artists.indices.contains(table.selectedRow) ? artists[table.selectedRow] : nil; album = nil; filter(reloadArtists: false) }
         else if table === albumTable { album = albums.indices.contains(table.selectedRow) ? albums[table.selectedRow].id : nil; filter(reloadArtists: false, reloadAlbums: false) }
+        updateAddButton()
     }
     func controlTextDidChange(_ obj: Notification) { artist = nil; album = nil; filter() }
     private func filter(reloadArtists: Bool = true, reloadAlbums: Bool = true) {
@@ -311,27 +322,30 @@ final class DockedPlayerPanel: NSPanel {
             var seen = Set<String>(); albums = artistSongs.filter { seen.insert($0.albumID).inserted }.map { ($0.albumID, $0.album) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
             albumTable.reloadData(); albumTable.deselectAll(nil); if let album, let i = albums.firstIndex(where: { $0.id == album }) { albumTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) }
         }
-        visibleSongs = artistSongs.filter { album == nil || $0.albumID == album }; songTable.reloadData()
+        visibleSongs = artistSongs.filter { album == nil || $0.albumID == album }; songTable.reloadData(); updateAddButton()
     }
     func reload() {
         let selected = Set(queueTable.selectedRowIndexes.compactMap { model.queue.entries.indices.contains($0) ? model.queue.entries[$0].id : nil })
         filter(); queueTable.reloadData()
         queueTable.selectRowIndexes(IndexSet(model.queue.entries.indices.filter { selected.contains(model.queue.entries[$0].id) }), byExtendingSelection: false)
-        source.removeAllItems(); source.addItem(withTitle: "Local Music"); source.lastItem?.representedObject = "local"
-        source.addItem(withTitle: "Radio"); source.lastItem?.representedObject = "radio"
-        for folder in model.folders { source.addItem(withTitle: folder.name); source.lastItem?.representedObject = folder.id }
-        if model.selectedFolder != "local", model.selectedFolder != "radio", !model.folders.contains(where: { $0.id == model.selectedFolder }) {
-            source.addItem(withTitle: "Jellyfin library (unavailable)"); source.lastItem?.representedObject = model.selectedFolder
-            source.lastItem?.isEnabled = false
+        source.removeAllItems()
+        if !model.folders.isEmpty {
+            for folder in model.folders { source.addItem(withTitle: model.folders.count == 1 ? "Jellyfin" : "Jellyfin · \(folder.name)"); source.lastItem?.representedObject = folder.id }
+        } else {
+            source.addItem(withTitle: "Jellyfin"); source.lastItem?.representedObject = "jellyfin"; source.lastItem?.isEnabled = false
         }
-        source.menu?.addItem(.separator()); source.addItem(withTitle: model.account == nil ? "Connect to Jellyfin…" : "Jellyfin account…"); source.lastItem?.representedObject = "account"
-        if model.accountLoading { source.lastItem?.title = "Loading saved sign-in…"; source.lastItem?.isEnabled = false }
+        source.addItem(withTitle: "Local Music"); source.lastItem?.representedObject = "local"
+        source.addItem(withTitle: "Radio"); source.lastItem?.representedObject = "radio"
+        if model.selectedFolder != "local", model.selectedFolder != "radio", !model.folders.contains(where: { $0.id == model.selectedFolder }) {
+            source.addItem(withTitle: "Jellyfin (unavailable)"); source.lastItem?.representedObject = model.selectedFolder; source.lastItem?.isEnabled = false
+        }
         if let item = source.itemArray.first(where: { ($0.representedObject as? String) == model.selectedFolder }) { source.select(item) }
         footer.stringValue = model.message; footer.textColor = model.error ? .systemOrange : .secondaryLabelColor
         libraryPane.isHidden = playlist || model.selectedFolder == "radio"
         radioPane.isHidden = playlist || model.selectedFolder != "radio"; radioPane.reload()
         playlistButton.title = "PLAYLIST \(model.queue.entries.count)"; source.isEnabled = !model.busy
         refreshButton.isEnabled = !model.busy && !model.refreshingFolders
+        collectionPane.reload(); settingsController?.refresh()
         tick()
     }
     func tick() {
@@ -349,6 +363,7 @@ final class DockedPlayerPanel: NSPanel {
         total.stringValue = model.queue.song?.isRadio == true ? "LIVE" : clockText(model.duration)
         stateLabel.stringValue = model.stopped ? "STOPPED" : model.playing ? (model.queue.song?.isRadio == true ? "▶ RADIO" : model.queue.song?.file == nil ? "▶ STREAMING" : "▶ PLAYING") : "PAUSED"
         seek.maxValue = max(1, model.duration); seek.doubleValue = model.position; seek.isEnabled = model.canSeek
+        volume.floatValue = model.volume
         playButton.title = model.playing ? "Ⅱ" : "▶"
         shuffleButton.contentTintColor = model.queue.shuffle ? .systemBlue : nil
         repeatButton.title = model.queue.repeatMode == .one ? "RPT 1" : "RPT"
@@ -361,7 +376,7 @@ final class DockedPlayerPanel: NSPanel {
     @objc private func volumeChanged() { model.volume = volume.floatValue }
     @objc private func sourceChanged() {
         guard let id = source.selectedItem?.representedObject as? String else { return }
-        if id == "account" { showAccount(); reload() } else { artist = nil; album = nil; model.selectFolder(id); if id == "radio" { radioPane.focusStations() } }
+        artist = nil; album = nil; model.selectFolder(id); showPlaylist(false); if id == "radio" { radioPane.focusStations() }
     }
     @objc private func doubleClick(_ sender: MusicTable) { if sender === queueTable { model.play(sender.clickedRow) } else { activate(sender, append: NSEvent.modifierFlags.contains(.option)) } }
     private func activate(_ table: MusicTable?, append: Bool) {
@@ -371,7 +386,12 @@ final class DockedPlayerPanel: NSPanel {
         else if table === songTable { selected = songTable.selectedRowIndexes.compactMap { visibleSongs.indices.contains($0) ? visibleSongs[$0] : nil } }
         if append { model.append(selected) } else { model.replace(selected) }
     }
-    private func chosenSongs() -> [Song] { let selected = songTable.selectedRowIndexes.compactMap { visibleSongs.indices.contains($0) ? visibleSongs[$0] : nil }; return selected.isEmpty ? visibleSongs : selected }
+    private func chosenSongs() -> [Song] {
+        let selected = songTable.selectedRowIndexes.compactMap { visibleSongs.indices.contains($0) ? visibleSongs[$0] : nil }
+        if !selected.isEmpty { return selected }
+        return artist != nil || album != nil ? visibleSongs : []
+    }
+    private func updateAddButton() { addButton?.isEnabled = !chosenSongs().isEmpty }
     private func removeQueue() { model.remove(Set(queueTable.selectedRowIndexes.compactMap { model.queue.entries.indices.contains($0) ? model.queue.entries[$0].id : nil })) }
     private func moveQueue(_ delta: Int) {
         let i = queueTable.selectedRow; guard model.queue.entries.indices.contains(i), model.queue.entries.indices.contains(i + delta) else { return }
@@ -379,10 +399,23 @@ final class DockedPlayerPanel: NSPanel {
     }
     func showPlaylist(_ value: Bool) {
         if compact { toggleCompact() }; playlist = value; libraryPane.isHidden = value || model.selectedFolder == "radio"; radioPane.isHidden = value || model.selectedFolder != "radio"; queuePane.isHidden = !value
-        if !value && model.selectedFolder == "radio" { radioPane.focusStations() } else { window?.makeFirstResponder(value ? queueTable : artistTable) }; tick()
+        collectionPane.setActive(value && playlistSection != 0 && model.visible)
+        if !value && model.selectedFolder == "radio" { radioPane.focusStations() } else if value && playlistSection != 0 { collectionPane.show(playlistSection == 1 ? .saved : .recent) } else { window?.makeFirstResponder(value ? queueTable : artistTable) }; tick()
+    }
+    func showCollectionSection(_ section: Int) {
+        showPlaylist(true); playlistSections.selectedSegment = min(2, max(0, section)); playlistSectionChanged()
+    }
+    @objc private func playlistSectionChanged() {
+        playlistSection = playlistSections.selectedSegment
+        let children = (queuePane as! NSStackView).arrangedSubviews
+        children[1].isHidden = playlistSection != 0; children[2].isHidden = playlistSection != 0
+        collectionPane.isHidden = playlistSection == 0
+        if playlistSection != 0 { collectionPane.show(playlistSection == 1 ? .saved : .recent) }
+        else { collectionPane.setActive(false); window?.makeFirstResponder(queueTable) }
     }
     func toggleCompact() {
         compact.toggle(); desk.isHidden = compact
+        collectionPane.setActive(!compact && playlist && playlistSection != 0 && model.visible)
         footer.isHidden = compact
         positionAtTopRight()
     }
@@ -393,6 +426,7 @@ final class DockedPlayerPanel: NSPanel {
             if model.selectedFolder == "radio" { showPlaylist(false); radioPane.clearSearch(); return true }
             showPlaylist(false); search.stringValue = ""; artist = nil; album = nil; filter(); window?.makeFirstResponder(search); return true
         }
+        if playlist && playlistSection != 0 && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) && !(window?.firstResponder is NSTextView) { collectionPane.cycleFocus(); return true }
         if !playlist && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) {
             if model.selectedFolder == "radio" { radioPane.cycleFocus(backward: flags.contains(.shift)); return true }
             let tables = [artistTable, albumTable, songTable]; let current = tables.firstIndex { $0 === window?.firstResponder }
@@ -423,6 +457,7 @@ final class DockedPlayerPanel: NSPanel {
         placementScreenNumber = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         positionAtTopRight()
         NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil); model.visible = true
+        collectionPane.setActive(playlist && playlistSection != 0 && !compact)
         if outsideClickMonitor == nil {
             // Global mouse monitors exclude this app, so menus, sheets and source
             // windows remain interactive and the status button keeps its toggle.
@@ -458,7 +493,7 @@ final class DockedPlayerPanel: NSPanel {
     }
     private func updateSpectrumTimer() {
         dancingLlama.setPlaybackState(playing: model.playing, stopped: model.stopped, visible: model.visible,
-                                     reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+                                     reduceMotion: model.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         if !model.visible || !model.playing { timer?.invalidate(); timer = nil; return }
         if timer == nil {
             let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
@@ -466,56 +501,23 @@ final class DockedPlayerPanel: NSPanel {
                 guard let self, self.model.visible, self.model.playing else { return }
                 let levels = self.model.spectrum.read(); self.spectrum.levels = zip(self.spectrum.levels, levels).map { max($1, $0 - 0.07 * 20 / 30) }
                 self.dancingLlama.setPlaybackState(playing: true, stopped: false, visible: true,
-                                                 reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+                                                 reduceMotion: self.model.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
                 }
             }; t.tolerance = 0.005; RunLoop.main.add(t, forMode: .common); timer = t
         }
     }
     func hide() {
         if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor); self.outsideClickMonitor = nil }
-        window?.orderOut(nil); model.visible = false; updateSpectrumTimer()
+        collectionPane.setActive(false); window?.orderOut(nil); model.visible = false; updateSpectrumTimer()
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { hide(); return false }
-    func windowDidChangeOcclusionState(_ notification: Notification) { model.visible = window?.occlusionState.contains(.visible) == true; updateSpectrumTimer() }
-    @objc private func showSettings(_ sender: NSButton) {
-        let menu = NSMenu(title: "Settings")
-        let shortcuts = menu.addItem(withTitle: "Shortcuts…", action: #selector(showHelp), keyEquivalent: "")
-        shortcuts.target = self
-        let sources = menu.addItem(withTitle: "Sources…", action: #selector(manageSources), keyEquivalent: "")
-        sources.target = self
-        menu.addItem(.separator())
-        if let updates { menu.addItem(updates.menuItem()); menu.addItem(.separator()) }
-        let quit = menu.addItem(withTitle: "Quit OmaGAWD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quit.target = NSApp
-        menu.popUp(positioning: nil, at: NSPoint(x: sender.bounds.maxX - menu.size.width, y: sender.bounds.minY - 4), in: sender)
+    func windowDidChangeOcclusionState(_ notification: Notification) { model.visible = window?.occlusionState.contains(.visible) == true; collectionPane.setActive(model.visible && playlist && playlistSection != 0 && !compact); updateSpectrumTimer() }
+    @objc private func showSettings(_ sender: NSButton) { openSettings() }
+    func openSettings(section: Int = 0) {
+        if settingsController == nil { settingsController = PlayerSettings(model: model, player: self) }
+        settingsController?.show(section: section)
     }
-    @objc private func showHelp() {
-        let alert = NSAlert(); alert.messageText = "OmaGAWD shortcuts"
-        alert.informativeText = "⌘⌥O — Show / hide from any app\nP / L — Playlist / library\n⌘F or Control-F — Clear filters and search\nTab / Shift-Tab — Cycle lists or radio search fields\nArrows / Space — Browse / select\nHome / End — First / last row\n⌘A — Select all songs or queue entries\nReturn / double-click — Play\nOption-click / Option-Return — Add to queue\nDelete — Remove from queue\nOption-↑ / ↓ — Reorder queue\nEscape — Hide\n\nMedia keys and Control Centre control playback.\(hotKeyWarning.map { "\n\n" + $0 } ?? "")"
-        alert.beginSheetModal(for: window!)
-    }
-    private func choose(folder: Bool) {
-        let panel = NSOpenPanel(); panel.canChooseDirectories = folder; panel.canChooseFiles = !folder; panel.allowsMultipleSelection = true; panel.prompt = "Add music"
-        if !folder { panel.allowedContentTypes = [.audio] }
-        panel.beginSheetModal(for: sourcesWindow ?? window!) { [weak self] result in if result == .OK { self?.model.addSources(panel.urls); self?.refreshSources() } }
-    }
-    @objc func manageSources() {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 350), styleMask: [.titled,.closable], backing: .buffered, defer: false)
-        panel.title = "Music sources"; panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: .darkAqua); sourcesWindow = panel
-        refreshSources(); panel.center(); panel.makeKeyAndOrderFront(nil)
-    }
-    private func refreshSources() {
-        guard let panel = sourcesWindow else { return }
-        let items = model.sources.enumerated().map { index, url in row([label(url.path, size: 11), spacer(), ActionButton("Remove") { [weak self] in self?.model.removeSource(index); self?.refreshSources() }]) }
-        let list = SourceStack(views: items.isEmpty ? [label("No local sources yet.", color: .secondaryLabelColor)] : items)
-        list.orientation = .vertical; list.alignment = .leading; list.spacing = 8
-        for item in list.arrangedSubviews { item.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true }
-        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.documentView = list; list.translatesAutoresizingMaskIntoConstraints = false
-        list.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor).isActive = true
-        let root = column([label("LOCAL MUSIC SOURCES", size: 13), label("Removing a source keeps your files and queued tracks.", size: 10, color: .secondaryLabelColor), row([ActionButton("+ Files") { [weak self] in self?.choose(folder: false) }, ActionButton("+ Folder") { [weak self] in self?.choose(folder: true) }, spacer(), ActionButton("Jellyfin…") { [weak self] in self?.showAccount() }]), scroll])
-        panel.contentView = NSView(); root.translatesAutoresizingMaskIntoConstraints = false; panel.contentView!.addSubview(root)
-        NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: panel.contentView!.leadingAnchor, constant: 16),root.trailingAnchor.constraint(equalTo: panel.contentView!.trailingAnchor, constant: -16),root.topAnchor.constraint(equalTo: panel.contentView!.topAnchor, constant: 16),root.bottomAnchor.constraint(equalTo: panel.contentView!.bottomAnchor, constant: -16)])
-    }
+    @objc func manageSources() { openSettings(section: 1) }
     func showAccount() {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 290), styleMask: [.titled,.closable], backing: .buffered, defer: false)
         panel.title = "Jellyfin"; panel.isReleasedWhenClosed = false; panel.appearance = NSAppearance(named: .darkAqua); accountWindow = panel

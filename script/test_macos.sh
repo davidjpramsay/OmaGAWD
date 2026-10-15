@@ -12,9 +12,8 @@ PORT="$(cat "$FIXTURE_DIR/port")"
 REPORT="$ROOT_DIR/dist/smoke-test.txt"
 BUNDLE="${OMAGAWD_TEST_BUNDLE:-$ROOT_DIR/dist/build.noindex/OmaGAWD.app}"
 rm -f "$REPORT"
-pkill -x OmaGAWD >/dev/null 2>&1 || true
 open -n "$BUNDLE" --args --smoke-test "$FIXTURE_DIR/OmaGAWD test tone.wav" "$PORT" "$REPORT"
-for _ in {1..60}; do [[ -f "$REPORT" ]] && break; sleep 1; done
+for _ in {1..100}; do [[ -f "$REPORT" ]] && break; sleep 1; done
 if [[ ! -f "$REPORT" ]]; then echo 'FAIL: smoke test timed out'; exit 1; fi
 cat "$REPORT"
 [[ "$(head -n 1 "$REPORT")" == "PASS" ]]
