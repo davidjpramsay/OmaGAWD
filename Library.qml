@@ -14,7 +14,6 @@ Rectangle {
         background: Rectangle { color: action.highlighted ? Style.hoverFill : "transparent"; radius: Style.cornerRadius }
     }
     readonly property bool editingText: server.activeFocus || username.activeFocus || password.activeFocus || search.activeFocus || playlistName.activeFocus || hostedName.activeFocus || radioGenre.activeFocus || radioCountry.activeFocus || radioLanguage.activeFocus
-    property string helpReturnTab: "library"
     property string savedPlaylistId: ""
     property string recentId: ""
     property string savedScope: app.connected && app.selectedLibrary !== "local" && app.selectedLibrary !== "radio" ? "jellyfin" : "device"
@@ -71,6 +70,8 @@ Rectangle {
     readonly property var filtered: (radioMode && radioTab === "discover" ? radioRows : app.songs).filter(s => !search.text || (s.artist + " " + s.album + " " + s.title).toLowerCase().indexOf(search.text.toLowerCase()) >= 0)
     readonly property var artistSongs: filtered.filter(s => !artist || s.artist === artist)
     readonly property var albumSongs: artistSongs.filter(s => !album || s.albumId === album)
+    readonly property bool hasMusicSelection: !!artist || !!album || selectedSongs.length > 0
+    readonly property int selectedQueueIndex: app.state.queue.findIndex(s => s.key === root.selectedQueue[0])
     readonly property var chosenSongs: selectedSongs.length ? albumSongs.filter(s => selectedSongs.indexOf(s.id) >= 0) : albumSongs
     readonly property var artistRows: unique(filtered, "artist")
     readonly property var albumRows: unique(artistSongs, "albumId")
@@ -84,6 +85,7 @@ Rectangle {
         } else savedList.focusList()
     }
     function focusRecent() { recentList.focusList() }
+    function focusLocalPicker(folder) { (folder ? addLocalFolder : addLocalFiles).forceActiveFocus() }
     function cycleLists(backward) {
         if (radioMode) {
             stationList.focusList()
@@ -177,11 +179,11 @@ Rectangle {
         RowLayout {
             AmpText { text: "OMAGAWD / MUSIC DESK"; font.bold: true; font.letterSpacing: 2 }
             Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
-            AmpButton { text: "×"; hint: "Hide playlist"; implicitHeight: Style.space(24); onClicked: app.playlistOpen = false }
+            AmpButton { text: "×"; hint: "Hide music desk"; implicitHeight: Style.space(24); onClicked: app.playlistOpen = false }
         }
         RowLayout {
             spacing: Style.space(6)
-            AmpButton { objectName: "playlistTab"; text: "PLAYLIST  " + app.state.queue.length; hint: "Playlist (P)"; lit: root.playlistMode; onClicked: app.tab = "queue" }
+            AmpButton { objectName: "playlistTab"; text: "PLAYLIST"; hint: "Playlist (P)"; lit: root.playlistMode; onClicked: app.tab = "queue" }
             AmpButton { objectName: "libraryTab"; text: "LIBRARY"; hint: "Library (L)"; lit: app.tab === "library"; onClicked: app.tab = "library" }
             Item { Layout.fillWidth: true }
             AmpButton {
@@ -260,13 +262,12 @@ Rectangle {
             Layout.fillWidth: true; Layout.fillHeight: true; contentWidth: availableWidth; clip: true
             ColumnLayout {
                 width: parent.width; spacing: Style.space(12)
-                AmpText { text: "PLAYBACK"; font.bold: true }
                 AmpToggle { objectName: "gaplessToggle"; text: "Gapless albums"; checked: app.state.gapless !== false; onToggled: app.send({cmd: "gapless", value: checked}) }
-                AmpText { Layout.fillWidth: true; text: "Keep music flowing between tracks with matching audio formats. Network buffering can still cause a pause."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
+                AmpText { Layout.fillWidth: true; text: "Continuous playback between tracks with matching audio formats. Network buffering can still cause a pause."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
                 AmpToggle { objectName: "normalizationToggle"; text: "Volume normalization"; checked: !!app.state.normalization; onToggled: app.send({cmd: "normalization", value: checked}) }
                 AmpText { Layout.fillWidth: true; text: "Balance loudness automatically across music and radio. May soften volume contrasts and add buffering."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
                 AmpToggle { objectName: "reduceMotionToggle"; text: "Reduce motion"; checked: !!app.state.reduceMotion; onToggled: app.send({cmd: "reduce_motion", value: checked}) }
-                AmpText { Layout.fillWidth: true; text: "Give the llama a rest while the music keeps playing."; wrapMode: Text.WordWrap; opacity: 0.65 }
+                AmpText { Layout.fillWidth: true; text: "Keep the llama still while music plays."; wrapMode: Text.WordWrap; opacity: 0.65 }
                 AmpToggle { objectName: "rememberRecentToggle"; text: "Remember recently played"; checked: app.state.keepRecent !== false; onToggled: app.send({cmd: "keep_recent", value: checked}) }
                 AmpButton { objectName: "clearRecent"; text: "Clear recently played"; enabled: !!(app.recentItems || []).length; onClicked: app.send({cmd: "recent_clear"}) }
             }
@@ -290,7 +291,7 @@ Rectangle {
             }
             AmpText {
                 Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65
-                text: !app.connected ? "Connect to Jellyfin to browse and create playlists." : root.hostedQueue ? "Create from your queue · private on Jellyfin." : "Queue Jellyfin songs to create a playlist. Local music and radio stay on this device."
+                text: !app.connected ? "Connect to Jellyfin in Settings → Sources." : root.hostedQueue ? "Create from your queue · private on Jellyfin." : "Queue Jellyfin songs to create a playlist."
             }
             TextList {
                 id: hostedList; objectName: "hostedPlaylistList"
@@ -356,7 +357,7 @@ Rectangle {
             RowLayout {
                 AmpButton { objectName: "loadSavedPlaylist"; text: "LOAD"; enabled: !!root.savedPlaylistId; onClicked: app.send({cmd: "collection_load", id: root.savedPlaylistId, play: false}) }
                 AmpButton { text: "PLAY"; enabled: !!root.savedPlaylistId; onClicked: app.send({cmd: "collection_load", id: root.savedPlaylistId, play: true}) }
-                AmpButton { objectName: "renamePlaylist"; text: "RENAME"; enabled: !!root.savedPlaylistId && !!playlistName.text.trim(); onClicked: app.send({cmd: "playlist_rename", id: root.savedPlaylistId, name: playlistName.text}) }
+                AmpButton { objectName: "renamePlaylist"; text: "RENAME"; enabled: !!root.savedPlaylistId && !!playlistName.text.trim() && (app.savedPlaylists || []).some(r => r.id === root.savedPlaylistId && r.name !== playlistName.text.trim()); onClicked: app.send({cmd: "playlist_rename", id: root.savedPlaylistId, name: playlistName.text}) }
                 Item { Layout.fillWidth: true }
                 AmpButton { objectName: "deletePlaylist"; text: "DELETE"; hint: "Forget this named playlist; keep files and current queue"; enabled: !!root.savedPlaylistId; onClicked: { app.send({cmd: "playlist_delete", id: root.savedPlaylistId}); root.savedPlaylistId = "" } }
             }
@@ -413,13 +414,11 @@ Rectangle {
                     }
                 }
                 AmpText { text: "Suggested global binding: Super+Alt+O (Command+Option+O on Mac keys). Configure it in Omarchy."; Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.7 }
-                AmpButton { text: "Back"; onClicked: app.tab = root.helpReturnTab }
             }
         }
         ColumnLayout {
             visible: app.tab === "settings" && app.settingsSection === "updates"
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: Style.space(10)
-            AmpText { text: "OMAGAWD UPDATES"; font.bold: true; Layout.fillWidth: true }
             AmpText {
                 objectName: "updateStatus"
                 text: app.updateChecking ? "Checking for updates…" : (app.updateInfo || {}).available ? "Update available · " + app.updateInfo.latest : app.updateError ? "Update check unavailable" : (app.updateInfo || {}).current ? "You’re up to date · " + app.updateInfo.current : "Check for the latest Omarchy release"
@@ -442,8 +441,8 @@ Rectangle {
                 }
             }
             AmpText {
-                text: app.updateTerminalOpened ? "Finish or cancel the update in the terminal. Choose Check to refresh this page afterwards." : (app.updateInfo || {}).managed ? "Updating pauses music and saves your playlist and position. Omarchy opens a terminal to show the changes and ask for confirmation." : "Updating here needs a Git-managed OmaGAWD installation. See the README for installation instructions."
-                visible: !!(app.updateInfo || {}).current
+                text: app.updateTerminalOpened ? "Finish or cancel in the terminal, then check again." : (app.updateInfo || {}).managed ? "Updates pause music and keep your queue and position. Confirm the changes in the terminal." : "Updating here needs a Git-managed OmaGAWD installation. See the README for installation instructions."
+                visible: !!(app.updateInfo || {}).current && (app.updateTerminalOpened || !!(app.updateInfo || {}).available || !(app.updateInfo || {}).managed)
                 Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65
             }
             RowLayout {
@@ -451,9 +450,8 @@ Rectangle {
                 AmpButton { objectName: "checkUpdates"; text: "Check"; enabled: !app.updateChecking && !app.updateInstalling; onClicked: app.checkUpdates(true) }
                 AmpButton { objectName: "viewUpdateRelease"; text: "Release notes ↗"; visible: !!(app.updateInfo || {}).url; onClicked: app.viewUpdateRelease() }
                 Item { Layout.fillWidth: true }
-                AmpButton { objectName: "installUpdate"; text: app.updateInstalling ? "Preparing…" : app.updateTerminalOpened ? "Updater opened" : "Update"; lit: true; enabled: !!(app.updateInfo || {}).available && !!(app.updateInfo || {}).managed && app.ready && !app.updateInstalling && !app.updateChecking && !app.updateTerminalOpened; onClicked: app.installUpdate() }
+                AmpButton { objectName: "installUpdate"; visible: !!(app.updateInfo || {}).available || app.updateInstalling || app.updateTerminalOpened; text: app.updateInstalling ? "Preparing…" : app.updateTerminalOpened ? "Updater opened" : "Update"; lit: true; enabled: !!(app.updateInfo || {}).available && !!(app.updateInfo || {}).managed && app.ready && !app.updateInstalling && !app.updateChecking && !app.updateTerminalOpened; onClicked: app.installUpdate() }
             }
-            AmpButton { text: "Back to settings"; onClicked: app.settingsSection = "playback" }
         }
         ColumnLayout {
             visible: app.tab === "sources" || (app.tab === "settings" && app.settingsSection === "sources")
@@ -468,9 +466,9 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 AmpText { text: "LOCAL MUSIC"; font.pixelSize: Style.font.caption; Layout.fillWidth: true }
-                AmpButton { objectName: "localMusicManager"; text: "Local Music…"; hint: "Manage local files and folders"; enabled: !app.busy; onClicked: app.manageLocal() }
+                AmpButton { id: addLocalFiles; objectName: "addLocalFiles"; text: "+ Files"; enabled: app.ready && !app.busy; onClicked: app.chooseLocal(false) }
+                AmpButton { id: addLocalFolder; objectName: "addLocalFolder"; text: "+ Folder"; enabled: app.ready && !app.busy; onClicked: app.chooseLocal(true) }
             }
-            AmpText { text: "Choose files or folders in Local Music."; Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.65 }
             ListView {
                 id: localSourceList
                 objectName: "localSourceList"
@@ -484,22 +482,32 @@ Rectangle {
                     required property string modelData
                     width: localSourceList.width
                     spacing: Style.space(4)
-                    AmpText { width: parent.width; text: modelData.split("/").filter(Boolean).pop() || "/"; wrapMode: Text.WrapAnywhere; elide: Text.ElideNone }
-                    AmpText { objectName: "localSourcePath"; width: parent.width; text: modelData; font.pixelSize: Style.font.caption; wrapMode: Text.WrapAnywhere; elide: Text.ElideNone; opacity: 0.6 }
+                    RowLayout {
+                        width: parent.width
+                        spacing: Style.space(10)
+                        ColumnLayout {
+                            Layout.fillWidth: true; spacing: Style.space(4)
+                            AmpText { Layout.fillWidth: true; text: modelData.split("/").filter(Boolean).pop() || "/"; wrapMode: Text.WrapAnywhere; elide: Text.ElideNone }
+                            AmpText { objectName: "localSourcePath"; Layout.fillWidth: true; text: modelData; font.pixelSize: Style.font.caption; wrapMode: Text.WrapAnywhere; elide: Text.ElideNone; opacity: 0.6 }
+                        }
+                        AmpButton { objectName: "removeLocalSource"; text: "Remove"; hint: "Forget this source; keep files and the current queue"; enabled: app.ready && !app.busy; onClicked: app.removeLocal(modelData) }
+                    }
                     Rectangle { width: parent.width; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
                 }
             }
             AmpText { visible: !localSourceList.count; text: "No local music added yet."; Layout.fillWidth: true; opacity: 0.6 }
             Item { visible: !localSourceList.count; Layout.fillHeight: true }
-            AmpButton { text: "Back to settings"; onClicked: app.settingsSection = "playback" }
         }
         ColumnLayout {
             visible: app.tab === "connect"
             Layout.fillWidth: true; Layout.fillHeight: true
             spacing: Style.space(8)
-            Item { Layout.fillHeight: true }
-            AmpText { text: app.connected ? "You’re tuned in." : "Tune into your collection."; font.pixelSize: Style.font.title; Layout.fillWidth: true }
-            AmpText { text: app.connected ? "Connected to Jellyfin as " + app.username : "Your server. Your records. One little receiver."; opacity: 0.55; Layout.fillWidth: true }
+            RowLayout {
+                Layout.fillWidth: true
+                AmpText { text: "JELLYFIN"; font.bold: true; Layout.fillWidth: true }
+                AmpButton { objectName: "backToSources"; text: "Sources"; enabled: !app.busy; onClicked: app.showSources() }
+            }
+            AmpText { text: app.connected ? "Connected as " + app.username : "Sign in to your server."; opacity: 0.65; Layout.fillWidth: true }
             AmpText { text: "JELLYFIN SERVER"; font.pixelSize: Style.font.caption; visible: !app.connected }
             AmpTextField { app: root.app; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); id: server; objectName: "serverInput"; maximumLength: 4096; Layout.fillWidth: true; text: app.serverUrl; placeholderText: "https://music.example.com"; visible: !app.connected; enabled: !app.busy; Accessible.name: "Jellyfin server URL" }
             RowLayout {
@@ -550,6 +558,7 @@ Rectangle {
                     onTextChanged: { root.artist = ""; root.album = ""; root.selectedSongs = []; root.radioEdited() }
                     Controls.ToolButton {
                         id: clearSearch
+                        visible: enabled
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         width: Style.space(26)
@@ -580,6 +589,7 @@ Rectangle {
                     model: app.libraries; textRole: "name"; valueRole: "id"; enabled: !app.busy
                     font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
                     Accessible.name: "Music folder"
+                    indicator: AmpText { x: folders.width - width - Style.space(8); anchors.verticalCenter: parent.verticalCenter; text: "▾" }
                     delegate: Controls.ItemDelegate {
                         required property int index
                         width: folders.width - Style.space(8)
@@ -618,12 +628,6 @@ Rectangle {
                     background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
                     onActivated: { root.folder = currentValue; root.artist = ""; root.album = ""; root.selectedSongs = []; app.send({cmd: "library", folder: currentValue}) }
                 }
-            }
-            RowLayout {
-                visible: app.selectedLibrary === "local"
-                Layout.fillWidth: true
-                AmpButton { text: "Local Music…"; hint: "Manage local files and folders"; enabled: !app.busy; onClicked: app.manageLocal() }
-                Item { Layout.fillWidth: true }
             }
             RowLayout {
                 visible: root.radioMode
@@ -708,7 +712,7 @@ Rectangle {
             }
             RowLayout {
                 visible: !root.radioMode
-                AmpButton { text: "+ ADD " + root.chosenSongs.length; hint: "Add selected songs, album, or artist to playlist"; enabled: root.chosenSongs.length > 0 && !app.busy; onClicked: root.addMusic() }
+                AmpButton { objectName: "addSelectedMusic"; text: root.hasMusicSelection ? "+ ADD " + root.chosenSongs.length : "+ ADD"; hint: "Add selected songs, album, or artist to playlist"; enabled: root.hasMusicSelection && root.chosenSongs.length > 0 && !app.busy; onClicked: root.addMusic() }
                 Item { Layout.fillWidth: true }
                 AmpText { text: "⌥ click / Return to add"; font.pixelSize: Style.font.caption; opacity: 0.45 }
             }
@@ -729,26 +733,26 @@ Rectangle {
                     root.move(delta)
                 }
                 onSelectAllRequested: root.selectedQueue = root.queueRows.map(row => row.key)
-                heading: "PLAYLIST"; rows: root.queueRows; selected: root.selectedQueue
+                heading: "QUEUE"; rows: root.queueRows; selected: root.selectedQueue
                 playing: app.current ? app.current.key : ""
                 emptyText: "A GAWD playlist starts with one song.\nOpen the library to add yours."
                 onChosen: function(key, modifiers) { root.selectedQueue = root.select(root.selectedQueue, key, modifiers, root.queueRows) }
                 onActivated: function(key) { root.playQueue(key) }
             }
             RowLayout {
-                AmpButton { text: "+ MUSIC"; onClicked: app.showLibrary() }
-                AmpButton { text: "− SELECTED"; enabled: root.selectedQueue.length > 0; onClicked: { app.send({cmd: "remove", keys: root.selectedQueue}); root.selectedQueue = [] } }
-                AmpButton { text: "↑"; hint: "Move selected track up"; enabled: root.selectedQueue.length === 1; onClicked: root.move(-1) }
-                AmpButton { text: "↓"; hint: "Move selected track down"; enabled: root.selectedQueue.length === 1; onClicked: root.move(1) }
+                AmpButton { text: "REMOVE"; hint: "Remove selected tracks from the queue"; enabled: root.selectedQueue.length > 0; onClicked: { app.send({cmd: "remove", keys: root.selectedQueue}); root.selectedQueue = [] } }
+                AmpButton { text: "↑"; hint: "Move selected track up"; enabled: root.selectedQueue.length === 1 && root.selectedQueueIndex > 0; onClicked: root.move(-1) }
+                AmpButton { text: "↓"; hint: "Move selected track down"; enabled: root.selectedQueue.length === 1 && root.selectedQueueIndex >= 0 && root.selectedQueueIndex < root.queueRows.length - 1; onClicked: root.move(1) }
                 Item { Layout.fillWidth: true }
                 AmpButton { text: "CLEAR"; enabled: app.state.queue.length > 0; onClicked: { app.send({cmd: "clear"}); root.selectedQueue = [] } }
             }
         }
         AmpText {
             Layout.fillWidth: true
-            text: app.error || (app.busy ? "READING LIBRARY…" : app.tab === "queue" ? app.state.queue.length + " TRACKS  /  " + app.time(app.state.queue.reduce((n,s) => n + s.duration, 0)) + " TOTAL  ·  DOUBLE-CLICK TO PLAY" : app.tab === "library" && root.radioMode ? ((root.radioTab === "discover" && app.radioError) || ((app.radioBusy ? "SEARCHING… · " : "") + root.filtered.length + " STATIONS · RETURN TO TUNE IN · ALT+RETURN TO ADD")) : app.tab === "library" ? app.songs.length + " SONGS  ·  SELECT MUSIC TO ADD · DOUBLE-CLICK TO PLAY" : "OMAGAWD  /  PERSONAL AUDIO")
+            visible: !!text
+            text: app.error || (app.busy ? "Loading…" : app.tab === "queue" && app.state.queue.some(s => s.duration > 0) ? app.time(app.state.queue.reduce((n,s) => n + s.duration, 0)) + " total" : app.tab === "library" && root.radioMode ? ((root.radioTab === "discover" && app.radioError) || (app.radioBusy ? "Searching…" : "")) : "")
             color: app.error ? Color.urgent : Color.foreground
-            opacity: app.error ? 1 : 0.5
+            opacity: app.error ? 1 : 0.6
             wrapMode: Text.WordWrap; elide: Text.ElideNone; font.pixelSize: Style.font.caption
         }
     }

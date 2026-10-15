@@ -134,6 +134,18 @@ class LocalTests(unittest.TestCase):
             self.assertEqual(events[-1], {'type': 'picker_closed'})
         finally: p.close()
 
+    def test_stale_picker_releases_ui_without_overwriting_newer_source(self):
+        events = []; p = Player(events.append, FakeMpv, local=self.local)
+        def changed_source(*args, **kwargs):
+            p.generation += 1
+            return Mock(returncode=0, stdout=json.dumps([str(self.music)]).encode())
+        try:
+            with patch('backend.run_bounded', side_effect=changed_source):
+                p.local_command({'cmd': 'choose_folder', 'pickerRequest': 12}, 0)
+            self.assertEqual(self.local.roots, [])
+            self.assertEqual(events, [{'type': 'picker_retired', 'request': 12}])
+        finally: p.close()
+
     def test_restore_local_source_without_jellyfin(self):
         self.local.add([str(self.music)])
         store = Mock(); store.load.return_value = None

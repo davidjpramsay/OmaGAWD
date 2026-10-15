@@ -14,7 +14,7 @@ Jellyfin, local music, and radio in a compact player that follows your Omarchy t
 
 **Playlist → Saved → Jellyfin** browses server playlists and their songs. **CREATE** saves the current Jellyfin-only queue as a private server playlist (Jellyfin 10.9+); **LOAD** replaces the queue paused, **PLAY** starts it. **DELETE** removes a selected server playlist after confirmation, when your account permits it; songs and the current queue are kept. Arrows browse; Tab switches playlists/songs; Return plays. Lists refresh on opening and every minute. **Saved → On device** keeps existing named playlists, including rename/forget. **Playlist → Recent** returns to the last 30 albums/stations. Remote playlists require their original Jellyfin account.
 
-Your queue, playback position, volume, shuffle, and repeat are remembered. Restart restores paused. **Settings → Sources → Local Music…** opens one window to select files/folders or forget saved sources without deleting music. Settings lists each saved file/folder and its full path. File pickers use your system's default chooser through the desktop portal; imports leave the current queue playing. The source menu only switches Jellyfin/Local Music/Radio. Switching back to Jellyfin remembers its last library. Media keys work with the popup hidden.
+Your queue, playback position, volume, shuffle, and repeat are remembered. Restart restores paused. **Settings → Sources → Local Music** has **+ Files**, **+ Folder**, and **Remove** beside each saved path. File/folder selection uses your system's default desktop picker and returns to Settings. Imports and removals keep the current queue; Remove never deletes music. The source menu only switches Jellyfin/Local Music/Radio. Switching back to Jellyfin remembers its last library. Media keys work with the popup hidden.
 
 ## Omarchy
 
@@ -26,7 +26,7 @@ Requires Omarchy/Quickshell, mpv, Python 3 with python-gobject, libsecret (`secr
 
 Local files: MP3, FLAC, AAC, M4A/M4B/ALAC, Ogg/Opus, WAV, AIFF, WMA, APE and WavPack. Imports and playback restrict demuxers to music containers; scripts and playlist files are unsupported.
 
-Open the llama in the bar. **⚙ Settings** contains playback options, sources, updates and shortcuts. Gapless preloads the next music track; matching audio formats flow without reopening the output. Optional volume normalization measures all music and radio live using EBU R128 (−18 LUFS, −1.5 dB true peak); it can soften volume contrasts and add buffering. No tags, scans or media edits. Recent history and llama motion can be turned off.
+Open the llama in the bar. Library **+ ADD** activates after selecting an artist, album or songs. **⚙ Settings** contains playback options, sources, updates and shortcuts. Gapless preloads the next music track; matching audio formats flow without reopening the output. Optional volume normalization measures all music and radio live using EBU R128 (−18 LUFS, −1.5 dB true peak); it can soften volume contrasts and add buffering. No tags, scans or media edits. Recent history and llama motion can be turned off.
 
 | Shortcut | Action |
 |---|---|

@@ -35,7 +35,7 @@ Rectangle {
                 onClicked: app.showUpdates()
             }
             AmpText { text: root.radio || (!app.current && app.selectedLibrary === "radio") ? "RADIO" : app.current && app.current.source === "local" ? "LOCAL" : app.selectedLibrary === "local" && !app.current ? "LOCAL" : "JELLYFIN"; font.pixelSize: Style.font.caption; opacity: 0.55 }
-            AmpButton { objectName: "settingsButton"; text: "󰒓"; iconOnly: true; hint: "Settings"; lit: app.tab === "settings"; implicitHeight: Style.space(22); onClicked: app.showSettings() }
+            AmpButton { objectName: "settingsButton"; text: "󰒓"; iconOnly: true; hint: "Settings"; lit: app.tab === "settings" || app.tab === "connect" || app.tab === "sources"; implicitHeight: Style.space(22); onClicked: app.showSettings() }
         }
         Rectangle {
             Layout.fillWidth: true; Layout.preferredHeight: Style.space(90)
@@ -61,7 +61,7 @@ Rectangle {
                     AmpText { visible: !!app.current; Layout.fillWidth: true; textFormat: Text.PlainText; text: app.current ? root.radio ? (app.state.radioTitle || app.current.title) : app.current.title : ""; font.pixelSize: Style.font.body; color: Color.accent }
                     AmpText { visible: !!app.current; Layout.fillWidth: true; textFormat: Text.PlainText; text: app.current ? root.radio ? app.current.title + " / " + app.current.artist : app.current.artist + " / " + app.current.album : ""; opacity: 0.8 }
                     RowLayout {
-                        visible: !!app.current
+                        visible: !!app.current && (app.state.bitrate > 0 || root.radio)
                         Layout.fillWidth: true
                         spacing: Style.space(10)
                         opacity: 0.5
@@ -72,15 +72,17 @@ Rectangle {
                             text: "88888 KBPS"
                         }
                         AmpText {
+                            visible: app.state.bitrate > 0
                             Layout.minimumWidth: bitrateMetrics.advanceWidth
                             Layout.preferredWidth: bitrateMetrics.advanceWidth
                             Layout.maximumWidth: bitrateMetrics.advanceWidth
-                            text: (app.state.bitrate ? Math.round(app.state.bitrate / 1000) : "—") + " KBPS"
+                            text: Math.round(app.state.bitrate / 1000) + " KBPS"
                             font.pixelSize: Style.font.caption
                         }
                         AmpText {
+                            visible: root.radio
                             Layout.fillWidth: true
-                            text: root.radio ? "/   LIVE RADIO" : "/   " + (app.current ? app.time(app.current.duration) : "00:00")
+                            text: "LIVE RADIO"
                             font.pixelSize: Style.font.caption
                         }
                     }

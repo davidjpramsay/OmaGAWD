@@ -79,12 +79,23 @@ Item {
         if (tab !== "settings") settingsReturnTab = tab
         playlistOpen = true; tab = "settings"
     }
-    property var localManagerReturn: null
-    function manageLocal() {
-        if (!ready) { error = "Player is starting. Try again in a moment."; return }
-        if (!localManagerReturn) localManagerReturn = {tab: tab, pane: playlistOpen}
-        close()
-        send({cmd: "manage_local", theme: {background: Color.background.toString(), foreground: Color.foreground.toString(), accent: Color.accent.toString(), font: Style.font.family, size: Style.font.bodySmall}})
+    property var localPickerReturn: null
+    // Avoid reusing a previous frontend's picker IDs across a QML reload.
+    property int localPickerRequest: Math.floor(Math.random() * 1073741824)
+    function showSources() { playlistOpen = true; settingsSection = "sources"; tab = "settings" }
+    function removeLocal(path) { if (ready && !busy) send({cmd: "local_remove", paths: [path]}) }
+    function finishLocalPicker(request, retired) {
+        const back = localPickerReturn
+        if (!back || back.request !== request) return
+        localPickerReturn = null
+        if (retired) return
+        // Reopening and navigating while the picker was open takes priority.
+        if (back && !opened) {
+            tab = back.tab; settingsSection = back.section; playlistOpen = back.pane; opened = true
+            if (ready && tab === "settings" && settingsSection === "sources") Qt.callLater(function() {
+                if (root.opened && root.tab === "settings" && root.settingsSection === "sources") library.focusLocalPicker(back.folder)
+            })
+        }
     }
     property bool ready: false
     readonly property bool playing: !state.idle && !state.paused && (!current || current.source !== "radio" || !state.radioStatus || state.radioStatus === "playing")
@@ -258,8 +269,11 @@ Item {
     }
     function showLibrary() { playlistOpen = true; tab = "library" }
     function chooseLocal(folder) {
+        if (!ready || busy || localPickerReturn) return
+        localPickerRequest = localPickerRequest >= 2147483647 ? 1 : localPickerRequest + 1
+        localPickerReturn = {tab: tab, section: settingsSection, pane: playlistOpen, folder: folder, request: localPickerRequest}
         close()
-        send({cmd: folder ? "choose_folder" : "choose_files"})
+        send({cmd: folder ? "choose_folder" : "choose_files", pickerRequest: localPickerRequest})
     }
     function searchLibrary() {
         showLibrary()
@@ -321,12 +335,8 @@ Item {
             lastLibraryCheck = Date.now()
             if (JSON.stringify(songs) !== JSON.stringify(data.songs)) songs = data.songs
         }
-        else if (data.type === "picker_closed") { opened = true; showLibrary() }
-        else if (data.type === "local_manager_closed") {
-            const back = localManagerReturn; localManagerReturn = null
-            if (back) { tab = back.tab; playlistOpen = back.pane }
-            opened = true
-        }
+        else if (data.type === "picker_closed") finishLocalPicker(data.request, false)
+        else if (data.type === "picker_retired") finishLocalPicker(data.request, true)
         else if (data.type === "disconnected") { connected = false; restoreRetry = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; lastRemoteLibrary = ""; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
     }
     Timer {
@@ -352,10 +362,11 @@ Item {
             }
         }
         onExited: {
-            root.localManagerReturn = null
+            const pickerBack = root.localPickerReturn
             pasteTimeout.stop(); root.pasteTarget = null
             updatePrepareTimeout.stop(); root.updateInstalling = false
             root.ready = false; root.busy = false; root.restoreRetry = false
+            if (pickerBack) root.finishLocalPicker(pickerBack.request, false)
             root.connected = false; root.remembered = false; root.remoteLibraries = []; root.songs = []
             root.lastLibraryCheck = 0
             root.lastRemoteLibrary = ""

@@ -61,7 +61,9 @@ Item {
         function time(n) { return String(n) }
         function send(command) { commands = commands.concat([command]) }
         function showLibrary() { tab = "library" }
-        function manageLocal() { send({cmd: "manage_local"}) }
+        function chooseLocal(folder) { send({cmd: folder ? "choose_folder" : "choose_files"}) }
+        function removeLocal(path) { send({cmd: "local_remove", paths: [path]}) }
+        function showSources() { settingsSection = "sources"; tab = "settings" }
     }
     Library { id: library; anchors.fill: parent; app: fakeApp }
     TestCase {
@@ -355,17 +357,36 @@ Item {
             compare(fakeApp.commands[3], {cmd: "normalization", value: false})
             grabImage(library).save("/tmp/omagawd-settings.png")
         }
-        function test_local_music_manager_from_settings() {
+        function test_local_music_is_managed_inline_in_settings() {
             fakeApp.tab = "settings"
             mouseClick(findChild(library, "settings-sources"))
             compare(fakeApp.settingsSection, "sources")
-            const manager = findChild(library, "localMusicManager")
-            verify(manager.visible)
-            manager.forceActiveFocus()
-            keyClick(Qt.Key_Space)
-            compare(fakeApp.commands[0], {cmd: "manage_local"})
-            verify(findChild(library, "dropMusic") === null)
+            verify(findChild(library, "localMusicManager") === null)
+            const files = findChild(library, "addLocalFiles")
+            const folders = findChild(library, "addLocalFolder")
+            files.forceActiveFocus(); keyClick(Qt.Key_Space)
+            folders.forceActiveFocus(); keyClick(Qt.Key_Space)
+            compare(fakeApp.commands, [{cmd: "choose_files"}, {cmd: "choose_folder"}])
+            fakeApp.localSources = ["/home/example/Music"]
+            wait(30)
+            const listing = findChild(library, "localSourceList")
+            findChild(listing.itemAtIndex(0), "removeLocalSource").clicked()
+            compare(fakeApp.commands[2], {cmd: "local_remove", paths: ["/home/example/Music"]})
+            fakeApp.busy = true; verify(!files.enabled); verify(!folders.enabled)
+            verify(!findChild(listing.itemAtIndex(0), "removeLocalSource").enabled)
+            fakeApp.busy = false
+            fakeApp.tab = "connect"
+            findChild(library, "backToSources").clicked()
+            compare(fakeApp.tab, "settings"); compare(fakeApp.settingsSection, "sources")
             grabImage(library).save("/tmp/omagawd-local-settings.png")
+        }
+        function test_add_button_requires_a_music_selection() {
+            const add = findChild(library, "addSelectedMusic")
+            verify(!add.enabled)
+            library.artist = "A"; verify(add.enabled)
+            add.clicked(); compare(fakeApp.commands[0], {cmd: "add", ids: ["1", "2"]})
+            library.artist = ""; verify(!add.enabled)
+            library.selectedSongs = ["3"]; verify(add.enabled)
         }
         function test_local_sources_show_paths_and_scroll_at_panel_width() {
             fakeApp.tab = "settings"; fakeApp.settingsSection = "sources"

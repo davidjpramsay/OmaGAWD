@@ -944,6 +944,8 @@ class Player:
 
     def local_command(self, command, generation):
         picker = command['cmd'] in ('choose_files', 'choose_folder', 'choose_drop')
+        picker_request = command.get('pickerRequest')
+        owned_picker = picker and type(picker_request) is int and 1 <= picker_request <= 2**31 - 1
         window = command.pop('_window', None)
         message = ''
         try:
@@ -981,7 +983,12 @@ class Player:
             with self.lock:
                 if generation == self.generation:
                     self.emit({'type': 'busy', 'value': False})
-                if picker and generation == self.generation: self.emit({'type': 'picker_closed'})
+                # Release only the matching modern picker. Retired selections
+                # must never reopen the player or change newer source state.
+                if owned_picker:
+                    self.emit({'type': 'picker_closed' if generation == self.generation else 'picker_retired', 'request': picker_request})
+                elif picker and generation == self.generation:
+                    self.emit({'type': 'picker_closed'})
                 if window and window is self.local_window:
                     window.update(self.local.roots, message or ('Source view changed; try again.' if generation != self.generation else ''))
 
