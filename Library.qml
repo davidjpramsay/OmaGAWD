@@ -189,13 +189,6 @@ Rectangle {
                     padding: Style.space(4)
                     background: Rectangle { color: Color.background; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
                     SourceAction {
-                        text: "Local Music"
-                        visible: app.hasLocalSources || false
-                        height: visible ? implicitHeight : 0
-                        enabled: !app.busy
-                        onTriggered: { app.showLibrary(); app.send({cmd: "library", folder: "local"}) }
-                    }
-                    SourceAction {
                         objectName: "jellyfinSource"
                         text: app.connected ? "Jellyfin" : "Connect to Jellyfin…"
                         enabled: !app.busy
@@ -205,6 +198,13 @@ Rectangle {
                             if (app.connected && remote) { app.showLibrary(); app.send({cmd: "library", folder: remote.id}) }
                             else app.tab = "connect"
                         }
+                    }
+                    SourceAction {
+                        text: "Local Music"
+                        visible: app.hasLocalSources || false
+                        height: visible ? implicitHeight : 0
+                        enabled: !app.busy
+                        onTriggered: { app.showLibrary(); app.send({cmd: "library", folder: "local"}) }
                     }
                     SourceAction {
                         objectName: "radioSource"
@@ -424,18 +424,18 @@ Rectangle {
             spacing: Style.space(10)
             RowLayout {
                 Layout.fillWidth: true
+                AmpText { text: app.connected ? "Jellyfin · " + app.username : "Jellyfin not connected"; Layout.fillWidth: true }
+                AmpButton { text: app.connected ? "Account…" : "Connect…"; onClicked: app.tab = "connect" }
+            }
+            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+            RowLayout {
+                Layout.fillWidth: true
                 AmpText { text: "LOCAL MUSIC"; font.pixelSize: Style.font.caption; Layout.fillWidth: true }
                 AmpButton { objectName: "localMusicManager"; text: "Local Music…"; hint: "Manage local files and folders"; enabled: !app.busy; onClicked: app.manageLocal() }
             }
             AmpText { text: "Add files or folders, or drag them into the Local Music window."; Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.65 }
             AmpText { text: (app.localSources || []).length ? (app.localSources || []).length + " saved source" + ((app.localSources || []).length === 1 ? "" : "s") : "No local music added yet."; Layout.fillWidth: true; opacity: 0.6 }
             Item { Layout.fillHeight: true }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
-            RowLayout {
-                Layout.fillWidth: true
-                AmpText { text: app.connected ? "Jellyfin · " + app.username : "Jellyfin not connected"; Layout.fillWidth: true }
-                AmpButton { text: app.connected ? "Account…" : "Connect…"; onClicked: app.tab = "connect" }
-            }
             AmpButton { text: "Back to settings"; onClicked: app.settingsSection = "playback" }
         }
         ColumnLayout {
