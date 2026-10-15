@@ -18,6 +18,9 @@ Item {
         property bool remembered: false
         property bool optionHeld: false
         property string tab: "library"
+        property string settingsSection: "playback"
+        property var savedPlaylists: []
+        property var recentItems: []
         property string username: ""
         property string savedUsername: ""
         property string serverUrl: ""
@@ -34,7 +37,7 @@ Item {
         property bool updateInstalling: false
         property bool updateTerminalOpened: false
         property string updateError: ""
-        function showUpdates() { tab = "updates" }
+        function showUpdates() { tab = "settings"; settingsSection = "updates" }
         function checkUpdates(force) { send({cmd: "check_update", force: force}) }
         function installUpdate() { send({cmd: "install_update"}) }
         function viewUpdateRelease() { send({cmd: "view_release"}) }
@@ -44,6 +47,7 @@ Item {
         function time(n) { return String(n) }
         function send(command) { commands = commands.concat([command]) }
         function showLibrary() { tab = "library" }
+        function chooseDrop() { send({cmd: "choose_drop"}) }
     }
     Library { id: library; anchors.fill: parent; app: fakeApp }
     TestCase {
@@ -65,7 +69,8 @@ Item {
             fakeApp.updateInfo = {}; fakeApp.updateError = ""
             fakeApp.updateChecking = false; fakeApp.updateInstalling = false; fakeApp.updateTerminalOpened = false
             library.radioTab = "saved"
-            library.radioAdding = false
+            fakeApp.settingsSection = "playback"
+            fakeApp.savedPlaylists = []; fakeApp.recentItems = []
             fakeApp.cancelRadioSearch()
             fakeApp.songs = [
                 {id: "1", artist: "A", albumId: "a1", album: "First", title: "One", duration: 1},
@@ -78,17 +83,18 @@ Item {
         }
         function test_update_notice_notes_and_explicit_action() {
             const initialQueue = JSON.stringify(fakeApp.state.queue)
-            fakeApp.tab = "shortcuts"
+            fakeApp.tab = "settings"
             fakeApp.updateInfo = {current: "0.7.2", latest: "0.8.0", available: true, managed: true, notes: "<b>Sample release</b>\nUpdates now appear in OmaGAWD.\n".repeat(20), url: "https://github.com/davidjpramsay/OmaGAWD/releases/tag/omarchy-v0.8.0"}
-            findChild(library, "openUpdates").clicked()
-            compare(fakeApp.tab, "updates")
+            findChild(library, "settings-updates").clicked()
+            compare(fakeApp.tab, "settings")
+            compare(fakeApp.settingsSection, "updates")
             wait(30)
             verify(findChild(library, "updateStatus").text.indexOf("0.8.0") >= 0)
             compare(findChild(library, "updateNotes").textFormat, Text.PlainText)
             verify(findChild(library, "installUpdate").enabled)
             grabImage(library).save("/tmp/omagawd-updates.png")
             findChild(library, "installUpdate").clicked()
-            compare(fakeApp.commands[0].cmd, "install_update")
+            compare(fakeApp.commands[1].cmd, "install_update")
             fakeApp.updateTerminalOpened = true
             verify(!findChild(library, "installUpdate").enabled)
             fakeApp.updateTerminalOpened = false; fakeApp.updateInfo = Object.assign({}, fakeApp.updateInfo, {managed: false})
@@ -97,8 +103,8 @@ Item {
             verify(!findChild(library, "checkUpdates").enabled)
             fakeApp.updateChecking = false; fakeApp.updateError = "Offline"
             findChild(library, "checkUpdates").clicked()
-            compare(fakeApp.commands[1].cmd, "check_update")
-            compare(fakeApp.commands[1].force, true)
+            compare(fakeApp.commands[2].cmd, "check_update")
+            compare(fakeApp.commands[2].force, true)
             compare(JSON.stringify(fakeApp.state.queue), initialQueue)
         }
         function test_radio_navigation_search_and_append() {
@@ -181,25 +187,10 @@ Item {
             mouseClick(findChild(library, "forgetRadioStation"))
             compare(fakeApp.commands[4], {cmd: "radio_remove", id: "radio:custom:sample"})
         }
-        function test_manual_radio_form_and_search_reset() {
+        function test_discovery_only_radio_and_search_reset() {
             fakeApp.selectedLibrary = "radio"
-            mouseClick(findChild(library, "addRadioStation"))
-            verify(library.radioAdding)
-            keyClick(Qt.Key_R)
-            library.cycleLists(false)
-            verify(findChild(library, "radioUrl").activeFocus)
-            findChild(library, "radioUrl").text = "https://radio.example/stream"
-            keyClick(Qt.Key_Return)
-            compare(fakeApp.commands[0], {cmd: "radio_save", name: "r", url: "https://radio.example/stream"})
-            fakeApp.error = "Invalid stream link"
-            verify(library.radioAdding)
-            fakeApp.error = ""
-            grabImage(library).save("/tmp/omagawd-manual-radio.png")
-            library.cycleLists(true)
-            verify(findChild(library, "radioName").activeFocus)
-            library.focusSearch()
-            verify(!library.radioAdding)
-            verify(findChild(library, "librarySearch").activeFocus)
+            verify(findChild(library, "addRadioStation") === null)
+            verify(findChild(library, "radioUrl") === null)
             mouseClick(findChild(library, "discoverRadioTab"))
             findChild(library, "radioGenre").text = "rock"
             findChild(library, "radioCountry").text = "Australia"
@@ -299,21 +290,42 @@ Item {
             library.cycleLists(true)
             verify(list("SONG").listFocused)
         }
-        function test_shortcut_guide() {
-            const button = findChild(library, "shortcutsButton")
+        function test_shortcut_guide_and_playback_settings() {
+            fakeApp.tab = "settings"
+            const button = findChild(library, "settings-shortcuts")
             verify(button !== null)
             mouseClick(button)
-            compare(fakeApp.tab, "shortcuts")
+            compare(fakeApp.settingsSection, "shortcuts")
             wait(30)
-            const image = grabImage(library)
-            compare(image.width, library.width)
-            compare(image.height, library.height)
+            grabImage(library).save("/tmp/omagawd-shortcuts.png")
+            mouseClick(findChild(library, "settings-playback"))
+            wait(30)
             const reduce = findChild(library, "reduceMotionToggle")
-            verify(reduce !== null)
             mouseClick(reduce)
             compare(fakeApp.commands[0], {cmd: "reduce_motion", value: true})
-            mouseClick(button)
-            compare(fakeApp.tab, "library")
+            const gapless = findChild(library, "gaplessToggle")
+            verify(gapless.checked)
+            mouseClick(gapless)
+            compare(fakeApp.commands[1], {cmd: "gapless", value: false})
+            grabImage(library).save("/tmp/omagawd-settings.png")
+        }
+        function test_named_playlist_and_recent_keyboard_actions() {
+            fakeApp.state = {queue: [{key: "track", artist: "A", title: "One", duration: 1}]}
+            fakeApp.savedPlaylists = [{id: "first", name: "Driving", count: 4}, {id: "second", name: "Heavy", count: 8}]
+            fakeApp.recentItems = [{id: "album", name: "A / First", count: 2, source: "local"}]
+            fakeApp.tab = "saved"; wait(30)
+            library.focusSaved(); keyClick(Qt.Key_Down); keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[0], {cmd: "collection_load", section: "playlists", id: "second", play: true})
+            findChild(library, "loadSavedPlaylist").clicked()
+            compare(fakeApp.commands[1], {cmd: "collection_load", id: "second", play: false})
+            const field = findChild(library, "playlistName")
+            field.text = "New GAWD"; field.forceActiveFocus(); keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[2], {cmd: "playlist_save", name: "New GAWD"})
+            fakeApp.tab = "recent"; wait(30)
+            library.focusRecent(); keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[3], {cmd: "collection_load", section: "recent", id: "album", play: true})
+            grabImage(library).save("/tmp/omagawd-recent.png")
+            fakeApp.tab = "saved"; wait(30); grabImage(library).save("/tmp/omagawd-saved.png")
         }
         function test_refresh_validates_child_selection() {
             library.artist = "A"

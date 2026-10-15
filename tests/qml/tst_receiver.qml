@@ -13,6 +13,8 @@ Item {
         property var levels: []
         property var updateInfo: ({})
         property bool updateOpened: false
+        property string tab: "library"
+        function showSettings() { tab = "settings" }
         function showUpdates() { updateOpened = true }
         property var state: ({queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0})
         readonly property bool playing: !state.idle && !state.paused
@@ -47,6 +49,18 @@ Item {
             app.current = {title: "Sample track", artist: "Sample artist", album: "Sample album", duration: 120}
             wait(30)
             verify(findChild(receiver, "seekRow").visible)
+        }
+        function test_settings_cog_and_radio_feedback() {
+            const cog = findChild(receiver, "settingsButton")
+            cog.clicked(); compare(app.tab, "settings")
+            app.current = {source: "radio", title: "Radio", artist: "Genre", key: "station"}
+            for (const status of ["connecting", "buffering", "unavailable"]) {
+                app.state = Object.assign({}, app.state, {radioStatus: status})
+                wait(20)
+                compare(findChild(receiver, "playbackStatus").text, status.toUpperCase())
+            }
+            verify(findChild(receiver, "retryRadio").visible)
+            app.current = null
         }
         function test_header_follows_playback_and_visibility() {
             const llama = findChild(receiver, "receiverLlama")

@@ -21,6 +21,9 @@ Window {
         property bool optionHeld: false
         property string selectedLibrary: "radio"
         property string tab: "library"
+        property string settingsSection: "playback"
+        property var savedPlaylists: []
+        property var recentItems: []
         property string username: ""
         property string savedUsername: ""
         property string serverUrl: ""
@@ -50,6 +53,8 @@ Window {
         function send(command) {}
         function close() {}
         function showLibrary() {}
+        function showSettings() { tab = "settings" }
+        function chooseDrop() {}
         function searchRadio(fields, offset) {}
         function cancelRadioSearch() {}
     }

@@ -30,6 +30,7 @@ from bounded_process import run_bounded
 import metadata
 from media_policy import AUDIO_FILTER, FORMAT_WHITELIST, local_file, demux_options
 from playback_store import MAX_QUEUE_TRACKS, MAX_SESSION_BYTES
+from collection_store import CollectionStore
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -178,6 +179,7 @@ class Jellyfin:
 
 
 class Mpv:
+    supports_gapless = True
     def __init__(self, callback):
         self.callback, self.lock = callback, threading.Lock()
         self.closing = False
@@ -198,6 +200,7 @@ class Mpv:
                                       '--audio-display=no', '--tls-verify=yes', '--ytdl=no', '--load-unsafe-playlists=no',
                                       '--demuxer=lavf', '--access-references=no', '--autoload-files=no', '--load-scripts=no',
                                       '--demuxer-lavf-o=format_whitelist=[' + FORMAT_WHITELIST + ']',
+                                      '--gapless-audio=weak', '--prefetch-playlist=yes', '--replaygain-clip=no',
                                       '--input-ipc-server=' + path],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.sock = socket.socket(socket.AF_UNIX)
@@ -214,7 +217,7 @@ class Mpv:
             self.close()
             raise RuntimeError('mpv did not become ready.')
         threading.Thread(target=self.read, daemon=True).start()
-        for n, prop in enumerate(['time-pos', 'duration', 'pause', 'idle-active', 'audio-bitrate', 'metadata']):
+        for n, prop in enumerate(['time-pos', 'duration', 'pause', 'idle-active', 'audio-bitrate', 'metadata', 'paused-for-cache']):
             self.send('observe_property', n, prop)
 
     def load(self, url, headers, start=0):
@@ -224,11 +227,27 @@ class Mpv:
             url = self.proxy.stream(url, {'Authorization': headers[0].split(': ', 1)[1]})
         elif self.proxy:
             self.proxy.route = None
+            self.proxy.next_route = None
         self.send('set_property', 'http-header-fields', [])
         if start > 0:
             self.send('loadfile', url, 'replace', -1, {'start': str(start)})
         else:
             self.send('loadfile', url, 'replace')
+
+    def clear_next(self):
+        self.send('playlist-clear')
+        if self.proxy: self.proxy.next_route = None
+
+    def append_next(self, url, headers, local):
+        if headers:
+            if self.proxy is None: self.proxy = StreamProxy()
+            url = self.proxy.prefetch(url, {'Authorization': headers[0].split(': ', 1)[1]})
+        options = demux_options(local)
+        encoded = ','.join(k + '=[' + v + ']' for k, v in options.items())
+        self.send('loadfile', url, 'append', -1, {'demuxer-lavf-o': encoded})
+
+    def advance_prefetch(self):
+        if self.proxy: self.proxy.advance()
 
     def send(self, *command):
         with self.lock:
@@ -309,7 +328,7 @@ class Mpv:
 
 
 class Player:
-    def __init__(self, emit, mpv_factory=Mpv, store=None, local=None, preferences=None, playback_store=None, radio_store=None, radio_browser=None):
+    def __init__(self, emit, mpv_factory=Mpv, store=None, local=None, preferences=None, playback_store=None, radio_store=None, radio_browser=None, collections=None):
         self.emit, self.mpv_factory = emit, mpv_factory
         self.radios = radio_store or RadioStore(memory=True)
         self.radio_browser = radio_browser or RadioBrowser()
@@ -320,6 +339,15 @@ class Player:
         self.clipboard_work = ThreadPoolExecutor(max_workers=1)
         self.clipboard_future = None
         self.closing = threading.Event()
+        self.collections = collections or CollectionStore(memory=True)
+        self.collection_work = ThreadPoolExecutor(max_workers=1)
+        self.collection_future = None
+        self.pending_recent, self.recent_running = None, False
+        self.last_recent_group = None
+        self.prepared_next, self.awaiting_next = None, None
+        self.gapless, self.replay_gain, self.radio_status = True, 'no', 'stopped'
+        self.file_loaded, self.cache_paused = False, False
+        self.keep_recent = True
         self.local = local
         self.preferences = preferences
         self.reduce_motion = False
@@ -344,6 +372,8 @@ class Player:
             saved = preferences.load()
             self.volume, self.shuffle, self.repeat = saved['volume'], saved['shuffle'], saved['repeat']
             self.reduce_motion = saved['reduceMotion']
+            self.gapless, self.replay_gain = saved.get('gapless', True), saved.get('replayGain', 'no')
+            self.keep_recent = saved.get('keepRecent', True)
         if playback_store:
             saved = playback_store.load()
             if saved:
@@ -380,9 +410,11 @@ class Player:
             self.mpv.set_meter(self.visible and not self.idle and not self.paused)
         self.emit({'type': 'state', 'queue': self.queue, 'index': self.index, 'position': self.position,
                    'duration': self.duration, 'paused': self.paused, 'idle': self.idle,
-                   'shuffle': self.shuffle, 'repeat': self.repeat, 'volume': self.volume, 'bitrate': self.bitrate, 'reduceMotion': self.reduce_motion, 'radioTitle': self.radio_title})
+                   'shuffle': self.shuffle, 'repeat': self.repeat, 'volume': self.volume, 'bitrate': self.bitrate, 'reduceMotion': self.reduce_motion, 'radioTitle': self.radio_title,
+                   'gapless': self.gapless, 'replayGain': self.replay_gain, 'keepRecent': self.keep_recent, 'radioStatus': self.radio_status})
 
     def discard_engine(self):
+        self.prepared_next, self.awaiting_next = None, None
         old, self.mpv = self.mpv, None
         self.engine_token = None
         if old:
@@ -399,10 +431,110 @@ class Player:
                         self.event(event)
             self.mpv = self.mpv_factory(receive)
             self.mpv.send('set_property', 'volume', self.volume)
+            self.mpv.send('set_property', 'options/gapless-audio', 'weak' if self.gapless else 'no')
+            self.mpv.send('set_property', 'options/replaygain', self.replay_gain)
         return self.mpv
 
     def is_radio(self):
         return 0 <= self.index < len(self.queue) and self.queue[self.index].get('source') == 'radio'
+
+    def upcoming(self):
+        if not 0 <= self.index < len(self.queue): return None
+        if self.repeat == 'one': return self.index
+        if self.shuffle and len(self.queue) > 1:
+            return random.choice([i for i in range(len(self.queue)) if i != self.index])
+        target = self.index + 1
+        return target if target < len(self.queue) else 0 if self.repeat == 'all' else None
+
+    def track_stream(self, track):
+        if track.get('source') == 'local': return str(local_file(track.get('path'))), []
+        if track.get('source') == 'radio': return radio.stream(track if 'radioUrl' in track else track['id']), []
+        if self.client and self.queue_identity == identity(self.client):
+            return self.client.stream(track['id']), ['Authorization: ' + self.client.authorization()]
+        raise ValueError('Reconnect to this playlist’s Jellyfin account.')
+
+    def prepare_next(self):
+        if not self.mpv or not getattr(self.mpv, 'supports_gapless', False): return
+        if self.awaiting_next: return
+        target = self.upcoming() if self.gapless and not self.is_radio() and not self.idle else None
+        if self.prepared_next and self.shuffle and self.repeat != 'one':
+            target = next((i for i, row in enumerate(self.queue) if row['key'] == self.prepared_next and i != self.index), target)
+        if target is not None and self.queue[target].get('source') == 'radio': target = None
+        key = self.queue[target]['key'] if target is not None else None
+        if key == self.prepared_next: return
+        self.mpv.clear_next(); self.prepared_next = None
+        if target is not None:
+            try:
+                row = self.queue[target]; url, headers = self.track_stream(row)
+                self.mpv.append_next(url, headers, row.get('source') == 'local')
+                self.prepared_next = key
+            except (OSError, RuntimeError, ValueError): pass
+
+    def emit_collections(self):
+        self.emit(dict(type='collections', **self.collections.summary()))
+
+    def remember_current(self):
+        if self.closing.is_set() or not self.keep_recent or not 0 <= self.index < len(self.queue): return
+        track = self.queue[self.index]
+        if radio.remote(track) and (not self.client or not self.client.user): return
+        remote_id = identity(self.client) if radio.remote(track) else None
+        group = json.dumps([track.get('source', 'jellyfin'), remote_id, track['id'] if self.is_radio() else track.get('albumId') or track['id']], sort_keys=True)
+        if group == self.last_recent_group: return
+        self.last_recent_group = group
+        rows = [track] if self.is_radio() else [r for r in self.songs if r.get('albumId') and r.get('albumId') == track.get('albumId') and r.get('source') == track.get('source')]
+        if not rows: rows = [r for r in self.queue if r.get('albumId') and r.get('albumId') == track.get('albumId') and r.get('source') == track.get('source')] or [track]
+        snapshot = {'queue': [dict(r, key=uuid.uuid4().hex) for r in rows], 'index': 0, 'position': 0, 'idle': True,
+                    'folder': self.session_snapshot()['folder'], 'library': remote_id}
+        title = track['title'] if self.is_radio() else track['artist'] + ' / ' + track['album']
+        self.pending_recent = (group, title, snapshot)
+        if not self.recent_running:
+            self.recent_running = True
+            self.collection_work.submit(self.flush_recent)
+
+    def flush_recent(self):
+        while True:
+            with self.lock:
+                if self.pending_recent is None:
+                    self.recent_running = False; return
+                group, title, snapshot = self.pending_recent
+                self.pending_recent = None
+            try:
+                self.collections.recent(group, title, snapshot)
+                with self.lock: self.emit_collections()
+            except (OSError, ValueError, RuntimeError):
+                with self.lock: self.emit({'type': 'error', 'message': 'Recently played could not be saved; playback continues.'})
+            with self.lock:
+                if self.pending_recent is not None and not self.closing.is_set():
+                    # Yield to explicit playlist edits, retaining only the newest
+                    # pending recent item instead of growing an unbounded queue.
+                    try:
+                        self.collection_work.submit(self.flush_recent)
+                        return
+                    except RuntimeError: pass  # Shutdown drains the final item.
+
+    def collection_command(self, c, captured):
+        try:
+            cmd = c['cmd']
+            if cmd == 'playlist_save': self.collections.add(c.get('name'), captured)
+            elif cmd == 'playlist_rename': self.collections.rename(c.get('id'), c.get('name'))
+            elif cmd == 'playlist_delete': self.collections.remove(c.get('id'))
+            elif cmd == 'recent_clear': self.collections.clear_recent()
+            with self.lock: self.emit_collections()
+        except (OSError, ValueError, RuntimeError) as exc:
+            with self.lock: self.emit({'type': 'error', 'message': str(exc) if isinstance(exc, (ValueError, RuntimeError)) else 'Saved playlists could not be written.'})
+
+    def load_collection(self, c):
+        snapshot = self.collections.get(c.get('section', 'playlists'), c.get('id'))
+        if snapshot['library'] and snapshot['library'] != identity(self.client):
+            raise ValueError('Connect to this playlist’s Jellyfin account first. Your current queue is unchanged.')
+        if not self.queue_fits(snapshot['queue']): return
+        self.discard_engine()
+        self.queue = [dict(row, key=uuid.uuid4().hex) for row in snapshot['queue']]
+        self.queue_identity = snapshot['library']
+        self.index, self.position = 0, 0
+        self.duration, self.idle, self.paused, self.session_pending = self.queue[0]['duration'], True, True, False
+        self.radio_status = 'stopped'
+        if c.get('play') is True: self.play(0)
 
     def load_radio(self):
         self.songs = [dict(row) for row in self.radios.rows]
@@ -413,10 +545,28 @@ class Player:
 
     def event(self, event):
         with self.lock:
-            if event.get('event') == 'engine-exited':
+            if event.get('event') == 'start-file' and self.awaiting_next:
+                key, self.awaiting_next = self.awaiting_next, None
+                self.prepared_next = None
+                index = next((i for i, row in enumerate(self.queue) if row['key'] == key), -1)
+                if index < 0:
+                    self.mpv.send('stop'); self.idle, self.paused = True, True
+                    self.state(); return
+                self.index, self.position, self.duration = index, 0, self.queue[index]['duration']
+                self.file_loaded, self.cache_paused = False, False
+                self.bitrate, self.idle, self.paused = 0, False, False
+                self.mpv.advance_prefetch()
+                self.checkpoint(); self.state()
+            elif event.get('event') == 'file-loaded':
+                self.idle = False
+                self.file_loaded = True
+                if self.is_radio(): self.radio_status = 'paused' if self.paused else 'buffering' if self.cache_paused else 'playing'
+                self.remember_current(); self.prepare_next(); self.state()
+            elif event.get('event') == 'engine-exited':
                 self.discard_engine()
                 self.idle, self.paused, self.position, self.bitrate = True, True, 0, 0
                 self.radio_title = ''
+                self.radio_status = 'unavailable' if self.is_radio() else 'stopped'
                 self.emit({'type': 'error', 'message': 'Audio player stopped. Press Play to restart playback.'})
                 self.state()
             elif event.get('request_id') == 900:
@@ -432,18 +582,29 @@ class Player:
                     self.radio_title = ''.join(c for c in title[:512] if c.isprintable()).strip()
                     self.state()
                 if self.is_radio() and name in ('time-pos', 'duration'): return
+                if self.is_radio() and name == 'paused-for-cache' and value is not None and not self.idle:
+                    self.cache_paused = bool(value)
+                    self.radio_status = 'paused' if self.paused else 'connecting' if not self.file_loaded else 'buffering' if value else 'playing'
+                    self.state(); return
                 if name in mapping and value is not None:
                     setattr(self, mapping[name], value)
+                    if self.is_radio() and name == 'pause' and not self.idle:
+                        self.radio_status = 'paused' if value else 'connecting' if not self.file_loaded else 'buffering' if self.cache_paused else 'playing'
                     if name == 'idle-active' and value: self.radio_title = ''
                     self.state()
             elif event.get('event') == 'end-file':
                 if self.is_radio() and event.get('reason') in ('eof', 'error'):
                     self.idle, self.paused, self.radio_title = True, True, ''
+                    self.radio_status = 'unavailable'
                     self.emit({'type': 'error', 'message': 'Radio station is unavailable. Press Play to reconnect or choose another station.'})
                     self.state()
                 elif event.get('reason') == 'eof':
-                    self.next_track(automatic=True)
+                    if self.prepared_next:
+                        self.awaiting_next = self.prepared_next
+                    else: self.next_track(automatic=True)
                 elif event.get('reason') == 'error':
+                    if self.mpv and getattr(self.mpv, 'supports_gapless', False): self.mpv.clear_next()
+                    self.prepared_next, self.awaiting_next = None, None
                     self.idle = True
                     self.emit({'type': 'error', 'message': 'Cannot stream this track. Check the connection and Jellyfin playback permissions.'})
                     self.state()
@@ -456,6 +617,8 @@ class Player:
             self.emit({'type': 'error', 'message': 'This playlist belongs to a different Jellyfin account. Reconnect to that account or replace the playlist.'})
             return
         start = self.position if resume and index == self.index else 0
+        self.file_loaded, self.cache_paused = False, False
+        self.prepared_next, self.awaiting_next = None, None
         if track.get('source') == 'local':
             try:
                 path = local_file(track.get('path'))
@@ -475,6 +638,7 @@ class Player:
         # A station switch gets fresh ICY metadata and cannot inherit callbacks.
         if self.is_radio() or track.get('source') == 'radio': self.discard_engine()
         self.radio_title = ''
+        self.radio_status = 'connecting' if track.get('source') == 'radio' else 'stopped'
         self.bitrate = 0
         self.index = index
         engine = self.engine()
@@ -650,7 +814,7 @@ class Player:
                 self.emit({'type': 'error', 'message': str(skipped) + ' unreadable local audio file(s) skipped.'})
 
     def local_command(self, command, generation):
-        picker = command['cmd'] in ('choose_files', 'choose_folder')
+        picker = command['cmd'] in ('choose_files', 'choose_folder', 'choose_drop')
         try:
             with self.lock:
                 if generation != self.generation: return
@@ -664,14 +828,21 @@ class Player:
                 if self.local.prefer_local: self.load_local(generation)
                 return
             if picker:
-                args = ['zenity', '--file-selection', '--title=OmaGAWD · Add music']
-                if command['cmd'] == 'choose_folder': args += ['--directory']
-                else: args += ['--multiple', '--separator=\n', '--file-filter=' + AUDIO_FILTER]
-                # Let the desktop portal provide the native file/folder picker.
-                result = run_bounded(args, limit=1024*1024, timeout=3600, cancel=self.closing)
-                if result.returncode == 1: return
-                if result.returncode: raise RuntimeError('Could not open the file picker. Check that zenity is installed.')
-                paths = result.stdout.decode('utf-8').rstrip('\n').split('\n')
+                if command['cmd'] == 'choose_drop':
+                    args = ['/usr/bin/python3', os.path.join(os.path.dirname(__file__), 'drop_receiver.py')]
+                    result = run_bounded(args, limit=65536, timeout=300, cancel=self.closing, memory_limit=1024*1024*1024)
+                    if result.returncode == 1: return
+                    if result.returncode: raise RuntimeError('Could not open the native drop window. Check GTK 4 is installed.')
+                    paths = json.loads(result.stdout)
+                else:
+                    args = ['zenity', '--file-selection', '--title=OmaGAWD · Add music']
+                    if command['cmd'] == 'choose_folder': args += ['--directory']
+                    else: args += ['--multiple', '--separator=\n', '--file-filter=' + AUDIO_FILTER]
+                    # Let the desktop portal provide the native file/folder picker.
+                    result = run_bounded(args, limit=1024*1024, timeout=3600, cancel=self.closing)
+                    if result.returncode == 1: return
+                    if result.returncode: raise RuntimeError('Could not open the file picker. Check that zenity is installed.')
+                    paths = result.stdout.decode('utf-8').rstrip('\n').split('\n')
             with self.lock:
                 if generation != self.generation: return
                 if paths:
@@ -736,6 +907,18 @@ class Player:
     def handle(self, c):
         with self.lock:
             cmd = c.get('cmd')
+            if cmd in ('playlist_save', 'playlist_rename', 'playlist_delete', 'recent_clear'):
+                if self.collection_future and not self.collection_future.done():
+                    self.emit({'type': 'error', 'message': 'A playlist change is still being saved. Try again in a moment.'})
+                else:
+                    if cmd == 'recent_clear': self.pending_recent = None
+                    self.collection_future = self.collection_work.submit(self.collection_command, dict(c), self.session_snapshot())
+                return
+            if cmd == 'collection_load':
+                try: self.load_collection(c); self.checkpoint(); self.state()
+                except (OSError, ValueError, RuntimeError) as exc:
+                    self.emit({'type': 'error', 'message': str(exc)})
+                return
             if cmd == 'clipboard_paste':
                 if not self.clipboard_future or self.clipboard_future.done():
                     self.clipboard_future = self.clipboard_work.submit(self.paste_clipboard, c.get('request', 0), c.get('primary') is True)
@@ -797,7 +980,7 @@ class Player:
                 self.generation += 1
                 self.load_radio()
                 self.emit({'type': 'busy', 'value': False})
-            elif cmd in ('local_add', 'local_remove', 'choose_files', 'choose_folder') or (cmd == 'library' and c.get('folder') == 'local'):
+            elif cmd in ('local_add', 'local_remove', 'choose_files', 'choose_folder', 'choose_drop') or (cmd == 'library' and c.get('folder') == 'local'):
                 self.generation += 1
                 self.emit({'type': 'busy', 'value': True})
                 self.work.submit(self.local_command, c, self.generation)
@@ -866,6 +1049,7 @@ class Player:
                 self.queue, self.index = [], -1
                 self.queue_identity, self.session_pending = None, False
                 self.position, self.duration, self.paused, self.idle = 0, 0, True, True
+                self.prepared_next, self.awaiting_next = None, None
             elif cmd == 'play':
                 self.play(int(c.get('index', max(0, self.index))), resume=self.session_pending)
             elif cmd == 'pause':
@@ -876,11 +1060,14 @@ class Player:
                 elif self.mpv:
                     self.paused = not self.paused
                     self.mpv.send('set_property', 'pause', self.paused)
+                    if self.is_radio(): self.radio_status = 'paused' if self.paused else 'playing'
             elif cmd == 'stop':
                 if self.mpv:
                     self.mpv.send('stop')
                 self.idle, self.paused, self.position = True, True, 0
                 self.radio_title = ''
+                self.radio_status = 'stopped'
+                self.prepared_next, self.awaiting_next = None, None
                 self.session_pending = False
             elif cmd == 'next':
                 self.next_track()
@@ -893,6 +1080,18 @@ class Player:
                 if self.mpv: self.mpv.send('seek', self.position, 'absolute')
             elif cmd == 'reduce_motion':
                 self.reduce_motion = c.get('value') is True
+            elif cmd == 'gapless':
+                self.gapless = c.get('value') is True
+                if self.mpv: self.mpv.send('set_property', 'options/gapless-audio', 'weak' if self.gapless else 'no')
+            elif cmd == 'keep_recent':
+                self.keep_recent = c.get('value') is True; self.last_recent_group = None
+                if not self.keep_recent: self.pending_recent = None
+            elif cmd == 'replay_gain':
+                if c.get('value') not in ('no', 'track', 'album'): raise ValueError('Choose Off, Track or Album normalization.')
+                self.replay_gain = c['value']
+                if self.mpv: self.mpv.send('set_property', 'options/replaygain', self.replay_gain)
+            elif cmd == 'radio_retry' and self.is_radio():
+                self.play(self.index)
             elif cmd == 'volume':
                 value = float(c['value'])
                 if not math.isfinite(value):
@@ -904,13 +1103,17 @@ class Player:
                 self.shuffle = not self.shuffle
             elif cmd == 'repeat':
                 self.repeat = {'off': 'all', 'all': 'one', 'one': 'off'}[self.repeat]
-            if cmd in ('volume', 'shuffle', 'repeat', 'reduce_motion') and self.preferences:
+            if cmd in ('volume', 'shuffle', 'repeat', 'reduce_motion', 'gapless', 'replay_gain', 'keep_recent') and self.preferences:
                 try:
-                    self.preferences.save(self.volume, self.shuffle, self.repeat, self.reduce_motion)
+                    self.preferences.save(self.volume, self.shuffle, self.repeat, self.reduce_motion, self.gapless, self.replay_gain, self.keep_recent)
                 except OSError:
                     self.emit({'type': 'error', 'message': 'Playback settings changed but could not be saved.'})
             if cmd in ('add', 'replace_play', 'remove', 'move', 'clear', 'play', 'pause', 'stop', 'next', 'previous', 'seek', 'logout'):
                 self.checkpoint()
+            if cmd in ('add', 'remove', 'move', 'shuffle', 'repeat', 'gapless'):
+                if cmd in ('shuffle', 'repeat') and self.prepared_next:
+                    self.mpv.clear_next(); self.prepared_next = None
+                self.prepare_next()
             self.state()
 
     @staticmethod
@@ -930,15 +1133,16 @@ class Player:
         self.remembered = False
 
     def reset(self):
-        if self.mpv:
-            self.mpv.send('stop')
-            self.mpv.send('set_property', 'http-header-fields', [])
+        # Account changes must retire both the active and prefetched relay routes.
+        self.discard_engine()
         self.client, self.songs, self.queue = None, [], []
         self.queue_identity, self.session_folder, self.session_pending = None, None, False
         self.username, self.folder = "", ""
         self.index, self.position, self.duration, self.bitrate = -1, 0, 0, 0
         self.idle, self.paused = True, True
         self.radio_title = ''
+        self.radio_status = 'stopped'
+        self.prepared_next, self.awaiting_next = None, None
 
     def close(self):
         with self.lock: self.generation += 1
@@ -946,6 +1150,7 @@ class Player:
         self.clipboard_work.shutdown(wait=True, cancel_futures=True)
         self.radio_generation += 1
         self.radio_work.shutdown(wait=True, cancel_futures=True)
+        self.collection_work.shutdown(wait=True, cancel_futures=False)
         with self.lock:
             if self.playback_store:
                 try: self.playback_store.close(self.session_snapshot())
@@ -970,7 +1175,7 @@ def main():
                 for stale in ('connected', 'profile', 'remembered', 'library', 'remote_libraries', 'restore_retry'):
                     snapshot.pop(stale, None)
             if kind == 'connected': snapshot.pop('disconnected', None)
-            if kind in ('state', 'local_sources', 'profile', 'remembered', 'connected', 'disconnected', 'library', 'remote_libraries', 'restore_retry', 'busy', 'radio_results', 'radio_busy'):
+            if kind in ('state', 'collections', 'local_sources', 'profile', 'remembered', 'connected', 'disconnected', 'library', 'remote_libraries', 'restore_retry', 'busy', 'radio_results', 'radio_busy'):
                 snapshot.pop(kind, None)
                 snapshot[kind] = data
             print(json.dumps(data, separators=(',', ':')), flush=True)
@@ -981,7 +1186,7 @@ def main():
     from local_library import LocalLibrary
     from preferences import Preferences
     from playback_store import PlaybackStore
-    player = Player(emit, store=SessionStore(), local=LocalLibrary(), preferences=Preferences(), playback_store=PlaybackStore(), radio_store=RadioStore())
+    player = Player(emit, store=SessionStore(), local=LocalLibrary(), preferences=Preferences(), playback_store=PlaybackStore(), radio_store=RadioStore(), collections=CollectionStore())
     from mpris import Mpris
     media = Mpris(player)
     emit({'type': 'local_sources', 'available': bool(player.local.roots), 'paths': player.local.roots})
@@ -989,6 +1194,8 @@ def main():
         emit({'type': 'error', 'message': player.radios.warning})
     if player.local.warning:
         emit({'type': 'error', 'message': player.local.warning})
+    if player.collections.warning: emit({'type': 'error', 'message': player.collections.warning})
+    player.emit_collections()
     player.state()
     emit({'type': 'ready'})
     player.handle({'cmd': 'restore'})

@@ -11,7 +11,11 @@ UI.BarWidget {
     implicitHeight: button.implicitHeight
 
     readonly property bool opened: player.opened
-    function open() { player.open() }
+    function open(payload) {
+        player.open()
+        if (payload && payload.view === "library") player.showLibrary()
+        else if (payload && payload.view === "settings") player.showSettings(true)
+    }
     function close() { player.close() }
     function toggle() { player.toggle() }
     function closeForPopoutSwitch() { close() }

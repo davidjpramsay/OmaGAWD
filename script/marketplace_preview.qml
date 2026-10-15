@@ -30,6 +30,9 @@ Window {
         property bool optionHeld: false
         property string selectedLibrary: "music"
         property string tab: "library"
+        property string settingsSection: "playback"
+        property var savedPlaylists: []
+        property var recentItems: []
         property string username: "Demo"
         property string savedUsername: ""
         property string serverUrl: ""
@@ -56,6 +59,8 @@ Window {
         function close() {}
         function chooseLocal(folder) {}
         function showLibrary() {}
+        function showSettings() { tab = "settings" }
+        function chooseDrop() {}
     }
     Rectangle {
         anchors.fill: parent

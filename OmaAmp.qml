@@ -30,8 +30,22 @@ Item {
         if (root.browsingPlaylist) library.focusPlaylist()
     })
     property string tab: "queue"
+    onTabChanged: if (opened && playlistOpen) Qt.callLater(function() {
+        if (root.tab === "saved") library.focusSaved()
+        else if (root.tab === "recent") library.focusRecent()
+    })
+    property string settingsSection: "playback"
+    property string settingsReturnTab: "library"
+    property var savedPlaylists: []
+    property var recentItems: []
+    function showSettings(force) {
+        if (!force && playlistOpen && tab === "settings") { tab = settingsReturnTab; return }
+        if (tab !== "settings") settingsReturnTab = tab
+        playlistOpen = true; tab = "settings"
+    }
+    function chooseDrop() { close(); send({cmd: "choose_drop"}) }
     property bool ready: false
-    readonly property bool playing: !state.idle && !state.paused
+    readonly property bool playing: !state.idle && !state.paused && (!current || current.source !== "radio" || !state.radioStatus || state.radioStatus === "playing")
     property var levels: Array(16).fill(0)
     onPlayingChanged: if (!playing) levels = Array(16).fill(0)
     property bool connected: false
@@ -90,7 +104,7 @@ Item {
         lastUpdateCheck = Date.now(); updateChecking = true; updateError = ""
         updateChecker.running = true
     }
-    function showUpdates() { playlistOpen = true; tab = "updates"; checkUpdates(false) }
+    function showUpdates() { playlistOpen = true; settingsSection = "updates"; tab = "settings"; checkUpdates(false) }
     function installUpdate() {
         if (!ready || updateInstalling || updateTerminalOpened || !updateInfo.available || !updateInfo.managed) return
         updateError = ""; updateInstalling = true
@@ -228,6 +242,7 @@ Item {
         else if (data.type === "radio_error" && data.request === radioRequest) radioError = data.message
         else if (data.type === "radio_saved") radioSaved(data.id)
         else if (data.type === "state") state = data
+        else if (data.type === "collections") { savedPlaylists = data.playlists || []; recentItems = data.recent || [] }
         else if (data.type === "restore_retry") restoreRetry = data.value
         else if (data.type === "remote_libraries") remoteLibraries = data.libraries
         else if (data.type === "local_sources") { hasLocalSources = data.available; localSources = data.paths || [] }

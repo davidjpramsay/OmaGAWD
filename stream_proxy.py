@@ -60,6 +60,7 @@ class LimitedHTTPServer(ThreadingHTTPServer):
 class StreamProxy:
     def __init__(self):
         self.route = None
+        self.next_route = None
         self.closed = False
         self.upstreams = {}
         self.upstreams_lock = threading.Lock()
@@ -76,8 +77,8 @@ class StreamProxy:
                 self.relay()
 
             def relay(self, head=False):
-                route = owner.route
-                if not route or self.path != route[0]:
+                route = next((r for r in (owner.route, owner.next_route) if r and self.path == r[0]), None)
+                if not route:
                     self.send_error(404)
                     return
                 headers = dict(route[2])
@@ -109,7 +110,7 @@ class StreamProxy:
                                 self.send_header(name, response.headers[name])
                         self.end_headers()
                         if not head:
-                            while not owner.closed and owner.route is route:
+                            while not owner.closed and (owner.route is route or owner.next_route is route):
                                 chunk = response.read1(64 * 1024)
                                 if not chunk: break
                                 self.wfile.write(chunk)
@@ -120,16 +121,26 @@ class StreamProxy:
                         owner.upstreams.pop(response, None)
 
         self.server = LimitedHTTPServer(('127.0.0.1', 0), Handler)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=lambda: self.server.serve_forever(poll_interval=.05), daemon=True)
         self.thread.start()
 
     def stream(self, url, headers):
         path = '/' + secrets.token_hex(24)
         self.route = (path, url, dict(headers))
+        self.next_route = None
         return f'http://127.0.0.1:{self.server.server_port}{path}'
+
+    def prefetch(self, url, headers):
+        path = '/' + secrets.token_hex(24)
+        self.next_route = (path, url, dict(headers))
+        return f'http://127.0.0.1:{self.server.server_port}{path}'
+
+    def advance(self):
+        self.route, self.next_route = self.next_route, None
 
     def close(self):
         self.route = None
+        self.next_route = None
         with self.upstreams_lock:
             self.closed = True
             upstream_sockets = list(self.upstreams.values())

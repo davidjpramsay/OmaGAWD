@@ -24,7 +24,7 @@ class FeatureTests(unittest.TestCase):
             try:
                 self.assertEqual((restored.volume, restored.shuffle, restored.repeat), (37, True, 'one'))
                 self.assertEqual(restored.queue, [])
-                self.assertEqual(set(json.loads(prefs.path.read_text())), {'volume', 'shuffle', 'repeat', 'reduceMotion'})
+                self.assertEqual(set(json.loads(prefs.path.read_text())), {'volume', 'shuffle', 'repeat', 'reduceMotion', 'gapless', 'replayGain', 'keepRecent'})
             finally:
                 restored.close()
 

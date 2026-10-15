@@ -13,11 +13,12 @@ Rectangle {
         contentItem: AmpText { text: action.text; verticalAlignment: Text.AlignVCenter; opacity: action.enabled ? 1 : 0.4 }
         background: Rectangle { color: action.highlighted ? Style.hoverFill : "transparent"; radius: Style.cornerRadius }
     }
-    readonly property bool editingText: server.activeFocus || username.activeFocus || password.activeFocus || search.activeFocus || radioName.activeFocus || radioUrl.activeFocus || radioGenre.activeFocus || radioCountry.activeFocus || radioLanguage.activeFocus
+    readonly property bool editingText: server.activeFocus || username.activeFocus || password.activeFocus || search.activeFocus || playlistName.activeFocus || radioGenre.activeFocus || radioCountry.activeFocus || radioLanguage.activeFocus
     property string helpReturnTab: "library"
+    property string savedPlaylistId: ""
+    property string recentId: ""
     readonly property bool radioMode: app.selectedLibrary === "radio"
     property string radioTab: "saved"
-    property bool radioAdding: false
     function radioCountryLabel(value) {
         if (/^(the )?united states( of america)?$/i.test(value || "")) return "United States"
         if (/^(the )?united kingdom( of great britain and northern ireland)?$/i.test(value || "")) return "United Kingdom"
@@ -26,7 +27,6 @@ Rectangle {
     function radioFields() { return {name: search.text, genre: radioGenre.text, country: radioCountry.text, language: radioLanguage.text} }
     function discoverRadio() { app.searchRadio(radioFields(), 0) }
     function radioEdited() { if (radioMode && radioTab === "discover" && app.cancelRadioSearch) app.cancelRadioSearch() }
-    function saveManualStation() { app.send({cmd: "radio_save", name: radioName.text.trim(), url: radioUrl.text.trim()}) }
     readonly property var radioRows: radioTab === "discover" ? (app.radioResults || []) : app.songs
     property string station: ""
     property bool radioFocusPending: false
@@ -51,10 +51,11 @@ Rectangle {
     readonly property var songRows: albumSongs.map(s => ({key: s.id, label: (s.track ? String(s.track).padStart(2, "0") + "  " : "") + s.title, detail: app.time(s.duration)}))
     readonly property var queueRows: app.state.queue.map((s, i) => ({key: s.key, label: String(i + 1).padStart(2, "0") + "  " + s.artist + " — " + s.title, detail: s.source === "radio" ? "LIVE" : app.time(s.duration)}))
     function focusPlaylist() { queueList.focusList() }
+    function focusSaved() { savedList.focusList() }
+    function focusRecent() { recentList.focusList() }
     function cycleLists(backward) {
         if (radioMode) {
-            if (radioAdding) { if (radioName.activeFocus) radioUrl.forceActiveFocus(Qt.TabFocusReason); else radioName.forceActiveFocus(Qt.TabFocusReason) }
-            else stationList.focusList()
+            stationList.focusList()
             return
         }
         const lists = [artistList, albumList, songList]
@@ -63,7 +64,6 @@ Rectangle {
         lists[next].focusList()
     }
     function focusSearch() {
-        radioAdding = false
         radioGenre.clear(); radioCountry.clear(); radioLanguage.clear()
         search.clear()
         root.artist = ""
@@ -107,14 +107,15 @@ Rectangle {
         target: app
         ignoreUnknownSignals: true
         function onRadioSaved(stationId) {
-            root.radioAdding = false; root.radioTab = "saved"; root.focusSearch()
+            root.radioTab = "saved"; root.focusSearch()
             root.station = stationId
-            radioName.clear(); radioUrl.clear()
             Qt.callLater(function() { if (root.radioMode) stationList.focusList() })
         }
         function onRadioResultsChanged() {
             if (root.radioMode && root.radioTab === "discover" && !root.radioRows.some(row => row.id === root.station)) root.station = ""
         }
+        function onSavedPlaylistsChanged() { if (!(app.savedPlaylists || []).some(r => r.id === root.savedPlaylistId)) root.savedPlaylistId = "" }
+        function onRecentItemsChanged() { if (!(app.recentItems || []).some(r => r.id === root.recentId)) root.recentId = "" }
         function onSongsChanged() { Qt.callLater(function() {
             if (!root.filtered.some(s => s.artist === root.artist)) root.artist = ""
             if (!root.artistSongs.some(s => s.albumId === root.album)) root.album = ""
@@ -134,15 +135,9 @@ Rectangle {
             spacing: Style.space(6)
             AmpButton { text: "PLAYLIST  " + app.state.queue.length; hint: "Playlist (P)"; lit: app.tab === "queue"; onClicked: app.tab = "queue" }
             AmpButton { text: "LIBRARY"; hint: "Library (L)"; lit: app.tab === "library"; onClicked: app.tab = "library" }
+            AmpButton { objectName: "savedPlaylistsTab"; text: "SAVED"; hint: "Named playlists"; lit: app.tab === "saved"; onClicked: app.tab = "saved" }
+            AmpButton { objectName: "recentTab"; text: "RECENT"; hint: "Recently played albums and stations"; lit: app.tab === "recent"; onClicked: app.tab = "recent" }
             Item { Layout.fillWidth: true }
-            AmpButton {
-                objectName: "shortcutsButton"
-                text: "?"; hint: "Keyboard shortcuts"; lit: app.tab === "shortcuts"
-                onClicked: {
-                    if (app.tab === "shortcuts") app.tab = root.helpReturnTab
-                    else { root.helpReturnTab = app.tab; app.tab = "shortcuts" }
-                }
-            }
             AmpButton {
                 id: accountButton
                 text: radioMode ? "Radio ▾" : app.selectedLibrary === "local" ? (app.hasLocalSources ? "Local Music ▾" : "Sources ▾") : app.connected ? "Jellyfin ▾" : "Sources ▾"
@@ -185,12 +180,88 @@ Rectangle {
                         onTriggered: { root.radioTab = "saved"; root.focusSearch(); root.radioFocusPending = true; app.showLibrary(); app.send({cmd: "library", folder: "radio"}); root.focusRadioWhenReady() }
                     }
                     SourceAction { text: "Manage sources…"; onTriggered: app.tab = "sources" }
+                    SourceAction { text: "Drop music…"; enabled: !app.busy; onTriggered: app.chooseDrop() }
                 }
             }
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+        RowLayout {
+            visible: app.tab === "settings"
+            Layout.fillWidth: true
+            Repeater {
+                model: [{key: "playback", label: "PLAYBACK"}, {key: "sources", label: "SOURCES"}, {key: "updates", label: "UPDATES"}, {key: "shortcuts", label: "KEYS"}]
+                AmpButton {
+                    required property var modelData
+                    objectName: "settings-" + modelData.key
+                    text: modelData.label; lit: app.settingsSection === modelData.key
+                    onClicked: { app.settingsSection = modelData.key; if (modelData.key === "updates") app.checkUpdates(false) }
+                }
+            }
+            Item { Layout.fillWidth: true }
+        }
         Controls.ScrollView {
-            visible: app.tab === "shortcuts"
+            visible: app.tab === "settings" && app.settingsSection === "playback"
+            Layout.fillWidth: true; Layout.fillHeight: true; contentWidth: availableWidth; clip: true
+            ColumnLayout {
+                width: parent.width; spacing: Style.space(12)
+                AmpText { text: "PLAYBACK"; font.bold: true }
+                AmpToggle { objectName: "gaplessToggle"; text: "Gapless albums"; checked: app.state.gapless !== false; onToggled: app.send({cmd: "gapless", value: checked}) }
+                AmpText { Layout.fillWidth: true; text: "Keep music flowing between tracks with matching audio formats. Network buffering can still cause a pause."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
+                AmpText { text: "VOLUME NORMALIZATION"; font.pixelSize: Style.font.caption }
+                AmpChoice { objectName: "replayGainChoice"; Layout.fillWidth: true; model: ["Off", "Track", "Album"]; currentIndex: ["no", "track", "album"].indexOf(app.state.replayGain || "no"); onActivated: app.send({cmd: "replay_gain", value: ["no", "track", "album"][currentIndex]}) }
+                AmpText { Layout.fillWidth: true; text: "ReplayGain uses existing loudness tags. Untagged music and most live radio keep their original volume."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
+                AmpToggle { objectName: "reduceMotionToggle"; text: "Reduce motion"; checked: !!app.state.reduceMotion; onToggled: app.send({cmd: "reduce_motion", value: checked}) }
+                AmpText { Layout.fillWidth: true; text: "Give the llama a rest while the music keeps playing."; wrapMode: Text.WordWrap; opacity: 0.65 }
+                AmpToggle { objectName: "rememberRecentToggle"; text: "Remember recently played"; checked: app.state.keepRecent !== false; onToggled: app.send({cmd: "keep_recent", value: checked}) }
+                AmpButton { objectName: "clearRecent"; text: "Clear recently played"; enabled: !!(app.recentItems || []).length; onClicked: app.send({cmd: "recent_clear"}) }
+                AmpButton { text: "Back to library"; onClicked: app.showLibrary() }
+            }
+        }
+        ColumnLayout {
+            visible: app.tab === "saved"
+            Layout.fillWidth: true; Layout.fillHeight: true; spacing: Style.space(10)
+            RowLayout {
+                Layout.fillWidth: true
+                AmpTextField { id: playlistName; app: root.app; objectName: "playlistName"; Layout.fillWidth: true; maximumLength: 80; placeholderText: "Playlist name"; Accessible.name: "Playlist name"; onAccepted: if (text.trim() && app.state.queue.length) app.send({cmd: "playlist_save", name: text}) }
+                AmpButton { objectName: "saveQueue"; text: "SAVE QUEUE"; enabled: !!playlistName.text.trim() && app.state.queue.length > 0; onClicked: app.send({cmd: "playlist_save", name: playlistName.text}) }
+            }
+            TextList {
+                id: savedList
+                Layout.fillWidth: true; Layout.fillHeight: true
+                heading: "SAVED PLAYLISTS"; rows: (app.savedPlaylists || []).map(r => ({key: r.id, label: r.name, detail: String(r.count)})); selected: [root.savedPlaylistId]
+                emptyText: "Give your queue a name and save it above."
+                onChosen: function(key) { root.savedPlaylistId = key; playlistName.text = (app.savedPlaylists || []).find(r => r.id === key).name }
+                onNavigated: function(key) { root.savedPlaylistId = key; playlistName.text = (app.savedPlaylists || []).find(r => r.id === key).name }
+                onActivated: function(key) { app.send({cmd: "collection_load", section: "playlists", id: key, play: true}) }
+            }
+            RowLayout {
+                AmpButton { objectName: "loadSavedPlaylist"; text: "LOAD"; enabled: !!root.savedPlaylistId; onClicked: app.send({cmd: "collection_load", id: root.savedPlaylistId, play: false}) }
+                AmpButton { text: "PLAY"; enabled: !!root.savedPlaylistId; onClicked: app.send({cmd: "collection_load", id: root.savedPlaylistId, play: true}) }
+                AmpButton { objectName: "renamePlaylist"; text: "RENAME"; enabled: !!root.savedPlaylistId && !!playlistName.text.trim(); onClicked: app.send({cmd: "playlist_rename", id: root.savedPlaylistId, name: playlistName.text}) }
+                Item { Layout.fillWidth: true }
+                AmpButton { objectName: "deletePlaylist"; text: "DELETE"; hint: "Forget this named playlist; keep files and current queue"; enabled: !!root.savedPlaylistId; onClicked: { app.send({cmd: "playlist_delete", id: root.savedPlaylistId}); root.savedPlaylistId = "" } }
+            }
+        }
+        ColumnLayout {
+            visible: app.tab === "recent"
+            Layout.fillWidth: true; Layout.fillHeight: true
+            TextList {
+                id: recentList
+                Layout.fillWidth: true; Layout.fillHeight: true
+                heading: "RECENTLY PLAYED"; rows: (app.recentItems || []).map(r => ({key: r.id, label: r.name, detail: r.source === "radio" ? "RADIO" : String(r.count)})); selected: [root.recentId]
+                emptyText: "Albums and stations appear here after you play them."
+                onChosen: function(key) { root.recentId = key }
+                onNavigated: function(key) { root.recentId = key }
+                onActivated: function(key) { app.send({cmd: "collection_load", section: "recent", id: key, play: true}) }
+            }
+            RowLayout {
+                AmpButton { text: "PLAY"; enabled: !!root.recentId; onClicked: app.send({cmd: "collection_load", section: "recent", id: root.recentId, play: true}) }
+                Item { Layout.fillWidth: true }
+                AmpButton { text: "CLEAR RECENT"; enabled: !!(app.recentItems || []).length; onClicked: { app.send({cmd: "recent_clear"}); root.recentId = "" } }
+            }
+        }
+        Controls.ScrollView {
+            visible: app.tab === "settings" && app.settingsSection === "shortcuts"
             Layout.fillWidth: true; Layout.fillHeight: true
             contentWidth: availableWidth
             clip: true
@@ -223,28 +294,11 @@ Rectangle {
                     }
                 }
                 AmpText { text: "Suggested global binding: Super+Alt+O (Command+Option+O on Mac keys). Configure it in Omarchy."; Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.7 }
-                AmpButton { objectName: "openUpdates"; text: (app.updateInfo || {}).available ? "Update available" : "Updates…"; lit: !!(app.updateInfo || {}).available; onClicked: app.showUpdates() }
-                Controls.CheckBox {
-                    objectName: "reduceMotionToggle"
-                    text: "Reduce motion"
-                    checked: app.state.reduceMotion || false
-                    implicitHeight: Style.space(28)
-                    contentItem: AmpText { text: parent.text; leftPadding: Style.space(26); verticalAlignment: Text.AlignVCenter }
-                    indicator: Rectangle {
-                        width: Style.space(16); height: width
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: parent.checked ? Style.selectedFill : Style.normalFill
-                        border.color: parent.checked ? Color.accent : Style.normalBorderFor(Color.foreground, Color.accent)
-                        radius: Style.cornerRadius
-                        AmpText { anchors.centerIn: parent; text: "✓"; visible: parent.parent.checked; color: Color.accent; font.pixelSize: Style.font.caption }
-                    }
-                    onToggled: app.send({cmd: "reduce_motion", value: checked})
-                }
                 AmpButton { text: "Back"; onClicked: app.tab = root.helpReturnTab }
             }
         }
         ColumnLayout {
-            visible: app.tab === "updates"
+            visible: app.tab === "settings" && app.settingsSection === "updates"
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: Style.space(10)
             AmpText { text: "OMAGAWD UPDATES"; font.bold: true; Layout.fillWidth: true }
             AmpText {
@@ -280,10 +334,10 @@ Rectangle {
                 Item { Layout.fillWidth: true }
                 AmpButton { objectName: "installUpdate"; text: app.updateInstalling ? "Preparing…" : app.updateTerminalOpened ? "Updater opened" : "Update"; lit: true; enabled: !!(app.updateInfo || {}).available && !!(app.updateInfo || {}).managed && app.ready && !app.updateInstalling && !app.updateChecking && !app.updateTerminalOpened; onClicked: app.installUpdate() }
             }
-            AmpButton { text: "Back to library"; onClicked: app.showLibrary() }
+            AmpButton { text: "Back to settings"; onClicked: app.settingsSection = "playback" }
         }
         ColumnLayout {
-            visible: app.tab === "sources"
+            visible: app.tab === "sources" || (app.tab === "settings" && app.settingsSection === "sources")
             Layout.fillWidth: true; Layout.fillHeight: true
             spacing: Style.space(10)
             RowLayout {
@@ -291,6 +345,7 @@ Rectangle {
                 AmpText { text: "LOCAL SOURCES"; font.pixelSize: Style.font.caption; Layout.fillWidth: true }
                 AmpButton { text: "+ Files"; enabled: !app.busy; onClicked: app.chooseLocal(false) }
                 AmpButton { text: "+ Folder"; enabled: !app.busy; onClicked: app.chooseLocal(true) }
+                AmpButton { objectName: "dropMusic"; text: "DROP…"; enabled: !app.busy; onClicked: app.chooseDrop() }
             }
             AmpText { text: "Removing a source keeps your files and queued tracks."; Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6 }
             ListView {
@@ -322,7 +377,7 @@ Rectangle {
                 AmpText { text: app.connected ? "Jellyfin · " + app.username : "Jellyfin not connected"; Layout.fillWidth: true }
                 AmpButton { text: app.connected ? "Account…" : "Connect…"; onClicked: app.tab = "connect" }
             }
-            AmpButton { text: "Back to library"; onClicked: app.showLibrary() }
+            AmpButton { text: "Back to settings"; onClicked: app.settingsSection = "playback" }
         }
         ColumnLayout {
             visible: app.tab === "connect"
@@ -367,7 +422,6 @@ Rectangle {
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: Style.space(10)
             RowLayout {
                 Layout.fillWidth: true
-                visible: !root.radioMode || !root.radioAdding
                 AmpTextField { app: root.app;
                     id: search
                     objectName: "librarySearch"
@@ -456,43 +510,29 @@ Rectangle {
                 Layout.fillWidth: true
                 AmpButton { text: "+ FILES"; hint: "Choose local audio files"; enabled: !app.busy; onClicked: app.chooseLocal(false) }
                 AmpButton { text: "+ FOLDER"; hint: "Include a music folder and its subfolders"; enabled: !app.busy; onClicked: app.chooseLocal(true) }
+                AmpButton { text: "DROP…"; hint: "Drop local files or folders in a native window"; enabled: !app.busy; onClicked: app.chooseDrop() }
                 AmpButton { text: "Sources…"; onClicked: app.tab = "sources" }
                 Item { Layout.fillWidth: true }
             }
             RowLayout {
                 visible: root.radioMode
                 Layout.fillWidth: true
-                AmpButton { objectName: "savedRadioTab"; text: "SAVED"; lit: root.radioTab === "saved" && !root.radioAdding; onClicked: { root.radioTab = "saved"; root.focusSearch(); Qt.callLater(function() { stationList.focusList() }) } }
-                AmpButton { objectName: "discoverRadioTab"; text: "DISCOVER"; lit: root.radioTab === "discover" && !root.radioAdding; onClicked: { root.radioTab = "discover"; root.focusSearch() } }
+                AmpButton { objectName: "savedRadioTab"; text: "SAVED"; lit: root.radioTab === "saved"; onClicked: { root.radioTab = "saved"; root.focusSearch(); Qt.callLater(function() { stationList.focusList() }) } }
+                AmpButton { objectName: "discoverRadioTab"; text: "DISCOVER"; lit: root.radioTab === "discover"; onClicked: { root.radioTab = "discover"; root.focusSearch() } }
                 Item { Layout.fillWidth: true }
-                AmpButton { objectName: "addRadioStation"; text: "+ STATION"; lit: root.radioAdding; onClicked: { root.radioAdding = !root.radioAdding; if (root.radioAdding) radioName.forceActiveFocus(Qt.MouseFocusReason) } }
             }
             RowLayout {
-                visible: root.radioMode && root.radioTab === "discover" && !root.radioAdding
+                visible: root.radioMode && root.radioTab === "discover"
                 Layout.fillWidth: true
                 AmpTextField { app: root.app; id: radioGenre; objectName: "radioGenre"; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Genre"; Accessible.name: "Radio genre"; onTextChanged: root.radioEdited(); onAccepted: root.discoverRadio() }
                 AmpTextField { app: root.app; id: radioCountry; objectName: "radioCountry"; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Country"; Accessible.name: "Radio country"; onTextChanged: root.radioEdited(); onAccepted: root.discoverRadio() }
                 AmpTextField { app: root.app; id: radioLanguage; objectName: "radioLanguage"; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Language"; Accessible.name: "Radio language"; onTextChanged: root.radioEdited(); onAccepted: root.discoverRadio() }
                 AmpButton { objectName: "radioSearchButton"; text: "SEARCH"; enabled: !app.radioBusy; onClicked: root.discoverRadio() }
             }
-            ColumnLayout {
-                visible: root.radioMode && root.radioAdding
-                Layout.fillWidth: true; Layout.fillHeight: true
-                spacing: Style.space(10)
-                AmpText { text: "ADD RADIO STATION"; font.bold: true }
-                AmpTextField { app: root.app; id: radioName; objectName: "radioName"; Layout.fillWidth: true; maximumLength: 160; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "Station name"; Accessible.name: "Station name"; onAccepted: radioUrl.forceActiveFocus(Qt.TabFocusReason) }
-                AmpTextField { app: root.app; id: radioUrl; objectName: "radioUrl"; Layout.fillWidth: true; maximumLength: 4096; font.pixelSize: Style.font.bodySmall; verticalPadding: Style.space(5); placeholderText: "https://… / stream"; Accessible.name: "Radio stream link"; onAccepted: if (radioName.text.trim() && radioUrl.text.trim()) root.saveManualStation() }
-                AmpText { Layout.fillWidth: true; text: "Paste the direct audio stream link, rather than the station website."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.55 }
-                RowLayout {
-                    AmpButton { objectName: "saveManualRadio"; text: "SAVE STATION"; enabled: !!radioName.text.trim() && !!radioUrl.text.trim(); onClicked: root.saveManualStation() }
-                    AmpButton { text: "CANCEL"; onClicked: { root.radioAdding = false; Qt.callLater(function() { stationList.focusList() }) } }
-                }
-                Item { Layout.fillHeight: true }
-            }
             TextList {
                 id: stationList
                 objectName: "radioStations"
-                visible: root.radioMode && !root.radioAdding
+                visible: root.radioMode
                 Layout.fillWidth: true; Layout.fillHeight: true
                 heading: "STATION"
                 detailFraction: 0.28
@@ -507,7 +547,7 @@ Rectangle {
                 onAppendRequested: function(key) { root.appendMusic(root.radioRows.filter(s => s.id === key)) }
             }
             RowLayout {
-                visible: root.radioMode && !root.radioAdding
+                visible: root.radioMode
                 Layout.fillWidth: true
                 AmpButton { objectName: "saveDiscoveredRadio"; visible: root.radioTab === "discover"; text: "+ SAVE"; enabled: root.radioRows.some(row => row.id === root.station); onClicked: app.send({cmd: "radio_save", id: root.station}) }
                 AmpButton { objectName: "forgetRadioStation"; visible: root.radioTab === "saved"; text: "− FORGET"; hint: "Remove from saved stations; keep playlist unchanged"; enabled: !!root.station; onClicked: app.send({cmd: "radio_remove", id: root.station}) }

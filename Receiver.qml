@@ -35,7 +35,7 @@ Rectangle {
                 onClicked: app.showUpdates()
             }
             AmpText { text: root.radio || (!app.current && app.selectedLibrary === "radio") ? "RADIO" : app.current && app.current.source === "local" ? "LOCAL" : app.selectedLibrary === "local" && !app.current ? "LOCAL" : "JELLYFIN"; font.pixelSize: Style.font.caption; opacity: 0.55 }
-            AmpButton { text: "−"; hint: "Hide player (music keeps playing)"; implicitHeight: Style.space(22); onClicked: app.close() }
+            AmpButton { objectName: "settingsButton"; text: "⚙"; hint: "Settings"; lit: app.tab === "settings"; implicitHeight: Style.space(22); onClicked: app.showSettings() }
         }
         Rectangle {
             Layout.fillWidth: true; Layout.preferredHeight: Style.space(90)
@@ -47,7 +47,7 @@ Rectangle {
                     Layout.preferredWidth: Style.space(90)
                     spacing: Style.space(5)
                     AmpText { text: root.radio ? "LIVE" : app.time(app.state.position); font.pixelSize: Style.font.display; color: Color.accent; font.letterSpacing: 2 }
-                    AmpText { text: app.state.idle ? "■  STOPPED" : app.state.paused ? "Ⅱ  PAUSED" : "▶  STREAMING"; color: Color.accent; font.pixelSize: Style.font.caption }
+                    AmpText { objectName: "playbackStatus"; text: root.radio && app.state.radioStatus === "unavailable" ? "UNAVAILABLE" : root.radio && app.state.radioStatus === "connecting" ? "CONNECTING" : root.radio && app.state.radioStatus === "buffering" ? "BUFFERING" : app.state.idle ? "■  STOPPED" : app.state.paused ? "Ⅱ  PAUSED" : "▶  STREAMING"; color: root.radio && app.state.radioStatus === "unavailable" ? Color.urgent : Color.accent; font.pixelSize: Style.font.caption }
                     Visualizer {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Style.space(22)
@@ -112,6 +112,7 @@ Rectangle {
             AmpButton { text: app.state.paused || app.state.idle ? "▶" : "Ⅱ"; hint: "Play / pause"; lit: !app.state.idle && !app.state.paused; enabled: app.state.queue.length > 0; onClicked: app.send({cmd: "pause"}) }
             AmpButton { text: "■"; hint: "Stop"; enabled: app.state.queue.length > 0; onClicked: app.send({cmd: "stop"}) }
             AmpButton { text: "▶|"; hint: "Next track"; enabled: app.state.queue.length > 0; onClicked: app.send({cmd: "next"}) }
+            AmpButton { objectName: "retryRadio"; visible: root.radio && app.state.radioStatus === "unavailable"; text: "RETRY"; hint: "Reconnect to this radio station"; onClicked: app.send({cmd: "radio_retry"}) }
             Item { Layout.preferredWidth: Style.space(4) }
             AmpButton { text: "SHF"; hint: "Shuffle"; lit: app.state.shuffle; onClicked: app.send({cmd: "shuffle"}) }
             AmpButton { text: app.state.repeat === "one" ? "R1" : "RPT"; hint: "Repeat: " + app.state.repeat; lit: app.state.repeat !== "off"; onClicked: app.send({cmd: "repeat"}) }

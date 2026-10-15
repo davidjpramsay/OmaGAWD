@@ -9,7 +9,7 @@ import importlib.util
 os.chdir(Path(__file__).resolve().parents[1])
 workspace = tempfile.TemporaryDirectory(prefix='omagawd-qml-')
 root = Path(workspace.name)
-for file in ['AmpTextField.qml', 'Library.qml', 'TextList.qml', 'AmpText.qml', 'AmpButton.qml', 'DancingLlama.qml', 'Receiver.qml', 'AmpSlider.qml', 'Visualizer.qml']:
+for file in ['AmpTextField.qml', 'AmpToggle.qml', 'AmpChoice.qml', 'Library.qml', 'TextList.qml', 'AmpText.qml', 'AmpButton.qml', 'DancingLlama.qml', 'Receiver.qml', 'AmpSlider.qml', 'Visualizer.qml']:
     shutil.copy(file, root / file)
 (root / 'tests/qml').mkdir(parents=True, exist_ok=True)
 for test in Path('tests/qml').glob('tst_*.qml'):
