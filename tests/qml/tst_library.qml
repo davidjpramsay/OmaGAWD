@@ -3,7 +3,7 @@ import QtTest
 import "../.."
 
 Item {
-    width: 600; height: 1000
+    width: 460; height: 820
     QtObject {
         id: fakeApp
         property var songs: []
@@ -11,6 +11,7 @@ Item {
         property var libraries: []
         property var localSources: []
         property string selectedLibrary: "local"
+        property string lastRemoteLibrary: ""
         property bool hasLocalSources: true
         property bool connected: false
         property bool busy: false
@@ -65,6 +66,8 @@ Item {
         function init() {
             fakeApp.tab = "library"
             fakeApp.selectedLibrary = "local"
+            fakeApp.lastRemoteLibrary = ""
+            fakeApp.libraries = []
             fakeApp.busy = false
             fakeApp.updateInfo = {}; fakeApp.updateError = ""
             fakeApp.updateChecking = false; fakeApp.updateInstalling = false; fakeApp.updateTerminalOpened = false
@@ -106,6 +109,17 @@ Item {
             compare(fakeApp.commands[2].cmd, "check_update")
             compare(fakeApp.commands[2].force, true)
             compare(JSON.stringify(fakeApp.state.queue), initialQueue)
+        }
+        function test_returning_to_jellyfin_keeps_last_library_and_falls_back() {
+            fakeApp.connected = true
+            fakeApp.libraries = [{id: "local"}, {id: "first"}, {id: "last"}]
+            fakeApp.lastRemoteLibrary = "last"
+            findChild(library, "jellyfinSource").triggered()
+            compare(fakeApp.commands[0], {cmd: "library", folder: "last"})
+            fakeApp.lastRemoteLibrary = "removed"
+            findChild(library, "jellyfinSource").triggered()
+            compare(fakeApp.commands[1], {cmd: "library", folder: "first"})
+            fakeApp.connected = false
         }
         function test_radio_navigation_search_and_append() {
             fakeApp.selectedLibrary = "radio"
@@ -309,12 +323,17 @@ Item {
             compare(fakeApp.commands[1], {cmd: "gapless", value: false})
             const normalization = findChild(library, "replayGainToggle")
             verify(!normalization.checked)
-            mouseClick(normalization)
+            normalization.forceActiveFocus()
+            keyClick(Qt.Key_Space)
             compare(fakeApp.commands[2], {cmd: "replay_gain", value: "album"})
+            keyClick(Qt.Key_Tab)
+            verify(reduce.activeFocus)
+            keyClick(Qt.Key_Tab, Qt.ShiftModifier)
+            verify(normalization.activeFocus)
             fakeApp.state = Object.assign({}, fakeApp.state, {replayGain: "album"})
             wait(20)
             verify(normalization.checked)
-            mouseClick(normalization)
+            keyClick(Qt.Key_Space)
             compare(fakeApp.commands[3], {cmd: "replay_gain", value: "no"})
             grabImage(library).save("/tmp/omagawd-settings.png")
         }

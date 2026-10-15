@@ -166,10 +166,12 @@ Rectangle {
                         onTriggered: { app.showLibrary(); app.send({cmd: "library", folder: "local"}) }
                     }
                     SourceAction {
+                        objectName: "jellyfinSource"
                         text: app.connected ? "Jellyfin" : "Connect to Jellyfin…"
                         enabled: !app.busy
                         onTriggered: {
-                            const remote = app.libraries.find(item => item.id !== "local")
+                            const remote = app.libraries.find(item => item.id === app.lastRemoteLibrary)
+                                || app.libraries.find(item => item.id !== "local" && item.id !== "radio")
                             if (app.connected && remote) { app.showLibrary(); app.send({cmd: "library", folder: remote.id}) }
                             else app.tab = "connect"
                         }

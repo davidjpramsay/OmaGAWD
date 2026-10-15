@@ -23,6 +23,21 @@ class GaplessFake(FakeMpv):
 
 
 class GaplessTests(unittest.TestCase):
+    def test_pause_during_gapless_transition_is_preserved(self):
+        p = Player(lambda _: None, GaplessFake)
+        p.client = Jellyfin('https://example.com'); p.client.user = 'u'
+        p.songs = [song(i) for i in range(2)]
+        try:
+            p.handle({'cmd': 'replace_play', 'ids': ['0', '1']})
+            p.event({'event': 'file-loaded'})
+            p.event({'event': 'end-file', 'reason': 'eof'})
+            p.handle({'cmd': 'pause'})
+            self.assertTrue(p.paused)
+            p.event({'event': 'start-file'})
+            self.assertEqual(p.index, 1)
+            self.assertTrue(p.paused)
+        finally: p.client = None; p.close()
+
     def test_real_replaygain_changes_output_by_tagged_gain(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d); audio = root / 'gain.flac'

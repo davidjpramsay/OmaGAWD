@@ -52,6 +52,7 @@ Item {
     property bool restoreRetry: false
     property bool busy: false
     property double lastLibraryCheck: 0
+    property string lastRemoteLibrary: ""
     readonly property bool browsingLibrary: opened && playlistOpen && tab === "library"
     onBrowsingLibraryChanged: if (browsingLibrary) Qt.callLater(refreshLibrary)
     onBusyChanged: if (!busy && browsingLibrary) Qt.callLater(refreshLibrary)
@@ -253,15 +254,18 @@ Item {
         else if (data.type === "error") error = data.message
         else if (data.type === "connected") {
             connected = true; username = data.username; remoteLibraries = data.libraries
+            lastRemoteLibrary = data.folder || ""
             if (!data.preserveLocal && !data.preserveRadio) { selectedLibrary = data.folder || ""; songs = [] }
-            tab = "library"
+            // Background sign-in restoration must not replace the active view.
+            if (tab === "connect" || !playlistOpen) tab = "library"
         } else if (data.type === "library") {
             selectedLibrary = data.folder || ""
+            if (selectedLibrary && selectedLibrary !== "local" && selectedLibrary !== "radio") lastRemoteLibrary = selectedLibrary
             lastLibraryCheck = Date.now()
             if (JSON.stringify(songs) !== JSON.stringify(data.songs)) songs = data.songs
         }
         else if (data.type === "picker_closed") { opened = true; showLibrary() }
-        else if (data.type === "disconnected") { connected = false; restoreRetry = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
+        else if (data.type === "disconnected") { connected = false; restoreRetry = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; lastRemoteLibrary = ""; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
     }
     Timer {
         interval: 66; repeat: true
@@ -290,6 +294,7 @@ Item {
             root.ready = false; root.busy = false; root.restoreRetry = false
             root.connected = false; root.remembered = false; root.remoteLibraries = []; root.songs = []
             root.lastLibraryCheck = 0
+            root.lastRemoteLibrary = ""
             root.state = {queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0}
             root.levels = Array(16).fill(0)
             root.error = "Player stopped. Reopen the plugin after checking Python and mpv."

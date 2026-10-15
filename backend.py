@@ -554,7 +554,9 @@ class Player:
                     self.state(); return
                 self.index, self.position, self.duration = index, 0, self.queue[index]['duration']
                 self.file_loaded, self.cache_paused = False, False
-                self.bitrate, self.idle, self.paused = 0, False, False
+                # mpv keeps its pause property when advancing its playlist.
+                # Preserve a pause requested between EOF and this start event.
+                self.bitrate, self.idle = 0, False
                 self.mpv.advance_prefetch()
                 self.checkpoint(); self.state()
             elif event.get('event') == 'file-loaded':
@@ -911,7 +913,9 @@ class Player:
                 if self.collection_future and not self.collection_future.done():
                     self.emit({'type': 'error', 'message': 'A playlist change is still being saved. Try again in a moment.'})
                 else:
-                    if cmd == 'recent_clear': self.pending_recent = None
+                    if cmd == 'recent_clear':
+                        self.pending_recent = None
+                        self.last_recent_group = None
                     self.collection_future = self.collection_work.submit(self.collection_command, dict(c), self.session_snapshot())
                 return
             if cmd == 'collection_load':

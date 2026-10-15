@@ -12,6 +12,21 @@ from drop_receiver import paths_from_uris, read_drop, MAX_BYTES
 
 
 class CollectionTests(unittest.TestCase):
+    def test_clearing_history_allows_same_album_to_be_remembered_again(self):
+        p = Player(lambda _: None, FakeMpv)
+        p.client = Jellyfin('https://example.com'); p.client.user = 'u'
+        p.songs = [dict(song(i), albumId='album') for i in range(2)]
+        try:
+            p.handle({'cmd': 'replace_play', 'ids': ['0', '1']})
+            p.event({'event': 'file-loaded'})
+            p.collection_work.submit(lambda: None).result()
+            p.handle({'cmd': 'recent_clear'}); p.collection_future.result(timeout=2)
+            self.assertEqual(p.collections.summary()['recent'], [])
+            p.play(1); p.event({'event': 'file-loaded'})
+            p.collection_work.submit(lambda: None).result()
+            self.assertEqual(len(p.collections.summary()['recent']), 1)
+        finally: p.client = None; p.close()
+
     def test_collection_edit_work_is_single_in_flight(self):
         gate = threading.Event(); entered = threading.Event(); events = []
         store = CollectionStore(memory=True); p = Player(events.append, FakeMpv, collections=store)

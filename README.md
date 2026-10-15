@@ -14,7 +14,7 @@ Jellyfin, local music, and radio in a compact player that follows your Omarchy t
 
 **Saved** names, loads, plays, renames and forgets playlists. **Recent** returns to the last 30 albums/stations. Saved remote playlists require their original Jellyfin account.
 
-Your queue, playback position, volume, shuffle, and repeat are remembered. Restart restores paused. **Manage sources…** adds or forgets local files/folders without deleting music. Media keys work with the popup hidden. **Drop music…** opens a native drop window for local files/folders; imports leave the current queue playing.
+Your queue, playback position, volume, shuffle, and repeat are remembered. Restart restores paused. **Manage sources…** adds or forgets local files/folders without deleting music. Switching back to Jellyfin remembers its last library. Media keys work with the popup hidden. **Drop music…** opens a native drop window for local files/folders; imports leave the current queue playing.
 
 ## Omarchy
 
