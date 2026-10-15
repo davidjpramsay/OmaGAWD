@@ -59,3 +59,5 @@ Spectrum analysis stops while hidden or paused. Editing existing Jellyfin playli
 ## macOS
 
 [Download the signed macOS 0.2.2 beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.2.2-beta.1) (macOS 14+, Apple silicon and Intel), including **Check for Updates…**, or see the [macOS guide](macOS/README.md) for builds, shortcuts, and format support.
+
+Development: [shared product behaviour and platform parity](docs/PRODUCT.md).

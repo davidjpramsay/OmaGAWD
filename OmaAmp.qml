@@ -36,6 +36,9 @@ Item {
     })
     property string settingsSection: "playback"
     property string settingsReturnTab: "library"
+    property bool settingsReturnPane: false
+    property bool editingJellyfin: false
+    onSettingsSectionChanged: editingJellyfin = false
     property var savedPlaylists: []
     property var recentItems: []
     property var hostedPlaylists: []
@@ -75,14 +78,19 @@ Item {
         hostedBusy = false; hostedAction = ""; hostedError = ""; hostedNotice = ""; hostedLastRefresh = 0; hostedRefreshSelection = false
     }
     function showSettings(force) {
-        if (!force && playlistOpen && tab === "settings") { tab = settingsReturnTab; return }
-        if (tab !== "settings") settingsReturnTab = tab
+        if (!force && playlistOpen && tab === "settings") {
+            tab = settingsReturnTab; playlistOpen = settingsReturnPane; editingJellyfin = false
+            return
+        }
+        if (tab !== "settings") { settingsReturnTab = tab; settingsReturnPane = playlistOpen }
+        else if (!playlistOpen) settingsReturnPane = false
         playlistOpen = true; tab = "settings"
     }
     property var localPickerReturn: null
     // Avoid reusing a previous frontend's picker IDs across a QML reload.
     property int localPickerRequest: Math.floor(Math.random() * 1073741824)
-    function showSources() { playlistOpen = true; settingsSection = "sources"; tab = "settings" }
+    function showSources() { showSettings(true); settingsSection = "sources"; editingJellyfin = false }
+    function showAccount() { showSources(); editingJellyfin = true }
     function removeLocal(path) { if (ready && !busy) send({cmd: "local_remove", paths: [path]}) }
     function finishLocalPicker(request, retired) {
         const back = localPickerReturn
@@ -163,7 +171,7 @@ Item {
         lastUpdateCheck = Date.now(); updateChecking = true; updateError = ""
         updateChecker.running = true
     }
-    function showUpdates() { playlistOpen = true; settingsSection = "updates"; tab = "settings"; checkUpdates(false) }
+    function showUpdates() { showSettings(true); settingsSection = "updates"; checkUpdates(false) }
     function installUpdate() {
         if (!ready || updateInstalling || updateTerminalOpened || !updateInfo.available || !updateInfo.managed) return
         updateError = ""; updateInstalling = true
@@ -328,7 +336,9 @@ Item {
             lastRemoteLibrary = data.folder || ""
             if (!data.preserveLocal && !data.preserveRadio) { selectedLibrary = data.folder || ""; songs = [] }
             // Background sign-in restoration must not replace the active view.
-            if (tab === "connect" || !playlistOpen) tab = "library"
+            if ((tab === "settings" && settingsSection === "sources" && editingJellyfin) || tab === "connect" || !playlistOpen) {
+                editingJellyfin = false; tab = "library"
+            }
         } else if (data.type === "library") {
             selectedLibrary = data.folder || ""
             if (selectedLibrary && selectedLibrary !== "local" && selectedLibrary !== "radio") lastRemoteLibrary = selectedLibrary
@@ -337,7 +347,12 @@ Item {
         }
         else if (data.type === "picker_closed") finishLocalPicker(data.request, false)
         else if (data.type === "picker_retired") finishLocalPicker(data.request, true)
-        else if (data.type === "disconnected") { connected = false; restoreRetry = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; lastRemoteLibrary = ""; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
+        else if (data.type === "disconnected") {
+            connected = false; restoreRetry = false; remembered = false; savedUsername = ""; busy = false
+            remoteLibraries = []; lastRemoteLibrary = ""; selectedLibrary = "local"; songs = []
+            if (!(tab === "settings" && settingsSection === "sources" && editingJellyfin)) tab = "library"
+            Qt.callLater(refreshLibrary)
+        }
     }
     Timer {
         interval: 66; repeat: true

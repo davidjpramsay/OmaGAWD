@@ -214,7 +214,7 @@ Rectangle {
                             const remote = app.libraries.find(item => item.id === app.lastRemoteLibrary)
                                 || app.libraries.find(item => item.id !== "local" && item.id !== "radio")
                             if (app.connected && remote) { app.showLibrary(); app.send({cmd: "library", folder: remote.id}) }
-                            else app.tab = "connect"
+                            else app.showAccount()
                         }
                     }
                     SourceAction {
@@ -252,7 +252,7 @@ Rectangle {
                     required property var modelData
                     objectName: "settings-" + modelData.key
                     text: modelData.label; lit: app.settingsSection === modelData.key
-                    onClicked: { app.settingsSection = modelData.key; if (modelData.key === "updates") app.checkUpdates(false) }
+                    onClicked: { app.editingJellyfin = false; app.settingsSection = modelData.key; if (modelData.key === "updates") app.checkUpdates(false) }
                 }
             }
             Item { Layout.fillWidth: true }
@@ -454,13 +454,13 @@ Rectangle {
             }
         }
         ColumnLayout {
-            visible: app.tab === "sources" || (app.tab === "settings" && app.settingsSection === "sources")
+            visible: app.tab === "sources" || (app.tab === "settings" && app.settingsSection === "sources" && !app.editingJellyfin)
             Layout.fillWidth: true; Layout.fillHeight: true
             spacing: Style.space(10)
             RowLayout {
                 Layout.fillWidth: true
                 AmpText { text: app.connected ? "Jellyfin · " + app.username : "Jellyfin not connected"; Layout.fillWidth: true }
-                AmpButton { text: app.connected ? "Account…" : "Connect…"; onClicked: app.tab = "connect" }
+                AmpButton { objectName: "jellyfinAccount"; text: app.connected ? "Account…" : "Connect…"; onClicked: app.showAccount() }
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
             RowLayout {
@@ -499,7 +499,7 @@ Rectangle {
             Item { visible: !localSourceList.count; Layout.fillHeight: true }
         }
         ColumnLayout {
-            visible: app.tab === "connect"
+            visible: app.tab === "settings" && app.settingsSection === "sources" && app.editingJellyfin
             Layout.fillWidth: true; Layout.fillHeight: true
             spacing: Style.space(8)
             RowLayout {

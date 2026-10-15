@@ -20,6 +20,7 @@ Item {
         property bool optionHeld: false
         property string tab: "library"
         property string settingsSection: "playback"
+        property bool editingJellyfin: false
         property var savedPlaylists: []
         property var recentItems: []
         property var hostedPlaylists: []
@@ -63,7 +64,8 @@ Item {
         function showLibrary() { tab = "library" }
         function chooseLocal(folder) { send({cmd: folder ? "choose_folder" : "choose_files"}) }
         function removeLocal(path) { send({cmd: "local_remove", paths: [path]}) }
-        function showSources() { settingsSection = "sources"; tab = "settings" }
+        function showSources() { settingsSection = "sources"; tab = "settings"; editingJellyfin = false }
+        function showAccount() { showSources(); editingJellyfin = true }
     }
     Library { id: library; anchors.fill: parent; app: fakeApp }
     TestCase {
@@ -93,6 +95,7 @@ Item {
             fakeApp.updateChecking = false; fakeApp.updateInstalling = false; fakeApp.updateTerminalOpened = false
             library.radioTab = "saved"
             fakeApp.settingsSection = "playback"
+            fakeApp.editingJellyfin = false
             fakeApp.savedPlaylists = []; fakeApp.recentItems = []; fakeApp.localSources = []
             fakeApp.cancelRadioSearch()
             fakeApp.songs = [
@@ -375,8 +378,14 @@ Item {
             fakeApp.busy = true; verify(!files.enabled); verify(!folders.enabled)
             verify(!findChild(listing.itemAtIndex(0), "removeLocalSource").enabled)
             fakeApp.busy = false
-            fakeApp.tab = "connect"
+            findChild(library, "jellyfinAccount").clicked()
+            verify(fakeApp.editingJellyfin)
+            compare(fakeApp.tab, "settings"); compare(fakeApp.settingsSection, "sources")
+            verify(findChild(library, "settings-playback").visible)
+            verify(findChild(library, "serverInput").visible)
+            verify(!files.visible)
             findChild(library, "backToSources").clicked()
+            verify(!fakeApp.editingJellyfin); verify(files.visible)
             compare(fakeApp.tab, "settings"); compare(fakeApp.settingsSection, "sources")
             grabImage(library).save("/tmp/omagawd-local-settings.png")
         }
