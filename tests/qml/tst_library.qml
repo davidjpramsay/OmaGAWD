@@ -307,6 +307,15 @@ Item {
             verify(gapless.checked)
             mouseClick(gapless)
             compare(fakeApp.commands[1], {cmd: "gapless", value: false})
+            const normalization = findChild(library, "replayGainToggle")
+            verify(!normalization.checked)
+            mouseClick(normalization)
+            compare(fakeApp.commands[2], {cmd: "replay_gain", value: "album"})
+            fakeApp.state = Object.assign({}, fakeApp.state, {replayGain: "album"})
+            wait(20)
+            verify(normalization.checked)
+            mouseClick(normalization)
+            compare(fakeApp.commands[3], {cmd: "replay_gain", value: "no"})
             grabImage(library).save("/tmp/omagawd-settings.png")
         }
         function test_named_playlist_and_recent_keyboard_actions() {

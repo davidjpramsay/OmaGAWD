@@ -207,9 +207,8 @@ Rectangle {
                 AmpText { text: "PLAYBACK"; font.bold: true }
                 AmpToggle { objectName: "gaplessToggle"; text: "Gapless albums"; checked: app.state.gapless !== false; onToggled: app.send({cmd: "gapless", value: checked}) }
                 AmpText { Layout.fillWidth: true; text: "Keep music flowing between tracks with matching audio formats. Network buffering can still cause a pause."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
-                AmpText { text: "VOLUME NORMALIZATION"; font.pixelSize: Style.font.caption }
-                AmpChoice { objectName: "replayGainChoice"; Layout.fillWidth: true; model: ["Off", "Track", "Album"]; currentIndex: ["no", "track", "album"].indexOf(app.state.replayGain || "no"); onActivated: app.send({cmd: "replay_gain", value: ["no", "track", "album"][currentIndex]}) }
-                AmpText { Layout.fillWidth: true; text: "ReplayGain uses existing loudness tags. Untagged music and most live radio keep their original volume."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
+                AmpToggle { objectName: "replayGainToggle"; text: "Volume normalization"; checked: !!app.state.replayGain && app.state.replayGain !== "no"; onToggled: app.send({cmd: "replay_gain", value: checked ? "album" : "no"}) }
+                AmpText { Layout.fillWidth: true; text: "Use album ReplayGain tags to balance volume while preserving quieter and louder songs. Untagged music keeps its original volume."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
                 AmpToggle { objectName: "reduceMotionToggle"; text: "Reduce motion"; checked: !!app.state.reduceMotion; onToggled: app.send({cmd: "reduce_motion", value: checked}) }
                 AmpText { Layout.fillWidth: true; text: "Give the llama a rest while the music keeps playing."; wrapMode: Text.WordWrap; opacity: 0.65 }
                 AmpToggle { objectName: "rememberRecentToggle"; text: "Remember recently played"; checked: app.state.keepRecent !== false; onToggled: app.send({cmd: "keep_recent", value: checked}) }

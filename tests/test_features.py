@@ -9,6 +9,16 @@ from local_library import LocalLibrary
 
 
 class FeatureTests(unittest.TestCase):
+    def test_legacy_track_gain_restores_as_global_album_gain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prefs = Preferences(Path(directory) / 'playback.json')
+            prefs.save(37, True, 'all', replay_gain='track')
+            restored = prefs.load()
+            self.assertEqual(restored['replayGain'], 'album')
+            self.assertEqual((restored['volume'], restored['shuffle'], restored['repeat']), (37, True, 'all'))
+            prefs.save(37, True, 'all', replay_gain='no')
+            self.assertEqual(prefs.load()['replayGain'], 'no')
+
     def test_preferences_round_trip_and_no_queue(self):
         with tempfile.TemporaryDirectory() as directory:
             prefs = Preferences(Path(directory) / 'playback.json')

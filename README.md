@@ -26,7 +26,7 @@ Requires Omarchy/Quickshell, mpv, Python 3 with python-gobject, libsecret (`secr
 
 Local files: MP3, FLAC, AAC, M4A/M4B/ALAC, Ogg/Opus, WAV, AIFF, WMA, APE and WavPack. Imports and playback restrict demuxers to music containers; scripts and playlist files are unsupported.
 
-Open the llama in the bar. **⚙ Settings** contains playback options, sources, updates and shortcuts. Gapless preloads the next music track; matching audio formats flow without reopening the output. ReplayGain Track/Album uses existing loudness tags; untagged tracks are unchanged. Recent history and llama motion can be turned off.
+Open the llama in the bar. **⚙ Settings** contains playback options, sources, updates and shortcuts. Gapless preloads the next music track; matching audio formats flow without reopening the output. Volume normalization is a global on/off switch using album ReplayGain tags; untagged tracks are unchanged. Recent history and llama motion can be turned off.
 
 | Shortcut | Action |
 |---|---|

@@ -29,7 +29,9 @@ class Preferences:
                 values['reduceMotion'] = data['reduceMotion']
             if type(data.get('gapless')) is bool: values['gapless'] = data['gapless']
             if type(data.get('keepRecent')) is bool: values['keepRecent'] = data['keepRecent']
-            if data.get('replayGain') in ('no', 'track', 'album'): values['replayGain'] = data['replayGain']
+            if data.get('replayGain') in ('no', 'track', 'album'):
+                # The global switch now enables album gain; preserve legacy On.
+                values['replayGain'] = 'album' if data['replayGain'] == 'track' else data['replayGain']
             if data.get('repeat') in ('off', 'all', 'one'):
                 values['repeat'] = data['repeat']
         except (OSError, ValueError, RecursionError):
