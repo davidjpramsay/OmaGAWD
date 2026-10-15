@@ -38,6 +38,7 @@ class RadioBrowser:
                     while True:
                         if time.monotonic() > deadline: raise ValueError('Radio response timed out')
                         chunk = response.read1(min(65536, MAX_BYTES + 1 - len(raw)))
+                        if time.monotonic() > deadline: raise ValueError('Radio response timed out')
                         if not chunk: break
                         raw.extend(chunk)
                         if len(raw) > MAX_BYTES: raise ValueError('Radio response exceeds limit')

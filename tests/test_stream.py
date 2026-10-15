@@ -48,6 +48,7 @@ class StreamTests(unittest.TestCase):
             with patch('radio_library.stream', return_value='http://127.0.0.1:' + str(server.server_port)), \
                  patch('backend.subprocess.Popen', side_effect=lambda args, **kwargs: real_popen(args + ['--ao=null'], **kwargs)):
                 player.handle({'cmd': 'library', 'folder': 'radio'})
+                player.handle({'cmd': 'normalization', 'value': True})
                 player.handle({'cmd': 'visibility', 'visible': True})
                 player.handle({'cmd': 'replace_play', 'ids': ['radio:omarchy']})
             deadline = time.monotonic() + 8

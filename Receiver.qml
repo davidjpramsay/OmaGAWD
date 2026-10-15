@@ -80,7 +80,7 @@ Rectangle {
                         }
                         AmpText {
                             Layout.fillWidth: true
-                            text: root.radio ? "/   LIVE RADIO" : "/   " + (app.current ? app.time(app.current.duration) : "00:00") + "   /   ORIGINAL AUDIO"
+                            text: root.radio ? "/   LIVE RADIO" : "/   " + (app.current ? app.time(app.current.duration) : "00:00")
                             font.pixelSize: Style.font.caption
                         }
                     }

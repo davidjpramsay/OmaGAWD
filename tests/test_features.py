@@ -9,15 +9,19 @@ from local_library import LocalLibrary
 
 
 class FeatureTests(unittest.TestCase):
-    def test_legacy_track_gain_restores_as_global_album_gain(self):
+    def test_legacy_gain_migrates_to_global_normalization(self):
         with tempfile.TemporaryDirectory() as directory:
             prefs = Preferences(Path(directory) / 'playback.json')
-            prefs.save(37, True, 'all', replay_gain='track')
-            restored = prefs.load()
-            self.assertEqual(restored['replayGain'], 'album')
-            self.assertEqual((restored['volume'], restored['shuffle'], restored['repeat']), (37, True, 'all'))
-            prefs.save(37, True, 'all', replay_gain='no')
-            self.assertEqual(prefs.load()['replayGain'], 'no')
+            for mode in ('no', 'track', 'album'):
+                prefs.path.write_text(json.dumps({'volume': 37, 'shuffle': True, 'repeat': 'all', 'replayGain': mode}))
+                restored = prefs.load()
+                self.assertEqual(restored['normalization'], mode != 'no')
+                self.assertEqual((restored['volume'], restored['shuffle'], restored['repeat']), (37, True, 'all'))
+            prefs.save(37, True, 'all', normalization=False)
+            self.assertFalse(prefs.load()['normalization'])
+            self.assertNotIn('replayGain', json.loads(prefs.path.read_text()))
+            prefs.path.write_text('{"normalization":false,"replayGain":"album"}')
+            self.assertFalse(prefs.load()['normalization'])
 
     def test_preferences_round_trip_and_no_queue(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -34,9 +38,39 @@ class FeatureTests(unittest.TestCase):
             try:
                 self.assertEqual((restored.volume, restored.shuffle, restored.repeat), (37, True, 'one'))
                 self.assertEqual(restored.queue, [])
-                self.assertEqual(set(json.loads(prefs.path.read_text())), {'volume', 'shuffle', 'repeat', 'reduceMotion', 'gapless', 'replayGain', 'keepRecent'})
+                self.assertEqual(set(json.loads(prefs.path.read_text())), {'volume', 'shuffle', 'repeat', 'reduceMotion', 'gapless', 'normalization', 'keepRecent'})
             finally:
                 restored.close()
+
+    def test_normalization_toggle_preserves_playback_and_spectrum(self):
+        from backend import NORMALIZATION_FILTER
+        with tempfile.TemporaryDirectory() as directory:
+            prefs = Preferences(Path(directory) / 'playback.json')
+            player = Player(lambda _: None, FakeMpv, preferences=prefs)
+            try:
+                player.mpv = FakeMpv(None)
+                player.queue = [dict(song(1), key='one')]
+                player.index, player.position, player.idle, player.paused = 0, 42, False, True
+                engine = player.mpv
+                for enabled in (True, True, False, False):
+                    player.handle({'cmd': 'normalization', 'value': enabled})
+                    self.assertIs(player.mpv, engine)
+                    self.assertEqual((player.index, player.position, player.paused), (0, 42, True))
+                    self.assertEqual(prefs.load()['normalization'], enabled)
+                self.assertEqual(engine.commands, [('af', 'add', NORMALIZATION_FILTER), ('af', 'remove', '@normalize')])
+                for value in (None, 'on', 1, []):
+                    with self.assertRaises(ValueError): player.handle({'cmd': 'normalization', 'value': value})
+                self.assertFalse(player.normalization)
+                player.handle({'cmd': 'replay_gain', 'value': 'album'})
+                self.assertTrue(player.normalization)
+                self.assertFalse(any(c[:2] == ('set_property', 'options/replaygain') for c in engine.commands))
+                player.discard_engine()
+                fresh = player.engine()
+                self.assertIn(('af', 'add', NORMALIZATION_FILTER), fresh.commands)
+                player.handle({'cmd': 'visibility', 'visible': True})
+                self.assertTrue(player.normalization)
+                self.assertFalse(fresh.meter_enabled)  # Paused; normalization does not depend on visibility.
+            finally: player.close()
 
     def test_invalid_preferences_and_atomic_failure(self):
         with tempfile.TemporaryDirectory() as directory:

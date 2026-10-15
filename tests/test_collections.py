@@ -121,11 +121,11 @@ class CollectionTests(unittest.TestCase):
             p.queue = [dict(song(0), key='first')]; p.client = Jellyfin('https://example.com')
             try:
                 p.play(0); engine = p.mpv
-                p.handle({'cmd': 'gapless', 'value': False}); p.handle({'cmd': 'replay_gain', 'value': 'album'}); p.handle({'cmd': 'keep_recent', 'value': False})
+                p.handle({'cmd': 'gapless', 'value': False}); p.handle({'cmd': 'normalization', 'value': True}); p.handle({'cmd': 'keep_recent', 'value': False})
                 self.assertIs(p.mpv, engine)
-                self.assertIn(('set_property', 'options/replaygain', 'album'), engine.commands)
-                restored = prefs.load(); self.assertFalse(restored['gapless']); self.assertEqual(restored['replayGain'], 'album'); self.assertFalse(restored['keepRecent'])
-                with self.assertRaises(ValueError): p.handle({'cmd': 'replay_gain', 'value': 'invalid'})
+                self.assertTrue(any(c[:2] == ('af', 'add') and c[2].startswith('@normalize:') for c in engine.commands))
+                restored = prefs.load(); self.assertFalse(restored['gapless']); self.assertTrue(restored['normalization']); self.assertFalse(restored['keepRecent'])
+                with self.assertRaises(ValueError): p.handle({'cmd': 'normalization', 'value': 'invalid'})
             finally: p.client = None; p.close()
 
 

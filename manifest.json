@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "david.omaamp",
   "name": "OmaGAWD",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "author": "David",
-  "description": "Winamp soul. Omarchy fit. Badass llama dance moves. Jellyfin, local music and worldwide radio in a compact themed player. Real frequency spectrum, keyboard control, named playlists and recently played albums/stations. Gapless music, optional ReplayGain normalization, native file/folder drops and clear live-radio status. Discover stations by name, genre, country or language and save favourites. Settings includes playback options, sources, updates and shortcuts.",
+  "description": "Winamp soul. Omarchy fit. Badass llama dance moves. Jellyfin, local music and worldwide radio in a compact themed player. Real frequency spectrum, keyboard control, Jellyfin-hosted and on-device playlists, and recently played albums/stations. Gapless music, optional live loudness normalization, a native Local Music manager with drag-and-drop and desktop file pickers, and clear live-radio status. Discover stations and save favourites. Settings includes playback options, sources, updates and shortcuts.",
   "kinds": [
     "bar-widget"
   ],

@@ -8,7 +8,7 @@ Button {
     property bool iconOnly: false
     property string hint: text
     implicitHeight: Style.space(24)
-    implicitWidth: Math.max(Style.space(28), label.implicitWidth + Style.space(14))
+    implicitWidth: Math.max(Style.space(28), (iconOnly ? glyph.implicitWidth : label.implicitWidth) + Style.space(14))
     padding: Style.space(5)
     hoverEnabled: true
     opacity: enabled ? 1 : 0.35
@@ -17,14 +17,33 @@ Button {
         visible: root.hovered && root.enabled && root.hint !== root.text
         text: root.hint
     }
-    contentItem: AmpText {
-        id: label
-        text: root.text
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        color: root.lit ? Color.accent : Color.foreground
-        font.pixelSize: root.iconOnly ? Style.font.icon : Style.font.bodySmall
-        font.bold: root.lit && !root.iconOnly
+    contentItem: Item {
+        AmpText {
+            id: label
+            anchors.fill: parent
+            visible: !root.iconOnly
+            text: root.text
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            color: root.lit ? Color.accent : Color.foreground
+            font.bold: root.lit
+        }
+        TextMetrics {
+            id: glyphMetrics
+            font: glyph.font
+            text: glyph.text
+        }
+        AmpText {
+            id: glyph
+            visible: root.iconOnly
+            text: root.text
+            font.pixelSize: Style.font.icon
+            color: root.lit ? Color.accent : Color.foreground
+            renderType: Text.NativeRendering
+            // Centre the painted glyph, accounting for its font bearings and baseline.
+            x: (parent.width - glyphMetrics.tightBoundingRect.width) / 2 - glyphMetrics.tightBoundingRect.x
+            y: (parent.height - glyphMetrics.tightBoundingRect.height) / 2 - glyphMetrics.tightBoundingRect.y - baselineOffset
+        }
     }
     background: Rectangle {
         radius: Math.min(Style.cornerRadius, Style.space(4))

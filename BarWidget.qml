@@ -28,14 +28,22 @@ UI.BarWidget {
         // outer widget, so this keeps the llama free of an open-panel underline.
     }
 
+    TextMetrics {
+        id: statusGlyphMetrics
+        text: "󰕾"
+        font.family: button.fontFamily
+        font.pixelSize: Math.max(1, Math.round(button.fontSize))
+    }
+
     UI.BarIconButton {
         id: button
         anchors.fill: parent
         bar: root.bar
         tooltipText: "OmaGAWD · Music"
         slotSize: Style.bar.statusSlot
-        // Match the other status icons; reuse the macOS llama artwork.
-        opticalSize: Style.bar.iconCanvas
+        // The SVG fills its canvas; font icons have inner line-box padding.
+        // Match their painted height rather than the larger shared canvas.
+        opticalSize: Math.min(Style.bar.iconCanvas, Math.max(1, statusGlyphMetrics.tightBoundingRect.height))
         iconComponent: Component {
             Item {
                 Image {

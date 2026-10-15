@@ -46,7 +46,7 @@ class DailyUseTests(unittest.TestCase):
             p = player(); original_popen = subprocess.Popen
             try:
                 p.local_command({'cmd': 'library', 'folder': 'local'}, p.generation)
-                p.handle({'cmd': 'replay_gain', 'value': 'album'})
+                p.handle({'cmd': 'normalization', 'value': True})
                 with patch('backend.subprocess.Popen', side_effect=lambda args, **kw: original_popen(args + ['--ao=null'], **kw)):
                     p.handle({'cmd': 'replace_play', 'ids': [row['id'] for row in p.songs]})
                 self.assertTrue(wait_for(lambda: p.file_loaded and p.position > .15))
@@ -68,7 +68,7 @@ class DailyUseTests(unittest.TestCase):
                 self.assertIsNone(p.mpv); self.assertTrue(p.paused); self.assertTrue(p.session_pending)
                 self.assertEqual([r['key'] for r in p.queue], keys)
                 self.assertAlmostEqual(p.position, position, delta=.15)
-                self.assertEqual(p.replay_gain, 'album')
+                self.assertTrue(p.normalization)
                 saved = p.collections.summary()['playlists'][0]['id']
                 p.handle({'cmd': 'collection_load', 'id': saved, 'play': False})
                 self.assertTrue(p.paused); self.assertIsNone(p.mpv); self.assertEqual(p.position, 0)

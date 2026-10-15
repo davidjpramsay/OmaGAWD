@@ -38,12 +38,52 @@ Item {
     property string settingsReturnTab: "library"
     property var savedPlaylists: []
     property var recentItems: []
+    property var hostedPlaylists: []
+    property var hostedSongs: []
+    property string hostedItemsId: ""
+    property bool hostedBusy: false
+    property string hostedAction: ""
+    property string hostedError: ""
+    property string hostedNotice: ""
+    property int hostedRequest: 0
+    property double hostedLastRefresh: 0
+    property bool hostedRefreshSelection: false
+    signal hostedCreated(string playlistId)
+    function hostedCommand(command) {
+        if (!ready || !connected || (hostedBusy && hostedAction === "write")) return
+        hostedRequest++; command.request = hostedRequest
+        hostedRefreshSelection = false
+        hostedError = ""; hostedNotice = ""
+        hostedBusy = true; hostedAction = command.cmd === "hosted_create" || command.cmd === "hosted_load" ? "write" : "read"
+        send(command)
+    }
+    function refreshHosted(force) {
+        if (!ready || !connected || hostedBusy || (!force && Date.now() - hostedLastRefresh < 15000)) return
+        hostedLastRefresh = Date.now()
+        hostedCommand({cmd: "hosted_list"})
+    }
+    function readHosted(key) {
+        hostedSongs = []; hostedItemsId = ""
+        hostedCommand({cmd: "hosted_items", id: key})
+    }
+    function loadHosted(key, play, index) { hostedCommand({cmd: "hosted_load", id: key, play: play, index: index || 0}) }
+    function createHosted(name) { hostedCommand({cmd: "hosted_create", name: name}) }
+    function resetHosted() {
+        hostedRequest++; hostedPlaylists = []; hostedSongs = []; hostedItemsId = ""
+        hostedBusy = false; hostedAction = ""; hostedError = ""; hostedNotice = ""; hostedLastRefresh = 0; hostedRefreshSelection = false
+    }
     function showSettings(force) {
         if (!force && playlistOpen && tab === "settings") { tab = settingsReturnTab; return }
         if (tab !== "settings") settingsReturnTab = tab
         playlistOpen = true; tab = "settings"
     }
-    function chooseDrop() { close(); send({cmd: "choose_drop"}) }
+    property var localManagerReturn: null
+    function manageLocal() {
+        if (!ready) { error = "Player is starting. Try again in a moment."; return }
+        if (!localManagerReturn) localManagerReturn = {tab: tab, pane: playlistOpen}
+        close()
+        send({cmd: "manage_local", theme: {background: Color.background.toString(), foreground: Color.foreground.toString(), accent: Color.accent.toString(), font: Style.font.family, size: Style.font.bodySmall}})
+    }
     property bool ready: false
     readonly property bool playing: !state.idle && !state.paused && (!current || current.source !== "radio" || !state.radioStatus || state.radioStatus === "playing")
     property var levels: Array(16).fill(0)
@@ -67,6 +107,11 @@ Item {
         repeat: true
         running: root.browsingLibrary && root.ready
         onTriggered: root.refreshLibrary()
+    }
+    Timer {
+        interval: 60000; repeat: true
+        running: root.opened && root.playlistOpen && root.tab === "saved" && library.hostedMode && root.connected && root.ready
+        onTriggered: root.refreshHosted(false)
     }
     property string error: ""
     property var pasteTarget: null
@@ -244,6 +289,15 @@ Item {
         else if (data.type === "radio_saved") radioSaved(data.id)
         else if (data.type === "state") state = data
         else if (data.type === "collections") { savedPlaylists = data.playlists || []; recentItems = data.recent || [] }
+        else if (data.type === "hosted_reset") resetHosted()
+        else if (data.type === "hosted_playlists" && data.request >= hostedRequest) { hostedRequest = data.request; if (hostedAction === "read" && hostedItemsId) hostedRefreshSelection = true; hostedPlaylists = data.playlists || [] }
+        else if (data.type === "hosted_items" && data.request >= hostedRequest) { hostedRequest = data.request; hostedItemsId = data.id; hostedSongs = data.songs || [] }
+        else if (data.type === "hosted_busy" && data.request >= hostedRequest) {
+            hostedRequest = data.request; hostedBusy = data.value; hostedAction = data.action || ""
+            if (!hostedBusy && hostedRefreshSelection) { hostedRefreshSelection = false; Qt.callLater(function() { library.refreshHostedSelection() }) }
+        }
+        else if (data.type === "hosted_error" && data.request >= hostedRequest) { hostedRequest = data.request; hostedError = data.message; hostedBusy = false; hostedAction = ""; hostedLastRefresh = 0 }
+        else if (data.type === "hosted_created" && data.request >= hostedRequest) { hostedRequest = data.request; hostedNotice = "Created on Jellyfin · " + data.name; hostedCreated(data.id) }
         else if (data.type === "restore_retry") restoreRetry = data.value
         else if (data.type === "remote_libraries") remoteLibraries = data.libraries
         else if (data.type === "local_sources") { hasLocalSources = data.available; localSources = data.paths || [] }
@@ -265,6 +319,11 @@ Item {
             if (JSON.stringify(songs) !== JSON.stringify(data.songs)) songs = data.songs
         }
         else if (data.type === "picker_closed") { opened = true; showLibrary() }
+        else if (data.type === "local_manager_closed") {
+            const back = localManagerReturn; localManagerReturn = null
+            if (back) { tab = back.tab; playlistOpen = back.pane }
+            opened = true
+        }
         else if (data.type === "disconnected") { connected = false; restoreRetry = false; remembered = false; savedUsername = ""; busy = false; remoteLibraries = []; lastRemoteLibrary = ""; selectedLibrary = "local"; songs = []; tab = "library"; Qt.callLater(refreshLibrary) }
     }
     Timer {
@@ -289,12 +348,14 @@ Item {
             }
         }
         onExited: {
+            root.localManagerReturn = null
             pasteTimeout.stop(); root.pasteTarget = null
             updatePrepareTimeout.stop(); root.updateInstalling = false
             root.ready = false; root.busy = false; root.restoreRetry = false
             root.connected = false; root.remembered = false; root.remoteLibraries = []; root.songs = []
             root.lastLibraryCheck = 0
             root.lastRemoteLibrary = ""
+            root.resetHosted()
             root.state = {queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0}
             root.levels = Array(16).fill(0)
             root.error = "Player stopped. Reopen the plugin after checking Python and mpv."
@@ -331,6 +392,16 @@ Item {
                 context: Qt.WindowShortcut
                 enabled: root.browsingLibrary
                 onActivated: library.cycleLists(true)
+            }
+            Shortcut {
+                sequence: "Tab"; context: Qt.WindowShortcut
+                enabled: root.opened && root.playlistOpen && library.hostedMode && !library.editingText
+                onActivated: library.cycleHosted(false)
+            }
+            Shortcut {
+                sequence: "Shift+Tab"; context: Qt.WindowShortcut
+                enabled: root.opened && root.playlistOpen && library.hostedMode && !library.editingText
+                onActivated: library.cycleHosted(true)
             }
             Keys.onReleased: function(event) {
                 root.optionHeld = !!(event.modifiers & Qt.AltModifier)

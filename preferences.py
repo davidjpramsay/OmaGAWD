@@ -11,7 +11,7 @@ class Preferences:
         self.path = Path(path) if path else Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'omagawd/playback.json'
 
     def load(self):
-        values = {'volume': 70, 'shuffle': False, 'repeat': 'off', 'reduceMotion': False, 'gapless': True, 'replayGain': 'no', 'keepRecent': True}
+        values = {'volume': 70, 'shuffle': False, 'repeat': 'off', 'reduceMotion': False, 'gapless': True, 'normalization': False, 'keepRecent': True}
         try:
             with self.path.open('rb') as stream:
                 raw = stream.read(4097)
@@ -29,22 +29,24 @@ class Preferences:
                 values['reduceMotion'] = data['reduceMotion']
             if type(data.get('gapless')) is bool: values['gapless'] = data['gapless']
             if type(data.get('keepRecent')) is bool: values['keepRecent'] = data['keepRecent']
-            if data.get('replayGain') in ('no', 'track', 'album'):
-                # The global switch now enables album gain; preserve legacy On.
-                values['replayGain'] = 'album' if data['replayGain'] == 'track' else data['replayGain']
+            if type(data.get('normalization')) is bool:
+                values['normalization'] = data['normalization']
+            elif 'normalization' not in data and data.get('replayGain') in ('track', 'album'):
+                # Preserve an older installation's global On preference.
+                values['normalization'] = True
             if data.get('repeat') in ('off', 'all', 'one'):
                 values['repeat'] = data['repeat']
         except (OSError, ValueError, RecursionError):
             pass
         return values
 
-    def save(self, volume, shuffle, repeat, reduce_motion=False, gapless=True, replay_gain='no', keep_recent=True):
+    def save(self, volume, shuffle, repeat, reduce_motion=False, gapless=True, normalization=False, keep_recent=True):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         name = None
         try:
             with tempfile.NamedTemporaryFile(mode='w', dir=self.path.parent, prefix='.playback-', delete=False) as stream:
                 name = stream.name
-                json.dump({'volume': volume, 'shuffle': shuffle, 'repeat': repeat, 'reduceMotion': reduce_motion, 'gapless': gapless, 'replayGain': replay_gain, 'keepRecent': keep_recent}, stream, allow_nan=False)
+                json.dump({'volume': volume, 'shuffle': shuffle, 'repeat': repeat, 'reduceMotion': reduce_motion, 'gapless': gapless, 'normalization': normalization, 'keepRecent': keep_recent}, stream, allow_nan=False)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(name, self.path)

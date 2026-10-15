@@ -24,6 +24,18 @@ class Response(io.BytesIO):
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_late_eof_does_not_bypass_directory_deadline(self):
+        clock = [0]
+        class LateEOF(Response):
+            def read1(self, size):
+                block = super().read1(size)
+                if not block: clock[0] = 11
+                return block
+        opener = Mock(); opener.open.return_value = LateEOF(b'[]')
+        with patch('radio_browser.time.monotonic', side_effect=lambda: clock[0]):
+            with self.assertRaises(RuntimeError):
+                RadioBrowser(opener=opener, mirrors=('https://radio.example',)).search({})
+
     def test_search_filters_and_untrusted_directory_entries(self):
         payload = [dict(name='Sample Radio', url_resolved='https://radio.example/live', tags='rock', country='Australia', language='English'),
                    dict(name='Duplicate', url='https://radio.example/live'),

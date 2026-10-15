@@ -22,6 +22,18 @@ Item {
         property string settingsSection: "playback"
         property var savedPlaylists: []
         property var recentItems: []
+        property var hostedPlaylists: []
+        property var hostedSongs: []
+        property string hostedItemsId: ""
+        property bool hostedBusy: false
+        property string hostedAction: ""
+        property string hostedError: ""
+        property string hostedNotice: ""
+        signal hostedCreated(string playlistId)
+        function refreshHosted(force) { send({cmd: "hosted_list", force: force}) }
+        function readHosted(key) { send({cmd: "hosted_items", id: key}) }
+        function loadHosted(key, play, index) { send({cmd: "hosted_load", id: key, play: play, index: index}) }
+        function createHosted(name) { send({cmd: "hosted_create", name: name}) }
         property string username: ""
         property string savedUsername: ""
         property string serverUrl: ""
@@ -48,7 +60,7 @@ Item {
         function time(n) { return String(n) }
         function send(command) { commands = commands.concat([command]) }
         function showLibrary() { tab = "library" }
-        function chooseDrop() { send({cmd: "choose_drop"}) }
+        function manageLocal() { send({cmd: "manage_local"}) }
     }
     Library { id: library; anchors.fill: parent; app: fakeApp }
     TestCase {
@@ -66,6 +78,11 @@ Item {
         function init() {
             fakeApp.tab = "library"
             fakeApp.selectedLibrary = "local"
+            fakeApp.connected = false
+            library.savedScope = "device"
+            library.hostedPlaylistId = ""; library.hostedSong = ""
+            fakeApp.hostedPlaylists = []; fakeApp.hostedSongs = []; fakeApp.hostedItemsId = ""
+            fakeApp.hostedBusy = false; fakeApp.hostedAction = ""; fakeApp.hostedError = ""; fakeApp.hostedNotice = ""
             fakeApp.lastRemoteLibrary = ""
             fakeApp.libraries = []
             fakeApp.busy = false
@@ -321,21 +338,33 @@ Item {
             verify(gapless.checked)
             mouseClick(gapless)
             compare(fakeApp.commands[1], {cmd: "gapless", value: false})
-            const normalization = findChild(library, "replayGainToggle")
+            const normalization = findChild(library, "normalizationToggle")
             verify(!normalization.checked)
             normalization.forceActiveFocus()
             keyClick(Qt.Key_Space)
-            compare(fakeApp.commands[2], {cmd: "replay_gain", value: "album"})
+            compare(fakeApp.commands[2], {cmd: "normalization", value: true})
             keyClick(Qt.Key_Tab)
             verify(reduce.activeFocus)
             keyClick(Qt.Key_Tab, Qt.ShiftModifier)
             verify(normalization.activeFocus)
-            fakeApp.state = Object.assign({}, fakeApp.state, {replayGain: "album"})
+            fakeApp.state = Object.assign({}, fakeApp.state, {normalization: true})
             wait(20)
             verify(normalization.checked)
             keyClick(Qt.Key_Space)
-            compare(fakeApp.commands[3], {cmd: "replay_gain", value: "no"})
+            compare(fakeApp.commands[3], {cmd: "normalization", value: false})
             grabImage(library).save("/tmp/omagawd-settings.png")
+        }
+        function test_local_music_manager_from_settings() {
+            fakeApp.tab = "settings"
+            mouseClick(findChild(library, "settings-sources"))
+            compare(fakeApp.settingsSection, "sources")
+            const manager = findChild(library, "localMusicManager")
+            verify(manager.visible)
+            manager.forceActiveFocus()
+            keyClick(Qt.Key_Space)
+            compare(fakeApp.commands[0], {cmd: "manage_local"})
+            verify(findChild(library, "dropMusic") === null)
+            grabImage(library).save("/tmp/omagawd-local-settings.png")
         }
         function test_named_playlist_and_recent_keyboard_actions() {
             fakeApp.state = {queue: [{key: "track", artist: "A", title: "One", duration: 1}]}
@@ -354,6 +383,36 @@ Item {
             compare(fakeApp.commands[3], {cmd: "collection_load", section: "recent", id: "album", play: true})
             grabImage(library).save("/tmp/omagawd-recent.png")
             fakeApp.tab = "saved"; wait(30); grabImage(library).save("/tmp/omagawd-saved.png")
+        }
+        function test_hosted_playlists_browse_create_and_keyboard_tracks() {
+            fakeApp.connected = true
+            fakeApp.state = {queue: [{id: "remote", title: "One", artist: "A", key: "one", duration: 1}]}
+            fakeApp.tab = "saved"; library.savedScope = "jellyfin"
+            fakeApp.hostedPlaylists = [{id: "first", name: "Driving", count: 2}, {id: "second", name: "Heavy", count: 3}]
+            wait(30); fakeApp.commands = []; library.hostedPlaylistId = ""
+            library.focusSaved()
+            compare(fakeApp.commands[0], {cmd: "hosted_items", id: "first"})
+            keyClick(Qt.Key_Down)
+            compare(fakeApp.commands[1], {cmd: "hosted_items", id: "second"})
+            compare(fakeApp.state.queue.length, 1)
+            fakeApp.hostedItemsId = "second"
+            fakeApp.hostedSongs = [{entry: "0", id: "s1", artist: "A", title: "One", duration: 10}, {entry: "1", id: "s1", artist: "A", title: "One again", duration: 10}]
+            wait(30); library.cycleHosted(false); keyClick(Qt.Key_Down); keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[2], {cmd: "hosted_load", id: "second", play: true, index: 1})
+            library.cycleHosted(true)
+            verify(findChild(library, "hostedPlaylistList").listFocused)
+            findChild(library, "loadHostedPlaylist").clicked()
+            compare(fakeApp.commands[3], {cmd: "hosted_load", id: "second", play: false, index: 0})
+            const field = findChild(library, "hostedPlaylistName")
+            field.text = "GAWD on Jellyfin"; field.forceActiveFocus(); keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[4], {cmd: "hosted_create", name: "GAWD on Jellyfin"})
+            fakeApp.state = {queue: [{source: "local", path: "/private/song.flac", key: "local", title: "Local", artist: "A", duration: 1}]}
+            verify(!findChild(library, "createHostedPlaylist").enabled)
+            fakeApp.state = {queue: [{source: "radio", key: "radio", title: "Station", artist: "A", duration: 0}]}
+            verify(!findChild(library, "createHostedPlaylist").enabled)
+            fakeApp.hostedCreated("new")
+            compare(library.hostedPlaylistId, "new"); compare(field.text, "")
+            grabImage(library).save("/tmp/omagawd-hosted-playlists-qml.png")
         }
         function test_refresh_validates_child_selection() {
             library.artist = "A"

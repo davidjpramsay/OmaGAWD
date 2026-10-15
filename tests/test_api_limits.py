@@ -48,6 +48,16 @@ class ApiLimitTests(unittest.TestCase):
         with patch('backend.time.monotonic', side_effect=[0,31]):
             with self.assertRaisesRegex(ValueError, 'too long'): read_api_body(Body(b'x'))
 
+    def test_deadline_is_checked_after_a_stalled_final_read(self):
+        clock = [0]
+        class LateEOF(Body):
+            def read1(self, size):
+                block = super().read1(size)
+                if not block: clock[0] = 31
+                return block
+        with patch('backend.time.monotonic', side_effect=lambda: clock[0]):
+            with self.assertRaisesRegex(ValueError, 'too long'): read_api_body(LateEOF(b'{}'))
+
     def test_real_chunked_and_unframed_oversize_and_invalid_json(self):
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args): pass
@@ -91,6 +101,22 @@ class ApiLimitTests(unittest.TestCase):
 
 
 class ProbeLimitTests(unittest.TestCase):
+    def test_probe_has_an_enforced_address_space_budget(self):
+        import sys
+        from local_library import probe_output
+        script = '''import resource
+budget, hard = resource.getrlimit(resource.RLIMIT_AS)
+if budget == resource.RLIM_INFINITY:
+    print("unbounded")
+else:
+    try:
+        oversized = bytearray(budget * 2)
+        print("allocation allowed")
+    except MemoryError:
+        print("bounded")
+'''
+        self.assertEqual(probe_output([sys.executable, '-c', script]).strip(), b'bounded')
+
     def test_probe_output_is_bounded_and_process_reaped(self):
         import subprocess
         import sys

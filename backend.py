@@ -28,9 +28,16 @@ from radio_browser import RadioBrowser, PAGE_SIZE, MAX_RESULTS
 from clipboard_io import read_clipboard
 from bounded_process import run_bounded
 import metadata
-from media_policy import AUDIO_FILTER, FORMAT_WHITELIST, local_file, demux_options
+import jellyfin_playlists as hosted
+from media_policy import FORMAT_WHITELIST, local_file, demux_options
 from playback_store import MAX_QUEUE_TRACKS, MAX_SESSION_BYTES
 from collection_store import CollectionStore
+from local_music_window import LocalMusicWindow
+
+# Live EBU R128 measurement: modest music target, true-peak headroom, wide
+# loudness range. Explicit resampling avoids loudnorm's 192 kHz output reaching
+# the audio device. This is optional playback processing, never a file rewrite.
+NORMALIZATION_FILTER = '@normalize:lavfi=[loudnorm=I=-18:TP=-1.5:LRA=50:linear=false:dual_mono=true,aresample=48000]'
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -65,6 +72,8 @@ def read_api_body(response):
             raise ValueError('Jellyfin API response took too long.')
         # One extra byte distinguishes a full valid response from an oversized one.
         chunk = response.read1(min(65536, MAX_API_BYTES + 1 - len(data)))
+        if time.monotonic() > deadline:
+            raise ValueError('Jellyfin API response took too long.')
         if not chunk:
             return data
         data.extend(chunk)
@@ -158,15 +167,7 @@ class Jellyfin:
                 if i['Id'] in seen:
                     raise ValueError('Jellyfin repeated tracks while paging. Refresh the library and try again.')
                 seen.add(i['Id'])
-                artists = i.get('Artists')
-                artists = ', '.join(metadata.text(a) for a in artists[:32]) if isinstance(artists, list) else ''
-                ticks = i.get('RunTimeTicks', 0)
-                duration = ticks / 10000000 if type(ticks) in (int, float) and 0 <= ticks <= MAX_NUMBER_TICKS else 0
-                result.append({'id': i['Id'], 'title': metadata.text(i.get('Name'), 'Untitled'),
-                               'artist': metadata.text(i.get('AlbumArtist'), metadata.text(artists, 'Unknown artist')),
-                               'album': metadata.text(i.get('Album'), 'Unknown album'), 'albumId': metadata.text(i.get('AlbumId'), metadata.text(i.get('Album'))),
-                               'duration': metadata.number(duration),
-                               'track': int(metadata.number(i.get('IndexNumber', 0))), 'disc': int(metadata.number(i.get('ParentIndexNumber', 0)))})
+                result.append(hosted.music_row(i))
             total = data.get('TotalRecordCount', len(result))
             if type(total) is not int or not 0 <= total <= MAX_LIBRARY_TRACKS:
                 raise ValueError('Jellyfin returned an invalid library size.')
@@ -200,7 +201,7 @@ class Mpv:
                                       '--audio-display=no', '--tls-verify=yes', '--ytdl=no', '--load-unsafe-playlists=no',
                                       '--demuxer=lavf', '--access-references=no', '--autoload-files=no', '--load-scripts=no',
                                       '--demuxer-lavf-o=format_whitelist=[' + FORMAT_WHITELIST + ']',
-                                      '--gapless-audio=weak', '--prefetch-playlist=yes', '--replaygain-clip=no',
+                                      '--gapless-audio=weak', '--prefetch-playlist=yes', '--replaygain=no',
                                       '--input-ipc-server=' + path],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.sock = socket.socket(socket.AF_UNIX)
@@ -342,13 +343,20 @@ class Player:
         self.collections = collections or CollectionStore(memory=True)
         self.collection_work = ThreadPoolExecutor(max_workers=1)
         self.collection_future = None
+        self.hosted_work = ThreadPoolExecutor(max_workers=1)
+        self.hosted_pending = None
+        self.hosted_active = self.hosted_mutating = False
+        self.hosted_generation = 0
+        self.hosted_playlists = []
+        self.playback_revision = 0
         self.pending_recent, self.recent_running = None, False
         self.last_recent_group = None
         self.prepared_next, self.awaiting_next = None, None
-        self.gapless, self.replay_gain, self.radio_status = True, 'no', 'stopped'
+        self.gapless, self.normalization, self.radio_status = True, False, 'stopped'
         self.file_loaded, self.cache_paused = False, False
         self.keep_recent = True
         self.local = local
+        self.local_window = None
         self.preferences = preferences
         self.reduce_motion = False
         self.visible = False
@@ -372,7 +380,7 @@ class Player:
             saved = preferences.load()
             self.volume, self.shuffle, self.repeat = saved['volume'], saved['shuffle'], saved['repeat']
             self.reduce_motion = saved['reduceMotion']
-            self.gapless, self.replay_gain = saved.get('gapless', True), saved.get('replayGain', 'no')
+            self.gapless, self.normalization = saved.get('gapless', True), saved.get('normalization', False)
             self.keep_recent = saved.get('keepRecent', True)
         if playback_store:
             saved = playback_store.load()
@@ -411,7 +419,7 @@ class Player:
         self.emit({'type': 'state', 'queue': self.queue, 'index': self.index, 'position': self.position,
                    'duration': self.duration, 'paused': self.paused, 'idle': self.idle,
                    'shuffle': self.shuffle, 'repeat': self.repeat, 'volume': self.volume, 'bitrate': self.bitrate, 'reduceMotion': self.reduce_motion, 'radioTitle': self.radio_title,
-                   'gapless': self.gapless, 'replayGain': self.replay_gain, 'keepRecent': self.keep_recent, 'radioStatus': self.radio_status})
+                   'gapless': self.gapless, 'normalization': self.normalization, 'keepRecent': self.keep_recent, 'radioStatus': self.radio_status})
 
     def discard_engine(self):
         self.prepared_next, self.awaiting_next = None, None
@@ -432,7 +440,7 @@ class Player:
             self.mpv = self.mpv_factory(receive)
             self.mpv.send('set_property', 'volume', self.volume)
             self.mpv.send('set_property', 'options/gapless-audio', 'weak' if self.gapless else 'no')
-            self.mpv.send('set_property', 'options/replaygain', self.replay_gain)
+            if self.normalization: self.mpv.send('af', 'add', NORMALIZATION_FILTER)
         return self.mpv
 
     def is_radio(self):
@@ -472,6 +480,109 @@ class Player:
 
     def emit_collections(self):
         self.emit(dict(type='collections', **self.collections.summary()))
+
+    def submit_hosted(self, command):
+        client = self.client
+        request = command.get('request', 0)
+        if type(request) is not int or not 0 <= request <= 2**53: raise ValueError('Invalid playlist request.')
+        if not client or not client.user or not client.token:
+            self.emit({'type': 'hosted_error', 'request': request, 'message': 'Connect to Jellyfin to use server playlists.'})
+            return
+        mutating = command['cmd'] in ('hosted_create', 'hosted_load')
+        if self.hosted_active and (mutating or self.hosted_mutating):
+            self.emit({'type': 'hosted_error', 'request': request, 'message': 'A playlist request is still running. Try again in a moment.'})
+            return
+        rows = [dict(row) for row in self.queue] if command['cmd'] == 'hosted_create' else None
+        if rows is not None and self.queue_identity != identity(client):
+            self.emit({'type': 'hosted_error', 'request': request, 'message': 'The queue must belong to the connected Jellyfin account.'})
+            return
+        # Independent clients avoid racing response-byte budgets with library work.
+        captured = Jellyfin(client.url)
+        captured.token, captured.user, captured.device = client.token, client.user, client.device
+        self.hosted_generation += 1
+        self.hosted_pending = (dict(command), captured, client, self.hosted_generation, self.playback_revision, rows)
+        self.hosted_mutating = mutating
+        self.emit({'type': 'hosted_busy', 'request': request, 'value': True, 'action': 'write' if mutating else 'read'})
+        if not self.hosted_active:
+            self.hosted_active = True
+            self.hosted_work.submit(self.drain_hosted)
+
+    def drain_hosted(self):
+        while True:
+            with self.lock:
+                if self.hosted_pending is None or self.closing.is_set():
+                    self.hosted_active = self.hosted_mutating = False
+                    return
+                command, client, owner, generation, revision, rows = self.hosted_pending
+                self.hosted_pending = None
+            request, created = command.get('request', 0), False
+            def current():
+                with self.lock:
+                    return not self.closing.is_set() and generation == self.hosted_generation and self.client is owner
+            try:
+                if not current(): raise hosted.Cancelled()
+                cmd = command['cmd']
+                if cmd == 'hosted_list':
+                    result = hosted.catalog(client, lambda: not current())
+                    with self.lock:
+                        if current():
+                            self.hosted_playlists = result
+                            self.emit({'type': 'hosted_playlists', 'request': request, 'playlists': result})
+                else:
+                    key = command.get('id')
+                    if cmd == 'hosted_create':
+                        entry = hosted.create(client, command.get('name'), rows, lambda: not current())
+                        created, key = True, entry['id']
+                        with self.lock:
+                            if not current(): raise hosted.Cancelled()
+                            self.hosted_playlists = ([entry] + [r for r in self.hosted_playlists if r['id'] != key])[:hosted.MAX_PLAYLISTS]
+                            self.emit({'type': 'hosted_playlists', 'request': request, 'playlists': self.hosted_playlists})
+                            self.emit({'type': 'hosted_created', 'request': request, 'id': key, 'name': entry['name']})
+                    result = hosted.tracks(client, key, lambda: not current())
+                    with self.lock:
+                        if not current(): raise hosted.Cancelled()
+                        if cmd == 'hosted_load':
+                            if revision != self.playback_revision:
+                                raise ValueError('Playlist load cancelled because playback changed.')
+                            if not result: raise ValueError('This Jellyfin playlist is empty. Your queue is unchanged.')
+                            index = command.get('index', 0)
+                            if type(index) is not int or not 0 <= index < len(result): raise ValueError('Choose a playlist song.')
+                            queue = [dict(row, key=uuid.uuid4().hex) for row in result]
+                            if not self.queue_fits(queue): raise ValueError('This playlist exceeds the queue safety limit.')
+                            self.discard_engine()
+                            self.queue, self.queue_identity = queue, identity(owner)
+                            self.index, self.position = index, 0
+                            self.duration, self.idle, self.paused, self.session_pending = queue[index]['duration'], True, True, False
+                            self.radio_status = 'stopped'
+                            self.playback_revision += 1
+                            if command.get('play') is True: self.play(index)
+                            self.checkpoint(); self.state()
+                        self.emit({'type': 'hosted_items', 'request': request, 'id': key, 'songs': result})
+                        if created:
+                            self.hosted_playlists = [dict(r, count=len(result)) if r['id'] == key else r for r in self.hosted_playlists]
+                            self.emit({'type': 'hosted_playlists', 'request': request, 'playlists': self.hosted_playlists})
+            except hosted.Cancelled: pass
+            except Exception as exc:
+                if isinstance(exc, urllib.error.HTTPError):
+                    status = exc.code; exc.close()
+                    message = 'Jellyfin denied playlist access. Check this account’s permissions.' if status in (401, 403) else 'This Jellyfin playlist is no longer available.' if status == 404 else 'Jellyfin could not complete the playlist request.'
+                    if command['cmd'] == 'hosted_create' and status not in (401, 403, 400, 422):
+                        message += ' Check Jellyfin before retrying; the playlist may already exist.'
+                elif isinstance(exc, hosted.CreationUncertain): message = str(exc)
+                elif isinstance(exc, ValueError): message = str(exc) if not isinstance(exc, json.JSONDecodeError) else 'Jellyfin returned invalid playlist data.'
+                else: message = 'Could not reach Jellyfin. If you were creating a playlist, check Jellyfin before retrying; it may already exist.'
+                if created: message = 'Playlist created, but its tracks could not be loaded. Open it again to retry.'
+                with self.lock:
+                    if current(): self.emit({'type': 'hosted_error', 'request': request, 'message': message})
+            finally:
+                with self.lock:
+                    if current(): self.emit({'type': 'hosted_busy', 'request': request, 'value': False, 'action': ''})
+
+    def clear_hosted(self):
+        self.hosted_generation += 1
+        self.hosted_pending = None
+        self.hosted_playlists = []
+        self.emit({'type': 'hosted_reset'})
 
     def remember_current(self):
         if self.closing.is_set() or not self.keep_recent or not 0 <= self.index < len(self.queue): return
@@ -817,6 +928,8 @@ class Player:
 
     def local_command(self, command, generation):
         picker = command['cmd'] in ('choose_files', 'choose_folder', 'choose_drop')
+        window = command.pop('_window', None)
+        message = ''
         try:
             with self.lock:
                 if generation != self.generation: return
@@ -837,14 +950,12 @@ class Player:
                     if result.returncode: raise RuntimeError('Could not open the native drop window. Check GTK 4 is installed.')
                     paths = json.loads(result.stdout)
                 else:
-                    args = ['zenity', '--file-selection', '--title=OmaGAWD · Add music']
-                    if command['cmd'] == 'choose_folder': args += ['--directory']
-                    else: args += ['--multiple', '--separator=\n', '--file-filter=' + AUDIO_FILTER]
-                    # Let the desktop portal provide the native file/folder picker.
-                    result = run_bounded(args, limit=1024*1024, timeout=3600, cancel=self.closing)
+                    args = ['/usr/bin/python3', os.path.join(os.path.dirname(__file__), 'file_picker.py')]
+                    if command['cmd'] == 'choose_folder': args += ['--folder']
+                    result = run_bounded(args, limit=65536, timeout=3610, cancel=self.closing, memory_limit=1024*1024*1024)
                     if result.returncode == 1: return
-                    if result.returncode: raise RuntimeError('Could not open the file picker. Check that zenity is installed.')
-                    paths = result.stdout.decode('utf-8').rstrip('\n').split('\n')
+                    if result.returncode: raise RuntimeError('Could not open the desktop file picker. Check your file-picker portal.')
+                    paths = json.loads(result.stdout)
             with self.lock:
                 if generation != self.generation: return
                 if paths:
@@ -852,14 +963,41 @@ class Player:
                     self.emit({'type': 'local_sources', 'available': bool(self.local.roots), 'paths': self.local.roots})
             self.load_local(generation)
         except Exception as exc:
+            message = str(exc) if isinstance(exc, (RuntimeError, ValueError)) else 'Could not read or save local music sources.'
             with self.lock:
                 if generation == self.generation:
-                    self.emit({'type': 'error', 'message': str(exc) if isinstance(exc, (RuntimeError, ValueError)) else 'Could not read or save local music sources.'})
+                    self.emit({'type': 'error', 'message': message})
         finally:
             with self.lock:
                 if generation == self.generation:
                     self.emit({'type': 'busy', 'value': False})
                 if picker and generation == self.generation: self.emit({'type': 'picker_closed'})
+                if window and window is self.local_window:
+                    window.update(self.local.roots, message or ('Source view changed; try again.' if generation != self.generation else ''))
+
+    def manage_local(self, theme):
+        if not self.local: raise RuntimeError('Local music is unavailable.')
+        if self.local_window:
+            self.local_window.present(); return
+        if not isinstance(theme, dict) or len(json.dumps(theme)) > 8192: raise ValueError('Invalid Local Music theme.')
+        def action(command):
+            with self.lock:
+                if self.closing.is_set() or self.local_window is not window: return
+                command['_window'] = window
+                self.handle(command)
+        def closed():
+            with self.lock:
+                if self.local_window is not window: return
+                self.local_window = None
+                if not self.closing.is_set():
+                    if window.proc and window.proc.returncode not in (0, -signal.SIGTERM):
+                        self.emit({'type': 'error', 'message': 'The Local Music window could not stay open. Check GTK 4 and Python.'})
+                    self.emit({'type': 'local_manager_closed'})
+        window = self.local_window = LocalMusicWindow(action, closed)
+        try: window.start(self.local.roots, theme)
+        except Exception:
+            self.local_window = None; window.close()
+            raise RuntimeError('Could not open the Local Music window. Check GTK 4 is installed.')
 
     def search_radio(self, command, generation):
         try:
@@ -909,6 +1047,17 @@ class Player:
     def handle(self, c):
         with self.lock:
             cmd = c.get('cmd')
+            if cmd == 'manage_local':
+                try: self.manage_local(c.get('theme', {}))
+                except Exception:
+                    self.emit({'type': 'local_manager_closed'})
+                    raise
+                return
+            if cmd in ('hosted_list', 'hosted_items', 'hosted_create', 'hosted_load'):
+                self.submit_hosted(c)
+                return
+            if cmd in ('add', 'replace_play', 'remove', 'move', 'clear', 'play', 'pause', 'stop', 'next', 'previous', 'seek', 'collection_load', 'prepare_update'):
+                self.playback_revision += 1
             if cmd in ('playlist_save', 'playlist_rename', 'playlist_delete', 'recent_clear'):
                 if self.collection_future and not self.collection_future.done():
                     self.emit({'type': 'error', 'message': 'A playlist change is still being saved. Try again in a moment.'})
@@ -1090,10 +1239,16 @@ class Player:
             elif cmd == 'keep_recent':
                 self.keep_recent = c.get('value') is True; self.last_recent_group = None
                 if not self.keep_recent: self.pending_recent = None
-            elif cmd == 'replay_gain':
-                if c.get('value') not in ('no', 'track', 'album'): raise ValueError('Choose Off, Track or Album normalization.')
-                self.replay_gain = c['value']
-                if self.mpv: self.mpv.send('set_property', 'options/replaygain', self.replay_gain)
+            elif cmd in ('normalization', 'replay_gain'):
+                value = c.get('value')
+                if cmd == 'replay_gain':
+                    # Compatibility with a bridge retained across a shell reload.
+                    if value not in ('no', 'track', 'album'): raise ValueError('Choose normalization On or Off.')
+                    value = value != 'no'
+                if type(value) is not bool: raise ValueError('Choose normalization On or Off.')
+                if self.mpv and value != self.normalization:
+                    self.mpv.send('af', 'add' if value else 'remove', NORMALIZATION_FILTER if value else '@normalize')
+                self.normalization = value
             elif cmd == 'radio_retry' and self.is_radio():
                 self.play(self.index)
             elif cmd == 'volume':
@@ -1107,9 +1262,9 @@ class Player:
                 self.shuffle = not self.shuffle
             elif cmd == 'repeat':
                 self.repeat = {'off': 'all', 'all': 'one', 'one': 'off'}[self.repeat]
-            if cmd in ('volume', 'shuffle', 'repeat', 'reduce_motion', 'gapless', 'replay_gain', 'keep_recent') and self.preferences:
+            if cmd in ('volume', 'shuffle', 'repeat', 'reduce_motion', 'gapless', 'normalization', 'replay_gain', 'keep_recent') and self.preferences:
                 try:
-                    self.preferences.save(self.volume, self.shuffle, self.repeat, self.reduce_motion, self.gapless, self.replay_gain, self.keep_recent)
+                    self.preferences.save(self.volume, self.shuffle, self.repeat, self.reduce_motion, self.gapless, self.normalization, self.keep_recent)
                 except OSError:
                     self.emit({'type': 'error', 'message': 'Playback settings changed but could not be saved.'})
             if cmd in ('add', 'replace_play', 'remove', 'move', 'clear', 'play', 'pause', 'stop', 'next', 'previous', 'seek', 'logout'):
@@ -1139,6 +1294,7 @@ class Player:
     def reset(self):
         # Account changes must retire both the active and prefetched relay routes.
         self.discard_engine()
+        self.clear_hosted()
         self.client, self.songs, self.queue = None, [], []
         self.queue_identity, self.session_folder, self.session_pending = None, None, False
         self.username, self.folder = "", ""
@@ -1151,6 +1307,8 @@ class Player:
     def close(self):
         with self.lock: self.generation += 1
         self.closing.set()
+        if self.local_window: self.local_window.close()
+        self.hosted_work.shutdown(wait=True, cancel_futures=True)
         self.clipboard_work.shutdown(wait=True, cancel_futures=True)
         self.radio_generation += 1
         self.radio_work.shutdown(wait=True, cancel_futures=True)
@@ -1178,8 +1336,10 @@ def main():
             if kind == 'disconnected':
                 for stale in ('connected', 'profile', 'remembered', 'library', 'remote_libraries', 'restore_retry'):
                     snapshot.pop(stale, None)
+            if kind == 'hosted_reset':
+                for stale in ('hosted_playlists', 'hosted_items', 'hosted_busy'): snapshot.pop(stale, None)
             if kind == 'connected': snapshot.pop('disconnected', None)
-            if kind in ('state', 'collections', 'local_sources', 'profile', 'remembered', 'connected', 'disconnected', 'library', 'remote_libraries', 'restore_retry', 'busy', 'radio_results', 'radio_busy'):
+            if kind in ('state', 'collections', 'hosted_reset', 'hosted_playlists', 'hosted_items', 'hosted_busy', 'local_sources', 'profile', 'remembered', 'connected', 'disconnected', 'library', 'remote_libraries', 'restore_retry', 'busy', 'radio_results', 'radio_busy'):
                 snapshot.pop(kind, None)
                 snapshot[kind] = data
             print(json.dumps(data, separators=(',', ':')), flush=True)

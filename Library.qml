@@ -13,10 +13,25 @@ Rectangle {
         contentItem: AmpText { text: action.text; verticalAlignment: Text.AlignVCenter; opacity: action.enabled ? 1 : 0.4 }
         background: Rectangle { color: action.highlighted ? Style.hoverFill : "transparent"; radius: Style.cornerRadius }
     }
-    readonly property bool editingText: server.activeFocus || username.activeFocus || password.activeFocus || search.activeFocus || playlistName.activeFocus || radioGenre.activeFocus || radioCountry.activeFocus || radioLanguage.activeFocus
+    readonly property bool editingText: server.activeFocus || username.activeFocus || password.activeFocus || search.activeFocus || playlistName.activeFocus || hostedName.activeFocus || radioGenre.activeFocus || radioCountry.activeFocus || radioLanguage.activeFocus
     property string helpReturnTab: "library"
     property string savedPlaylistId: ""
     property string recentId: ""
+    property string savedScope: app.connected && app.selectedLibrary !== "local" && app.selectedLibrary !== "radio" ? "jellyfin" : "device"
+    readonly property bool hostedMode: app.tab === "saved" && savedScope === "jellyfin"
+    property string hostedPlaylistId: ""
+    property string hostedSong: ""
+    property bool hostedFocusPending: false
+    readonly property bool hostedQueue: app.connected && app.state.queue.length > 0 && app.state.queue.every(r => (!r.source || r.source === "jellyfin") && !r.path && !r.radioUrl)
+    function openHosted() { if (hostedMode && app.refreshHosted) app.refreshHosted(false) }
+    onHostedModeChanged: if (hostedMode) Qt.callLater(function() { root.openHosted(); root.focusSaved() })
+    function chooseHosted(key) { if (hostedPlaylistId !== key) { hostedPlaylistId = key; hostedSong = ""; app.readHosted(key) } }
+    function cycleHosted(backward) {
+        if (hostedList.listFocused) hostedTracks.focusList()
+        else if (hostedTracks.listFocused || !backward) hostedList.focusList()
+        else hostedTracks.focusList()
+    }
+    function refreshHostedSelection() { if (hostedMode && hostedPlaylistId && !app.hostedBusy && app.hostedItemsId === hostedPlaylistId) app.readHosted(hostedPlaylistId) }
     readonly property bool radioMode: app.selectedLibrary === "radio"
     property string radioTab: "saved"
     function radioCountryLabel(value) {
@@ -51,7 +66,12 @@ Rectangle {
     readonly property var songRows: albumSongs.map(s => ({key: s.id, label: (s.track ? String(s.track).padStart(2, "0") + "  " : "") + s.title, detail: app.time(s.duration)}))
     readonly property var queueRows: app.state.queue.map((s, i) => ({key: s.key, label: String(i + 1).padStart(2, "0") + "  " + s.artist + " — " + s.title, detail: s.source === "radio" ? "LIVE" : app.time(s.duration)}))
     function focusPlaylist() { queueList.focusList() }
-    function focusSaved() { savedList.focusList() }
+    function focusSaved() {
+        if (hostedMode) {
+            hostedFocusPending = !(app.hostedPlaylists || []).length
+            if (!hostedFocusPending) hostedList.focusList()
+        } else savedList.focusList()
+    }
     function focusRecent() { recentList.focusList() }
     function cycleLists(backward) {
         if (radioMode) {
@@ -115,6 +135,16 @@ Rectangle {
             if (root.radioMode && root.radioTab === "discover" && !root.radioRows.some(row => row.id === root.station)) root.station = ""
         }
         function onSavedPlaylistsChanged() { if (!(app.savedPlaylists || []).some(r => r.id === root.savedPlaylistId)) root.savedPlaylistId = "" }
+        function onConnectedChanged() { if (app.connected) Qt.callLater(root.openHosted) }
+        function onReadyChanged() { if (app.ready) Qt.callLater(root.openHosted) }
+        function onHostedPlaylistsChanged() {
+            if (!(app.hostedPlaylists || []).some(r => r.id === root.hostedPlaylistId)) { root.hostedPlaylistId = ""; root.hostedSong = "" }
+            if (root.hostedMode && root.hostedFocusPending && (app.hostedPlaylists || []).length) {
+                root.hostedFocusPending = false
+                Qt.callLater(function() { if (root.hostedMode) hostedList.focusList() })
+            }
+        }
+        function onHostedCreated(key) { root.hostedPlaylistId = key; root.hostedSong = ""; hostedName.clear() }
         function onRecentItemsChanged() { if (!(app.recentItems || []).some(r => r.id === root.recentId)) root.recentId = "" }
         function onSongsChanged() { Qt.callLater(function() {
             if (!root.filtered.some(s => s.artist === root.artist)) root.artist = ""
@@ -141,7 +171,7 @@ Rectangle {
             AmpButton {
                 id: accountButton
                 text: radioMode ? "Radio ▾" : app.selectedLibrary === "local" ? (app.hasLocalSources ? "Local Music ▾" : "Sources ▾") : app.connected ? "Jellyfin ▾" : "Sources ▾"
-                hint: "Choose music source or add local files"
+                hint: "Choose music source"
                 lit: app.tab === "sources" || app.tab === "connect"
                 implicitWidth: accountLabel.implicitWidth + Style.space(14)
                 contentItem: Row {
@@ -181,8 +211,6 @@ Rectangle {
                         text: "Radio"
                         onTriggered: { root.radioTab = "saved"; root.focusSearch(); root.radioFocusPending = true; app.showLibrary(); app.send({cmd: "library", folder: "radio"}); root.focusRadioWhenReady() }
                     }
-                    SourceAction { text: "Manage sources…"; onTriggered: app.tab = "sources" }
-                    SourceAction { text: "Drop music…"; enabled: !app.busy; onTriggered: app.chooseDrop() }
                 }
             }
         }
@@ -209,17 +237,70 @@ Rectangle {
                 AmpText { text: "PLAYBACK"; font.bold: true }
                 AmpToggle { objectName: "gaplessToggle"; text: "Gapless albums"; checked: app.state.gapless !== false; onToggled: app.send({cmd: "gapless", value: checked}) }
                 AmpText { Layout.fillWidth: true; text: "Keep music flowing between tracks with matching audio formats. Network buffering can still cause a pause."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
-                AmpToggle { objectName: "replayGainToggle"; text: "Volume normalization"; checked: !!app.state.replayGain && app.state.replayGain !== "no"; onToggled: app.send({cmd: "replay_gain", value: checked ? "album" : "no"}) }
-                AmpText { Layout.fillWidth: true; text: "Use album ReplayGain tags to balance volume while preserving quieter and louder songs. Untagged music keeps its original volume."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
+                AmpToggle { objectName: "normalizationToggle"; text: "Volume normalization"; checked: !!app.state.normalization; onToggled: app.send({cmd: "normalization", value: checked}) }
+                AmpText { Layout.fillWidth: true; text: "Balance loudness automatically across music and radio. May soften volume contrasts and add buffering."; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65 }
                 AmpToggle { objectName: "reduceMotionToggle"; text: "Reduce motion"; checked: !!app.state.reduceMotion; onToggled: app.send({cmd: "reduce_motion", value: checked}) }
                 AmpText { Layout.fillWidth: true; text: "Give the llama a rest while the music keeps playing."; wrapMode: Text.WordWrap; opacity: 0.65 }
                 AmpToggle { objectName: "rememberRecentToggle"; text: "Remember recently played"; checked: app.state.keepRecent !== false; onToggled: app.send({cmd: "keep_recent", value: checked}) }
                 AmpButton { objectName: "clearRecent"; text: "Clear recently played"; enabled: !!(app.recentItems || []).length; onClicked: app.send({cmd: "recent_clear"}) }
-                AmpButton { text: "Back to library"; onClicked: app.showLibrary() }
             }
         }
         ColumnLayout {
             visible: app.tab === "saved"
+            Layout.fillWidth: true
+            RowLayout {
+                AmpButton { objectName: "hostedScope"; text: "JELLYFIN"; lit: root.savedScope === "jellyfin"; onClicked: root.savedScope = "jellyfin" }
+                AmpButton { objectName: "deviceScope"; text: "ON DEVICE"; lit: root.savedScope === "device"; onClicked: root.savedScope = "device" }
+                Item { Layout.fillWidth: true }
+            }
+        }
+        ColumnLayout {
+            visible: root.hostedMode
+            Layout.fillWidth: true; Layout.fillHeight: true; spacing: Style.space(8)
+            RowLayout {
+                Layout.fillWidth: true
+                AmpTextField { id: hostedName; app: root.app; objectName: "hostedPlaylistName"; maximumLength: 80; Layout.fillWidth: true; placeholderText: "Playlist name"; Accessible.name: "New Jellyfin playlist name"; enabled: app.connected && !app.hostedBusy; onAccepted: if (createHosted.enabled) createHosted.clicked() }
+                AmpButton { id: createHosted; objectName: "createHostedPlaylist"; text: "CREATE"; hint: "Create a private Jellyfin playlist from the queue"; enabled: root.hostedQueue && !!hostedName.text.trim() && !app.hostedBusy; onClicked: app.createHosted(hostedName.text) }
+            }
+            AmpText {
+                Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.65
+                text: !app.connected ? "Connect to Jellyfin to browse and create playlists." : root.hostedQueue ? "Create from your queue · private on Jellyfin." : "Queue Jellyfin songs to create a playlist. Local music and radio stay on this device."
+            }
+            TextList {
+                id: hostedList; objectName: "hostedPlaylistList"
+                Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: Style.space(90)
+                enabled: app.connected && (!app.hostedBusy || app.hostedAction === "read")
+                heading: "JELLYFIN PLAYLISTS"
+                rows: (app.hostedPlaylists || []).map(r => ({key: r.id, label: r.name, detail: r.count === null ? "" : String(r.count)}))
+                selected: [root.hostedPlaylistId]
+                emptyText: !app.connected ? "Connect to Jellyfin first." : app.hostedBusy ? "Loading playlists…" : "No music playlists yet. Create one from your queue."
+                onChosen: function(key) { root.chooseHosted(key) }
+                onNavigated: function(key) { root.chooseHosted(key) }
+                onActivated: function(key) { if (!app.hostedBusy) app.loadHosted(key, true, 0) }
+            }
+            TextList {
+                id: hostedTracks; objectName: "hostedPlaylistTracks"
+                Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: Style.space(130)
+                enabled: !app.hostedBusy
+                heading: "SONGS"
+                rows: app.hostedItemsId === root.hostedPlaylistId ? (app.hostedSongs || []).map(r => ({key: r.entry, label: r.artist + " — " + r.title, detail: app.time(r.duration)})) : []
+                selected: [root.hostedSong]
+                emptyText: app.hostedBusy ? "Loading…" : root.hostedPlaylistId ? "This playlist is empty." : "Choose a Jellyfin playlist above."
+                onChosen: function(key) { root.hostedSong = key }
+                onNavigated: function(key) { root.hostedSong = key }
+                onActivated: function(key) { app.loadHosted(root.hostedPlaylistId, true, Number(key)) }
+            }
+            AmpText { Layout.fillWidth: true; visible: !!app.hostedNotice; text: app.hostedNotice || ""; color: Color.accent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
+            AmpText { Layout.fillWidth: true; visible: !!app.hostedError; text: app.hostedError || ""; color: Color.urgent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
+            RowLayout {
+                AmpButton { objectName: "loadHostedPlaylist"; text: "LOAD"; hint: "Load into the queue, paused"; enabled: !!root.hostedPlaylistId && !app.hostedBusy; onClicked: app.loadHosted(root.hostedPlaylistId, false, 0) }
+                AmpButton { objectName: "playHostedPlaylist"; text: "PLAY"; enabled: !!root.hostedPlaylistId && !app.hostedBusy; onClicked: app.loadHosted(root.hostedPlaylistId, true, 0) }
+                Item { Layout.fillWidth: true }
+                AmpButton { objectName: "retryHostedPlaylists"; text: "RETRY"; visible: !!app.hostedError; enabled: !app.hostedBusy; onClicked: app.refreshHosted(true) }
+            }
+        }
+        ColumnLayout {
+            visible: app.tab === "saved" && root.savedScope === "device"
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: Style.space(10)
             RowLayout {
                 Layout.fillWidth: true
@@ -343,35 +424,12 @@ Rectangle {
             spacing: Style.space(10)
             RowLayout {
                 Layout.fillWidth: true
-                AmpText { text: "LOCAL SOURCES"; font.pixelSize: Style.font.caption; Layout.fillWidth: true }
-                AmpButton { text: "+ Files"; enabled: !app.busy; onClicked: app.chooseLocal(false) }
-                AmpButton { text: "+ Folder"; enabled: !app.busy; onClicked: app.chooseLocal(true) }
-                AmpButton { objectName: "dropMusic"; text: "DROP…"; enabled: !app.busy; onClicked: app.chooseDrop() }
+                AmpText { text: "LOCAL MUSIC"; font.pixelSize: Style.font.caption; Layout.fillWidth: true }
+                AmpButton { objectName: "localMusicManager"; text: "Local Music…"; hint: "Manage local files and folders"; enabled: !app.busy; onClicked: app.manageLocal() }
             }
-            AmpText { text: "Removing a source keeps your files and queued tracks."; Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6 }
-            ListView {
-                Layout.fillWidth: true; Layout.fillHeight: true
-                clip: true
-                model: app.localSources || []
-                spacing: Style.space(6)
-                Controls.ScrollBar.vertical: Controls.ScrollBar { }
-                delegate: Rectangle {
-                    required property string modelData
-                    width: ListView.view.width; height: Style.space(62)
-                    color: Style.normalFill
-                    border.color: Style.normalBorderFor(Color.foreground, Color.accent)
-                    RowLayout {
-                        anchors.fill: parent; anchors.margins: Style.space(8)
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            AmpText { text: modelData.split("/").filter(part => part).pop() || modelData; Layout.fillWidth: true }
-                            AmpText { text: modelData; Layout.fillWidth: true; font.pixelSize: Style.font.caption; opacity: 0.6; elide: Text.ElideMiddle }
-                        }
-                        AmpButton { text: "Remove"; hint: "Stop including this source; files stay on disk"; enabled: !app.busy; onClicked: app.send({cmd: "local_remove", paths: [modelData]}) }
-                    }
-                }
-                AmpText { anchors.centerIn: parent; width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; text: "No local sources yet.\nAdd files or a music folder above."; visible: parent.count === 0; opacity: 0.6 }
-            }
+            AmpText { text: "Add files or folders, or drag them into the Local Music window."; Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.65 }
+            AmpText { text: (app.localSources || []).length ? (app.localSources || []).length + " saved source" + ((app.localSources || []).length === 1 ? "" : "s") : "No local music added yet."; Layout.fillWidth: true; opacity: 0.6 }
+            Item { Layout.fillHeight: true }
             Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
             RowLayout {
                 Layout.fillWidth: true
@@ -509,10 +567,7 @@ Rectangle {
             RowLayout {
                 visible: app.selectedLibrary === "local"
                 Layout.fillWidth: true
-                AmpButton { text: "+ FILES"; hint: "Choose local audio files"; enabled: !app.busy; onClicked: app.chooseLocal(false) }
-                AmpButton { text: "+ FOLDER"; hint: "Include a music folder and its subfolders"; enabled: !app.busy; onClicked: app.chooseLocal(true) }
-                AmpButton { text: "DROP…"; hint: "Drop local files or folders in a native window"; enabled: !app.busy; onClicked: app.chooseDrop() }
-                AmpButton { text: "Sources…"; onClicked: app.tab = "sources" }
+                AmpButton { text: "Local Music…"; hint: "Manage local files and folders"; enabled: !app.busy; onClicked: app.manageLocal() }
                 Item { Layout.fillWidth: true }
             }
             RowLayout {

@@ -38,29 +38,38 @@ class GaplessTests(unittest.TestCase):
             self.assertTrue(p.paused)
         finally: p.client = None; p.close()
 
-    def test_real_replaygain_changes_output_by_tagged_gain(self):
+    def test_real_live_normalization_balances_untagged_music_and_ignores_tags(self):
         with tempfile.TemporaryDirectory() as d:
-            root = Path(d); audio = root / 'gain.flac'
-            subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'sine=duration=0.25',
-                            '-metadata', 'REPLAYGAIN_TRACK_GAIN=-6 dB', '-metadata', 'REPLAYGAIN_ALBUM_GAIN=-12 dB', str(audio)], check=True)
+            root = Path(d)
             amplitudes = {}
-            for mode in ('no', 'track', 'album'):
-                output = root / (mode + '.wav'); local = LocalLibrary(root / (mode + '.json')); local.add([str(audio)])
+            for name, gain, enabled, tagged in [('quiet_off', .1, False, False), ('loud_off', 4, False, False),
+                                               ('quiet_on', .1, True, False), ('loud_on', 4, True, False),
+                                               ('tagged_off', 4, False, True)]:
+                audio, output = root / (name + '.flac'), root / (name + '.wav')
+                args = ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'sine=duration=4', '-af', 'volume=' + str(gain)]
+                if tagged: args += ['-metadata', 'REPLAYGAIN_TRACK_GAIN=-20 dB', '-metadata', 'REPLAYGAIN_ALBUM_GAIN=-20 dB']
+                subprocess.run(args + [str(audio)], check=True)
+                local = LocalLibrary(root / (name + '.json')); local.add([str(audio)])
                 p = Player(lambda _: None, Mpv, local=local); popen = subprocess.Popen
                 try:
                     p.local_command({'cmd': 'library', 'folder': 'local'}, 0)
-                    p.handle({'cmd': 'replay_gain', 'value': mode})
-                    with patch('backend.subprocess.Popen', side_effect=lambda args, **kw: popen(args + ['--ao=pcm', '--ao-pcm-file=' + str(output), '--audio-format=s16'], **kw)):
+                    p.handle({'cmd': 'normalization', 'value': enabled})
+                    p.handle({'cmd': 'volume', 'value': 100})
+                    with patch('backend.subprocess.Popen', side_effect=lambda args, **kw: popen(args + ['--ao=pcm', '--untimed', '--ao-pcm-file=' + str(output), '--audio-format=s16'], **kw)):
                         p.handle({'cmd': 'replace_play', 'ids': [p.songs[0]['id']]})
-                    deadline = time.monotonic() + 3
+                    deadline = time.monotonic() + 6
                     while time.monotonic() < deadline and not p.idle: time.sleep(.02)
-                    self.assertTrue(p.idle)
+                    self.assertTrue(p.idle, name)
                 finally: p.close()
                 with wave.open(str(output), 'rb') as f:
+                    duration = f.getnframes() / f.getframerate()
                     samples = struct.unpack('<' + 'h' * (f.getnframes() * f.getnchannels()), f.readframes(f.getnframes()))
-                amplitudes[mode] = math.sqrt(sum(v*v for v in samples) / len(samples))
-            self.assertAlmostEqual(amplitudes['track'] / amplitudes['no'], 10**(-6/20), delta=.03)
-            self.assertAlmostEqual(amplitudes['album'] / amplitudes['no'], 10**(-12/20), delta=.03)
+                self.assertAlmostEqual(duration, 4, delta=.05, msg=name)
+                amplitudes[name] = math.sqrt(sum(v*v for v in samples) / len(samples))
+                if enabled: self.assertLess(max(abs(v) for v in samples) / 32768, .85, name)
+            self.assertGreater(amplitudes['loud_off'] / amplitudes['quiet_off'], 35)
+            self.assertAlmostEqual(20 * math.log10(amplitudes['quiet_on'] / amplitudes['loud_on']), 0, delta=1)
+            self.assertAlmostEqual(amplitudes['tagged_off'] / amplitudes['loud_off'], 1, delta=.01)
 
     def test_real_mixed_local_to_authenticated_stream_preserves_policy_and_audio(self):
         with tempfile.TemporaryDirectory() as d:
@@ -129,23 +138,40 @@ class GaplessTests(unittest.TestCase):
         finally: relay.close()
 
     def test_real_mpv_continues_two_tracks_without_replace_or_idle_between(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            for i in range(2):
-                subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', f'sine=frequency={440+i*100}:duration=0.6', '-metadata', 'album=Continuous', str(root / f'{i}.flac')], check=True)
-            local = LocalLibrary(root / 'local.json'); local.add([str(root)])
-            events = []; p = Player(events.append, Mpv, local=local); popen = subprocess.Popen
-            try:
-                p.local_command({'cmd': 'library', 'folder': 'local'}, 0)
-                with patch('backend.subprocess.Popen', side_effect=lambda args, **kw: popen(args + ['--ao=null'], **kw)):
-                    p.handle({'cmd': 'replace_play', 'ids': [r['id'] for r in p.songs]})
-                engine = p.mpv
-                deadline = time.monotonic() + 5
-                while time.monotonic() < deadline and not (p.index == 1 and p.idle): time.sleep(.02)
-                self.assertIs(p.mpv, engine); self.assertEqual(p.index, 1); self.assertTrue(p.idle)
-                states = [e for e in events if e.get('type') == 'state']
-                first_started = next(i for i,s in enumerate(states) if s['index'] == 0 and s['position'] > .1)
-                second_started = next(i for i,s in enumerate(states) if s['index'] == 1 and s['position'] > .1)
-                self.assertFalse(any(s['idle'] for s in states[first_started:second_started]))
-                self.assertFalse(any(e.get('type') == 'error' for e in events))
-            finally: p.close()
+        for enabled in (False, True):
+            with tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                for i in range(2):
+                    subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', f'sine=frequency={440+i*100}:duration=0.6', '-metadata', 'album=Continuous', str(root / f'{i}.flac')], check=True)
+                local = LocalLibrary(root / 'local.json'); local.add([str(root)])
+                events = []; p = Player(events.append, Mpv, local=local); popen = subprocess.Popen
+                try:
+                    p.local_command({'cmd': 'library', 'folder': 'local'}, 0)
+                    p.handle({'cmd': 'normalization', 'value': enabled})
+                    output = root / 'continuous.wav'
+                    audio_options = ['--ao=pcm', '--ao-pcm-file=' + str(output), '--audio-format=s16'] if enabled else ['--ao=null']
+                    with patch('backend.subprocess.Popen', side_effect=lambda args, **kw: popen(args + audio_options, **kw)):
+                        p.handle({'cmd': 'replace_play', 'ids': [r['id'] for r in p.songs]})
+                    engine = p.mpv
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline and not (p.index == 1 and p.idle): time.sleep(.02)
+                    self.assertIs(p.mpv, engine); self.assertEqual(p.index, 1); self.assertTrue(p.idle)
+                    states = [e for e in events if e.get('type') == 'state']
+                    if not enabled:
+                        first_started = next(i for i,s in enumerate(states) if s['index'] == 0 and s['position'] > .1)
+                        second_started = next(i for i,s in enumerate(states) if s['index'] == 1 and s['position'] > .1)
+                        self.assertFalse(any(s['idle'] for s in states[first_started:second_started]))
+                    self.assertFalse(any(e.get('type') == 'error' for e in events))
+                    if enabled:
+                        # Short tracks can fit inside the loudness lookahead. Check
+                        # the rendered audio itself, rather than IPC progress ticks.
+                        p.discard_engine()
+                        with wave.open(str(output), 'rb') as f:
+                            rate, channels = f.getframerate(), f.getnchannels()
+                            samples = struct.unpack('<' + 'h' * (f.getnframes() * channels), f.readframes(f.getnframes()))[::channels]
+                        self.assertAlmostEqual(len(samples) / rate, 1.2, delta=.05)
+                        for start, expected in ((.1, 440), (.7, 540)):
+                            window = samples[int(start * rate):int((start + .3) * rate)]
+                            crossings = sum(a <= 0 < b for a,b in zip(window, window[1:]))
+                            self.assertAlmostEqual(crossings / .3, expected, delta=10)
+                finally: p.close()

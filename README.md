@@ -12,9 +12,9 @@ Jellyfin, local music, and radio in a compact player that follows your Omarchy t
 
 **Radio:** **Saved** starts with 14 Cliamp stations, including Omarchy, Lofi, and Synthwave. **Discover** searches [Radio Browser](https://www.radio-browser.info/) by name, genre, country, or language; select a result and **+ SAVE**. **− FORGET** removes a saved station without touching the queue. Arrows browse, Return tunes in, Alt+Return appends. Live titles, spectrum, and llama dances work throughout; no Cliamp installation or account needed.
 
-**Saved** names, loads, plays, renames and forgets playlists. **Recent** returns to the last 30 albums/stations. Saved remote playlists require their original Jellyfin account.
+**Saved → Jellyfin** browses server playlists and their songs. **CREATE** saves the current Jellyfin-only queue as a private server playlist (Jellyfin 10.9+); **LOAD** replaces the queue paused, **PLAY** starts it. Arrows browse; Tab switches playlists/songs; Return plays. Lists refresh on opening and every minute. **On device** keeps existing named playlists, including rename/forget. **Recent** returns to the last 30 albums/stations. Remote playlists require their original Jellyfin account.
 
-Your queue, playback position, volume, shuffle, and repeat are remembered. Restart restores paused. **Manage sources…** adds or forgets local files/folders without deleting music. Switching back to Jellyfin remembers its last library. Media keys work with the popup hidden. **Drop music…** opens a native drop window for local files/folders; imports leave the current queue playing.
+Your queue, playback position, volume, shuffle, and repeat are remembered. Restart restores paused. **Settings → Sources → Local Music…** opens one window to add files/folders, drag them in, or forget saved sources without deleting music. File pickers use your desktop portal (Strata when configured); imports leave the current queue playing. The source menu only switches Local Music/Jellyfin/Radio. Switching back to Jellyfin remembers its last library. Media keys work with the popup hidden.
 
 ## Omarchy
 
@@ -22,11 +22,11 @@ Your queue, playback position, volume, shuffle, and repeat are remembered. Resta
 omarchy plugin add https://github.com/davidjpramsay/OmaGAWD.git --enable
 ```
 
-Requires Omarchy/Quickshell, mpv, Python 3 with python-gobject, libsecret (`secret-tool`), ffmpeg (`ffprobe`), zenity / GTK 4, and wl-clipboard (`wl-paste`). Use a direct Jellyfin URL; audio redirects are blocked. No pip/npm dependencies.
+Requires Omarchy/Quickshell, mpv, Python 3 with python-gobject, libsecret (`secret-tool`), ffmpeg (`ffprobe`), GTK 4 / the desktop FileChooser portal, and wl-clipboard (`wl-paste`). Use a direct Jellyfin URL; audio redirects are blocked. No pip/npm dependencies.
 
 Local files: MP3, FLAC, AAC, M4A/M4B/ALAC, Ogg/Opus, WAV, AIFF, WMA, APE and WavPack. Imports and playback restrict demuxers to music containers; scripts and playlist files are unsupported.
 
-Open the llama in the bar. **⚙ Settings** contains playback options, sources, updates and shortcuts. Gapless preloads the next music track; matching audio formats flow without reopening the output. Volume normalization is a global on/off switch using album ReplayGain tags; untagged tracks are unchanged. Recent history and llama motion can be turned off.
+Open the llama in the bar. **⚙ Settings** contains playback options, sources, updates and shortcuts. Gapless preloads the next music track; matching audio formats flow without reopening the output. Optional volume normalization measures all music and radio live using EBU R128 (−18 LUFS, −1.5 dB true peak); it can soften volume contrasts and add buffering. No tags, scans or media edits. Recent history and llama motion can be turned off.
 
 | Shortcut | Action |
 |---|---|
@@ -54,7 +54,7 @@ omarchy-shell shell summon david.omaamp '{}'
 
 The **↑** notice shows available OmaGAWD releases; **⚙ → Updates** checks manually and opens the normal updater after saving playback. Updating pauses music. You can also update with `omarchy plugin update david.omaamp`. Remove with `omarchy plugin remove david.omaamp`. The script-installed launcher/icon live at `~/.local/share/applications/omaamp.desktop` and `~/.local/share/icons/hicolor/scalable/apps/omaamp.svg`; remove those separately. Music, saved sources, playback settings, and keyring sign-in remain.
 
-Spectrum analysis stops while hidden or paused. Server-playlist sync, playlist import/export are not implemented. Radio accepts direct public HTTP(S) stream links; playlists and HLS are unsupported. Safety limits: 8 MiB per API response, 100,000 tracks / 64 MiB per library or playlist, 1,000,000 entries / 100,000 folders per local scan, 2 MiB of metadata per local file, 512 characters per music label, 1 MiB / 1,000 local sources, 2 MiB per radio-directory response, and 1,000 saved stations/search results.
+Spectrum analysis stops while hidden or paused. Editing existing Jellyfin playlists and playlist import/export are not implemented. Radio accepts direct public HTTP(S) stream links; playlists and HLS are unsupported. Safety limits: 8 MiB per API response, 100,000 tracks / 64 MiB per library or playlist, 1,000 hosted playlists, 1,000,000 entries / 100,000 folders per local scan, 2 MiB of metadata per local file with a 512 MiB probe address-space cap, 512 characters per music label, 1 MiB / 1,000 local sources, 2 MiB per radio-directory response, and 1,000 saved stations/search results.
 
 ## macOS
 

@@ -12,6 +12,7 @@ from bounded_process import run_bounded
 
 MAX_LOCAL_TRACKS = 100_000
 MAX_PROBE_BYTES = 2 * 1024 * 1024
+MAX_PROBE_MEMORY = 512 * 1024 * 1024
 MAX_LOCAL_BYTES = 64 * 1024 * 1024
 MAX_SOURCE_BYTES = 1024 * 1024
 MAX_SOURCES = 1000
@@ -21,7 +22,7 @@ MAX_SCAN_DIRECTORIES = 100_000
 
 def probe_output(command, timeout=10, cancel=None):
     """Drain ffprobe incrementally; hostile tags cannot fill captured stdout."""
-    result = run_bounded(command, limit=MAX_PROBE_BYTES, timeout=timeout, cancel=cancel)
+    result = run_bounded(command, limit=MAX_PROBE_BYTES, timeout=timeout, cancel=cancel, memory_limit=MAX_PROBE_MEMORY)
     if result.returncode: raise ValueError('Unreadable audio')
     return result.stdout
 

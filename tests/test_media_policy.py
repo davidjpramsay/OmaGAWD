@@ -68,12 +68,11 @@ class ImportBoundaryTests(unittest.TestCase):
             local = LocalLibrary(root / 'local.json'); events = []
             p = Player(events.append, FakeMpv, local=local)
             try:
-                with patch('backend.run_bounded', return_value=Mock(returncode=0, stdout=str(script).encode())) as picker:
+                with patch('backend.run_bounded', return_value=Mock(returncode=0, stdout=json.dumps([str(script)]).encode())) as picker:
                     p.local_command({'cmd': 'choose_files'}, 0)
                 args = picker.call_args.args[0]
-                self.assertEqual(len([a for a in args if a.startswith('--file-filter=')]), 1)
-                self.assertFalse(any('All files' in a for a in args))
-                self.assertIn('*.MP3', next(a for a in args if a.startswith('--file-filter=')))
+                self.assertTrue(args[1].endswith('file_picker.py'))
+                self.assertNotIn('zenity', args)
                 self.assertEqual(local.roots, [])
                 self.assertTrue(any(e.get('type') == 'error' for e in events))
             finally: p.close()
