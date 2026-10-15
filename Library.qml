@@ -18,6 +18,7 @@ Rectangle {
     property string savedPlaylistId: ""
     property string recentId: ""
     property string savedScope: app.connected && app.selectedLibrary !== "local" && app.selectedLibrary !== "radio" ? "jellyfin" : "device"
+    readonly property bool playlistMode: app.tab === "queue" || app.tab === "saved" || app.tab === "recent"
     readonly property bool hostedMode: app.tab === "saved" && savedScope === "jellyfin"
     property string hostedPlaylistId: ""
     property string hostedSong: ""
@@ -180,10 +181,8 @@ Rectangle {
         }
         RowLayout {
             spacing: Style.space(6)
-            AmpButton { text: "PLAYLIST  " + app.state.queue.length; hint: "Playlist (P)"; lit: app.tab === "queue"; onClicked: app.tab = "queue" }
-            AmpButton { text: "LIBRARY"; hint: "Library (L)"; lit: app.tab === "library"; onClicked: app.tab = "library" }
-            AmpButton { objectName: "savedPlaylistsTab"; text: "SAVED"; hint: "Named playlists"; lit: app.tab === "saved"; onClicked: app.tab = "saved" }
-            AmpButton { objectName: "recentTab"; text: "RECENT"; hint: "Recently played albums and stations"; lit: app.tab === "recent"; onClicked: app.tab = "recent" }
+            AmpButton { objectName: "playlistTab"; text: "PLAYLIST  " + app.state.queue.length; hint: "Playlist (P)"; lit: root.playlistMode; onClicked: app.tab = "queue" }
+            AmpButton { objectName: "libraryTab"; text: "LIBRARY"; hint: "Library (L)"; lit: app.tab === "library"; onClicked: app.tab = "library" }
             Item { Layout.fillWidth: true }
             AmpButton {
                 id: accountButton
@@ -232,6 +231,16 @@ Rectangle {
             }
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+        RowLayout {
+            objectName: "playlistSections"
+            visible: root.playlistMode
+            Layout.fillWidth: true
+            spacing: Style.space(6)
+            AmpButton { objectName: "queueSection"; text: "QUEUE"; hint: "Current playback queue"; lit: app.tab === "queue"; onClicked: app.tab = "queue" }
+            AmpButton { objectName: "savedPlaylistsTab"; text: "SAVED"; hint: "Named playlists"; lit: app.tab === "saved"; onClicked: app.tab = "saved" }
+            AmpButton { objectName: "recentTab"; text: "RECENT"; hint: "Recently played albums and stations"; lit: app.tab === "recent"; onClicked: app.tab = "recent" }
+            Item { Layout.fillWidth: true }
+        }
         RowLayout {
             visible: app.tab === "settings"
             Layout.fillWidth: true

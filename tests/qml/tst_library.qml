@@ -386,6 +386,22 @@ Item {
             fakeApp.localSources = []; wait(30); verify(!listing.visible)
             compare(fakeApp.commands.length, 0)
         }
+        function test_playlist_sections_are_nested_and_switch_without_playing() {
+            const playlist = findChild(library, "playlistTab")
+            const sections = findChild(library, "playlistSections")
+            const saved = findChild(library, "savedPlaylistsTab")
+            const recent = findChild(library, "recentTab")
+            verify(!sections.visible); verify(!saved.visible); verify(!recent.visible)
+            verify(saved.parent !== playlist.parent); verify(recent.parent === saved.parent)
+            mouseClick(playlist); compare(fakeApp.tab, "queue"); verify(sections.visible); verify(playlist.lit)
+            mouseClick(saved); compare(fakeApp.tab, "saved"); verify(playlist.lit); verify(saved.lit)
+            mouseClick(recent); compare(fakeApp.tab, "recent"); verify(playlist.lit); verify(recent.lit)
+            mouseClick(findChild(library, "queueSection")); compare(fakeApp.tab, "queue")
+            mouseClick(findChild(library, "libraryTab")); compare(fakeApp.tab, "library")
+            verify(!sections.visible); verify(!playlist.lit)
+            fakeApp.tab = "settings"; verify(!sections.visible)
+            compare(fakeApp.commands, [])
+        }
         function test_named_playlist_and_recent_keyboard_actions() {
             fakeApp.state = {queue: [{key: "track", artist: "A", title: "One", duration: 1}]}
             fakeApp.savedPlaylists = [{id: "first", name: "Driving", count: 4}, {id: "second", name: "Heavy", count: 8}]
