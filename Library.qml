@@ -77,8 +77,8 @@ Rectangle {
     readonly property var chosenSongs: selectedSongs.length ? albumSongs.filter(s => selectedSongs.indexOf(s.id) >= 0) : albumSongs
     readonly property var artistRows: unique(filtered, "artist")
     readonly property var albumRows: unique(artistSongs, "albumId")
-    readonly property var artistBrowserRows: artistRows.length ? [{key: "", label: "All artists", detail: String(filtered.length), summary: true}].concat(artistRows) : []
-    readonly property var albumBrowserRows: albumRows.length ? [{key: "", label: "All albums", detail: String(artistSongs.length), summary: true}].concat(albumRows) : []
+    readonly property var artistBrowserRows: artistRows.length ? [{key: "", label: "All artists...", detail: String(filtered.length), summary: true}].concat(artistRows) : []
+    readonly property var albumBrowserRows: albumRows.length ? [{key: "", label: "All albums...", detail: String(artistSongs.length), summary: true}].concat(albumRows) : []
     readonly property var songRows: albumSongs.map(s => ({key: s.id, label: (s.track ? String(s.track).padStart(2, "0") + "  " : "") + s.title, detail: app.time(s.duration)}))
     readonly property var queueRows: app.state.queue.map((s, i) => ({key: s.key, label: String(i + 1).padStart(2, "0") + "  " + s.artist + " — " + s.title, detail: s.source === "radio" ? "LIVE" : app.time(s.duration)}))
     function focusPlaylist() { queueList.focusList() }

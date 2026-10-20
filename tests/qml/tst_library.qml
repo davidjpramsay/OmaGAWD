@@ -337,8 +337,8 @@ Item {
         }
         function test_all_rows_clear_filters_and_keep_search_without_playing() {
             const artists = list("ARTIST"), albums = list("ALBUM")
-            compare(artists.rows[0].label, "All artists")
-            compare(albums.rows[0].label, "All albums")
+            compare(artists.rows[0].label, "All artists...")
+            compare(albums.rows[0].label, "All albums...")
             compare(artists.rows.length, 3); compare(artists.itemCount, 2)
             compare(albums.rows.length, 4); compare(albums.itemCount, 3)
             library.artist = "A"; library.album = "a2"; library.selectedSongs = ["2"]

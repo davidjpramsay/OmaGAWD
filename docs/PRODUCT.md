@@ -82,7 +82,7 @@ This is local development work; no release or marketplace update is implied.
 
 ## Omarchy library — 20 October 2026
 
-Artist and Album panes start with All artists / All albums when results exist.
+Artist and Album panes start with All artists... / All albums... when results exist.
 All artists clears both filters; All albums keeps the artist. Search remains in
 effect. Click/Space and keyboard browsing update children without playing;
 Return/double-click plays the group and Option/Alt appends. The All rows show
