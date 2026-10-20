@@ -2,12 +2,13 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Theme
 import ".."
 
 Window {
     id: window
     width: 630; height: 950; visible: true
-    color: Color.background
+    color: Theme.Color.background
     property alias appObject: demo
     QtObject {
         id: demo
@@ -58,7 +59,7 @@ Window {
         function searchRadio(fields, offset) {}
         function cancelRadioSearch() {}
     }
-    Rectangle { anchors.fill: parent; anchors.margins: 1; color: "transparent"; border.color: Color.accent }
+    Rectangle { anchors.fill: parent; anchors.margins: 1; color: "transparent"; border.color: Theme.Color.accent }
     Column {
         x: 24; y: 24; spacing: 12
         Receiver { width: 582; height: implicitHeight; app: window.appObject }

@@ -2,6 +2,7 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Theme
 import ".."
 
 Window {
@@ -10,10 +11,10 @@ Window {
     width: 1040
     height: playerScreenshot.toString() ? Math.max(760, playerCard.height + 48) : 760
     visible: true
-    color: Color.background
+    color: Theme.Color.background
     property alias appObject: demo
     component Label: Text {
-        color: Color.foreground
+        color: Theme.Color.foreground
         font.family: "monospace"
         font.pixelSize: 16
         renderType: Text.NativeRendering
@@ -66,19 +67,19 @@ Window {
         anchors.fill: parent
         anchors.margins: 1
         color: "transparent"
-        border.color: Color.accent
+        border.color: Theme.Color.accent
     }
     Column {
         x: 36; y: window.playerScreenshot.toString() ? (window.height - height) / 2 : 48; spacing: 16
         Label { text: "OMAGAWD"; font.pixelSize: 34; font.bold: true; font.letterSpacing: 4 }
-        Rectangle { width: 330; height: 2; color: Color.accent }
+        Rectangle { width: 330; height: 2; color: Theme.Color.accent }
         Label { text: "WINAMP SOUL.\nOMARCHY FIT."; font.pixelSize: 27; lineHeight: 1.2 }
-        Label { text: "JELLYFIN + LOCAL + RADIO"; color: Color.accent; font.pixelSize: 16; font.bold: true }
+        Label { text: "JELLYFIN + LOCAL + RADIO"; color: Theme.Color.accent; font.pixelSize: 16; font.bold: true }
         Label { text: "Your theme. Your music.\nReal frequency spectrum.\nA queue that remembers."; font.pixelSize: 16; lineHeight: 1.5; opacity: .8 }
         Rectangle { width: 330; height: 1; color: "#414868" }
         Label { text: "KEYBOARD IN. MUSIC ON."; font.pixelSize: 16; font.bold: true }
         Label { text: "TAB + ARROWS   browse\nRETURN         play\nALT + RETURN   add\nCMD / CTRL + F search\nP / L          playlist / library"; font.pixelSize: 13; lineHeight: 1.5; opacity: .8 }
-        Label { text: "BADASS LLAMA\nDANCE MOVES."; color: Color.accent; font.pixelSize: 23; font.bold: true; lineHeight: 1.2 }
+        Label { text: "BADASS LLAMA\nDANCE MOVES."; color: Theme.Color.accent; font.pixelSize: 23; font.bold: true; lineHeight: 1.2 }
         Row {
             spacing: 8
             DancingLlama { width: 72; height: 61; stopped: false; playing: true; Component.onCompleted: clock = {elapsed: .6, playingSince: null} }

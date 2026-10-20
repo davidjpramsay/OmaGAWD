@@ -14,12 +14,13 @@ Item {
         property var updateInfo: ({})
         property bool updateOpened: false
         property string tab: "library"
+        property var commands: []
         function showSettings() { tab = "settings" }
         function showUpdates() { updateOpened = true }
         property var state: ({queue: [], index: -1, position: 0, duration: 0, paused: true, idle: true, shuffle: false, repeat: "off", volume: 70, bitrate: 0})
         readonly property bool playing: !state.idle && !state.paused
         function time(seconds) { return "00:00" }
-        function send(command) {}
+        function send(command) { commands = commands.concat([command]) }
         function close() { opened = false }
     }
     Receiver { id: receiver; anchors.fill: parent; app: appObject }
@@ -28,6 +29,34 @@ Item {
     TestCase {
         name: "ReceiverPlaybackAnimation"
         when: windowShown
+        function test_shuffle_repeat_icons_and_active_states() {
+            app.opened = true; app.current = null; app.commands = []
+            const shuffle = findChild(receiver, "shuffleButton")
+            const repeat = findChild(receiver, "repeatButton")
+            app.state = Object.assign({}, app.state, {shuffle: false, repeat: "off"})
+            verify(shuffle.iconOnly && repeat.iconOnly)
+            verify(!shuffle.lit && !repeat.lit)
+            verify(!findChild(shuffle, "activeStateIndicator").visible)
+            verify(!findChild(repeat, "activeStateIndicator").visible)
+            compare(shuffle.Accessible.name, "Shuffle: off")
+            compare(repeat.Accessible.name, "Repeat: off")
+            const allIcon = repeat.text
+            shuffle.forceActiveFocus(); keyClick(Qt.Key_Space)
+            repeat.forceActiveFocus(); keyClick(Qt.Key_Space)
+            compare(app.commands, [{cmd: "shuffle"}, {cmd: "repeat"}])
+            app.state = Object.assign({}, app.state, {shuffle: true, repeat: "all"})
+            verify(shuffle.lit && repeat.lit)
+            verify(findChild(shuffle, "activeStateIndicator").visible)
+            verify(findChild(repeat, "activeStateIndicator").visible)
+            compare(repeat.text, allIcon)
+            compare(repeat.Accessible.name, "Repeat: all songs")
+            app.state = Object.assign({}, app.state, {repeat: "one"})
+            verify(repeat.lit); verify(repeat.text !== allIcon)
+            compare(repeat.Accessible.name, "Repeat: one song")
+            app.state = Object.assign({}, app.state, {shuffle: false, repeat: "off"})
+            verify(!shuffle.lit && !repeat.lit)
+            verify(!findChild(shuffle, "activeStateIndicator").visible)
+        }
         function test_update_notice_is_independent_of_playback() {
             app.updateInfo = {available: true, latest: "0.8.0"}
             const button = findChild(receiver, "updateAvailableButton")

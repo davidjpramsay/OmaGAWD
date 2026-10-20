@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Effects
 import Quickshell
 import qs.Commons
+import qs.Commons as Theme
 import qs.Ui as UI
 
 UI.BarWidget {
@@ -58,7 +59,7 @@ UI.BarWidget {
                     anchors.fill: parent
                     source: llama
                     colorization: 1
-                    colorizationColor: player.playing ? Color.accent : (root.bar ? root.bar.barForeground : Color.foreground)
+                    colorizationColor: player.playing ? Theme.Color.accent : (root.bar ? root.bar.barForeground : Theme.Color.foreground)
                 }
             }
         }

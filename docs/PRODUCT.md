@@ -69,3 +69,13 @@ publish a release or marketplace update only when explicitly requested.
 - This Omarchy follow-up passed 173 isolated backend tests, 39 QML checks and
   native 460-pixel account/Sources rendering and navigation checks, including
   compact return, popup reopen, background reconnect and explicit sign-in/out.
+
+## Omarchy playback controls — 20 October 2026
+
+Shuffle and repeat now use native font icons. Enabled modes show the theme
+accent, accent border and a small marker; repeat-one has a distinct “1” icon.
+Tooltips and accessible names state off/on/all songs/one song. Keyboard activation
+and backend mode cycling are unchanged. Theme palette references are qualified
+to avoid the newer Qt Color name collision. Verified with 173 backend tests,
+40 QML checks and native themed renders of off/all/one, Library and Settings.
+This is local development work; no release or marketplace update is implied.

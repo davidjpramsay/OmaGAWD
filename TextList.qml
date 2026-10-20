@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Theme
 
 Rectangle {
     id: root
@@ -55,8 +56,8 @@ Rectangle {
     signal navigated(string key, int modifiers)
     signal chosen(string key, int modifiers)
     signal activated(string key)
-    color: Qt.darker(Color.background, 1.15)
-    border.color: Style.normalBorderFor(Color.foreground, Color.accent)
+    color: Qt.darker(Theme.Color.background, 1.15)
+    border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent)
     Column {
         anchors.fill: parent
         Rectangle {
@@ -114,13 +115,13 @@ Rectangle {
                 width: list.width; height: Style.space(26)
                 color: root.selected.indexOf(modelData.key) >= 0 ? Style.selectedFill : mouse.containsMouse ? Style.hoverFill : "transparent"
                 border.width: list.activeFocus && ListView.isCurrentItem ? 1 : 0
-                border.color: Color.accent
-                Rectangle { visible: root.playing === modelData.key; width: Style.space(2); height: parent.height; color: Color.accent }
+                border.color: Theme.Color.accent
+                Rectangle { visible: root.playing === modelData.key; width: Style.space(2); height: parent.height; color: Theme.Color.accent }
                 AmpText {
                     objectName: "rowLabel-" + modelData.key
                     anchors.left: parent.left; anchors.right: duration.left; anchors.verticalCenter: parent.verticalCenter
                     anchors.leftMargin: Style.space(10); anchors.rightMargin: Style.space(8)
-                    text: modelData.label; color: root.playing === modelData.key ? Color.accent : Color.foreground
+                    text: modelData.label; color: root.playing === modelData.key ? Theme.Color.accent : Theme.Color.foreground
                 }
                 AmpText {
                     id: duration
@@ -129,7 +130,7 @@ Rectangle {
                     width: Math.min(implicitWidth, Math.max(0, parent.width - Style.space(28)) * root.detailFraction)
                     horizontalAlignment: Text.AlignRight
                     text: showAdd ? "+" : modelData.detail || ""
-                    color: showAdd ? Color.accent : Color.foreground
+                    color: showAdd ? Theme.Color.accent : Theme.Color.foreground
                     font.pixelSize: Style.font.caption; opacity: showAdd ? 1 : 0.5
                 }
                 MouseArea {

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Theme
 import qs.Ui as UI
 
 Rectangle {
@@ -133,8 +134,8 @@ Rectangle {
         var index = app.state.queue.findIndex(s => s.key === selectedQueue[0])
         if (index >= 0) app.send({cmd: "move", index: index, delta: delta})
     }
-    color: Color.background
-    border.color: Style.normalBorderFor(Color.foreground, Color.accent)
+    color: Theme.Color.background
+    border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent)
     radius: Style.cornerRadius
     Connections {
         target: app
@@ -178,7 +179,7 @@ Rectangle {
         anchors.fill: parent; anchors.margins: Style.space(10); spacing: Style.space(8)
         RowLayout {
             AmpText { text: "OMAGAWD / MUSIC DESK"; font.bold: true; font.letterSpacing: 2 }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
             AmpButton { text: "×"; hint: "Hide music desk"; implicitHeight: Style.space(24); onClicked: app.playlistOpen = false }
         }
         RowLayout {
@@ -195,8 +196,8 @@ Rectangle {
                 contentItem: Row {
                     id: accountLabel
                     spacing: Style.space(5)
-                    AmpText { text: "●"; visible: app.connected && app.selectedLibrary !== "local" && !root.radioMode; color: Color.accent; anchors.verticalCenter: parent.verticalCenter }
-                    AmpText { text: accountButton.text; color: Color.foreground; font.bold: accountButton.lit; anchors.verticalCenter: parent.verticalCenter }
+                    AmpText { text: "●"; visible: app.connected && app.selectedLibrary !== "local" && !root.radioMode; color: Theme.Color.accent; anchors.verticalCenter: parent.verticalCenter }
+                    AmpText { text: accountButton.text; color: Theme.Color.foreground; font.bold: accountButton.lit; anchors.verticalCenter: parent.verticalCenter }
                 }
                 onClicked: sourceMenu.open()
                 Controls.Menu {
@@ -205,7 +206,7 @@ Rectangle {
                     y: accountButton.height + Style.space(4)
                     width: Style.space(195)
                     padding: Style.space(4)
-                    background: Rectangle { color: Color.background; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
+                    background: Rectangle { color: Theme.Color.background; border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent); radius: Style.cornerRadius }
                     SourceAction {
                         objectName: "jellyfinSource"
                         text: app.connected ? "Jellyfin" : "Connect to Jellyfin…"
@@ -232,7 +233,7 @@ Rectangle {
                 }
             }
         }
-        Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+        Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
         RowLayout {
             objectName: "playlistSections"
             visible: root.playlistMode
@@ -317,8 +318,8 @@ Rectangle {
                 onNavigated: function(key) { root.hostedSong = key }
                 onActivated: function(key) { app.loadHosted(root.hostedPlaylistId, true, Number(key)) }
             }
-            AmpText { Layout.fillWidth: true; visible: !!app.hostedNotice; text: app.hostedNotice || ""; color: Color.accent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
-            AmpText { Layout.fillWidth: true; visible: !!app.hostedError; text: app.hostedError || ""; color: Color.urgent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
+            AmpText { Layout.fillWidth: true; visible: !!app.hostedNotice; text: app.hostedNotice || ""; color: Theme.Color.accent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
+            AmpText { Layout.fillWidth: true; visible: !!app.hostedError; text: app.hostedError || ""; color: Theme.Color.urgent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
             ColumnLayout {
                 visible: !!root.hostedDeleteId
                 Layout.fillWidth: true
@@ -409,7 +410,7 @@ Rectangle {
                     delegate: ColumnLayout {
                         required property var modelData
                         Layout.fillWidth: true; spacing: Style.space(2)
-                        AmpText { text: modelData[0]; color: Color.accent; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                        AmpText { text: modelData[0]; color: Theme.Color.accent; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                         AmpText { text: modelData[1]; Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.7 }
                     }
                 }
@@ -422,12 +423,12 @@ Rectangle {
             AmpText {
                 objectName: "updateStatus"
                 text: app.updateChecking ? "Checking for updates…" : (app.updateInfo || {}).available ? "Update available · " + app.updateInfo.latest : app.updateError ? "Update check unavailable" : (app.updateInfo || {}).current ? "You’re up to date · " + app.updateInfo.current : "Check for the latest Omarchy release"
-                color: (app.updateInfo || {}).available ? Color.accent : Color.foreground
+                color: (app.updateInfo || {}).available ? Theme.Color.accent : Theme.Color.foreground
                 Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone
             }
             AmpText {
                 text: app.updateError || ""
-                visible: !!app.updateError; color: Color.urgent
+                visible: !!app.updateError; color: Theme.Color.urgent
                 Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone
             }
             Controls.ScrollView {
@@ -462,7 +463,7 @@ Rectangle {
                 AmpText { text: app.connected ? "Jellyfin · " + app.username : "Jellyfin not connected"; Layout.fillWidth: true }
                 AmpButton { objectName: "jellyfinAccount"; text: app.connected ? "Account…" : "Connect…"; onClicked: app.showAccount() }
             }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
             RowLayout {
                 Layout.fillWidth: true
                 AmpText { text: "LOCAL MUSIC"; font.pixelSize: Style.font.caption; Layout.fillWidth: true }
@@ -492,7 +493,7 @@ Rectangle {
                         }
                         AmpButton { objectName: "removeLocalSource"; text: "Remove"; hint: "Forget this source; keep files and the current queue"; enabled: app.ready && !app.busy; onClicked: app.removeLocal(modelData) }
                     }
-                    Rectangle { width: parent.width; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+                    Rectangle { width: parent.width; height: 1; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
                 }
             }
             AmpText { visible: !localSourceList.count; text: "No local music added yet."; Layout.fillWidth: true; opacity: 0.6 }
@@ -597,7 +598,7 @@ Rectangle {
                         highlighted: folders.highlightedIndex === index
                         contentItem: AmpText {
                             text: app.libraries[index] ? app.libraries[index].name : ""
-                            color: folders.currentIndex === index ? Color.accent : Color.foreground
+                            color: folders.currentIndex === index ? Theme.Color.accent : Theme.Color.foreground
                             verticalAlignment: Text.AlignVCenter
                         }
                         background: Rectangle {
@@ -611,8 +612,8 @@ Rectangle {
                         padding: Style.space(4)
                         implicitHeight: Math.min(contentItem.implicitHeight + 2 * padding, Style.space(240))
                         background: Rectangle {
-                            color: Color.background
-                            border.color: Style.normalBorderFor(Color.foreground, Color.accent)
+                            color: Theme.Color.background
+                            border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent)
                             radius: Style.cornerRadius
                         }
                         contentItem: ListView {
@@ -625,7 +626,7 @@ Rectangle {
                         }
                     }
                     contentItem: AmpText { text: folders.displayText; verticalAlignment: Text.AlignVCenter; leftPadding: Style.space(8); rightPadding: Style.space(22) }
-                    background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
+                    background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent); radius: Style.cornerRadius }
                     onActivated: { root.folder = currentValue; root.artist = ""; root.album = ""; root.selectedSongs = []; app.send({cmd: "library", folder: currentValue}) }
                 }
             }
@@ -751,7 +752,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: !!text
             text: app.error || (app.busy ? "Loading…" : app.tab === "queue" && app.state.queue.some(s => s.duration > 0) ? app.time(app.state.queue.reduce((n,s) => n + s.duration, 0)) + " total" : app.tab === "library" && root.radioMode ? ((root.radioTab === "discover" && app.radioError) || (app.radioBusy ? "Searching…" : "")) : "")
-            color: app.error ? Color.urgent : Color.foreground
+            color: app.error ? Theme.Color.urgent : Theme.Color.foreground
             opacity: app.error ? 1 : 0.6
             wrapMode: Text.WordWrap; elide: Text.ElideNone; font.pixelSize: Style.font.caption
         }
