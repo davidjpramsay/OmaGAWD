@@ -64,6 +64,7 @@ Rectangle {
     onRadioModeChanged: focusRadioWhenReady()
     property string artist: ""
     property string album: ""
+    property bool allSelected: false
     property var selectedSongs: []
     property var selectedQueue: []
     property string folder: ""
@@ -71,11 +72,13 @@ Rectangle {
     readonly property var filtered: (radioMode && radioTab === "discover" ? radioRows : app.songs).filter(s => !search.text || (s.artist + " " + s.album + " " + s.title).toLowerCase().indexOf(search.text.toLowerCase()) >= 0)
     readonly property var artistSongs: filtered.filter(s => !artist || s.artist === artist)
     readonly property var albumSongs: artistSongs.filter(s => !album || s.albumId === album)
-    readonly property bool hasMusicSelection: !!artist || !!album || selectedSongs.length > 0
+    readonly property bool hasMusicSelection: allSelected || !!artist || !!album || selectedSongs.length > 0
     readonly property int selectedQueueIndex: app.state.queue.findIndex(s => s.key === root.selectedQueue[0])
     readonly property var chosenSongs: selectedSongs.length ? albumSongs.filter(s => selectedSongs.indexOf(s.id) >= 0) : albumSongs
     readonly property var artistRows: unique(filtered, "artist")
     readonly property var albumRows: unique(artistSongs, "albumId")
+    readonly property var artistBrowserRows: artistRows.length ? [{key: "", label: "All artists", detail: String(filtered.length), summary: true}].concat(artistRows) : []
+    readonly property var albumBrowserRows: albumRows.length ? [{key: "", label: "All albums", detail: String(artistSongs.length), summary: true}].concat(albumRows) : []
     readonly property var songRows: albumSongs.map(s => ({key: s.id, label: (s.track ? String(s.track).padStart(2, "0") + "  " : "") + s.title, detail: app.time(s.duration)}))
     readonly property var queueRows: app.state.queue.map((s, i) => ({key: s.key, label: String(i + 1).padStart(2, "0") + "  " + s.artist + " — " + s.title, detail: s.source === "radio" ? "LIVE" : app.time(s.duration)}))
     function focusPlaylist() { queueList.focusList() }
@@ -103,6 +106,7 @@ Rectangle {
         root.artist = ""
         root.album = ""
         root.selectedSongs = []
+        root.allSelected = false
         root.station = ""
         search.forceActiveFocus(Qt.ShortcutFocusReason)
     }
@@ -556,7 +560,7 @@ Rectangle {
                     Accessible.name: "Search library"
                     maximumLength: 160
                     onAccepted: if (root.radioMode && root.radioTab === "discover") root.discoverRadio()
-                    onTextChanged: { root.artist = ""; root.album = ""; root.selectedSongs = []; root.radioEdited() }
+                    onTextChanged: { root.artist = ""; root.album = ""; root.selectedSongs = []; root.allSelected = false; root.radioEdited() }
                     Controls.ToolButton {
                         id: clearSearch
                         visible: enabled
@@ -576,6 +580,7 @@ Rectangle {
                             root.artist = ""
                             root.album = ""
                             root.selectedSongs = []
+                            root.allSelected = false
                             search.forceActiveFocus(Qt.MouseFocusReason)
                         }
                     }
@@ -627,7 +632,7 @@ Rectangle {
                     }
                     contentItem: AmpText { text: folders.displayText; verticalAlignment: Text.AlignVCenter; leftPadding: Style.space(8); rightPadding: Style.space(22) }
                     background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent); radius: Style.cornerRadius }
-                    onActivated: { root.folder = currentValue; root.artist = ""; root.album = ""; root.selectedSongs = []; app.send({cmd: "library", folder: currentValue}) }
+                    onActivated: { root.folder = currentValue; root.artist = ""; root.album = ""; root.selectedSongs = []; root.allSelected = false; app.send({cmd: "library", folder: currentValue}) }
                 }
             }
             RowLayout {
@@ -676,27 +681,27 @@ Rectangle {
                 Layout.fillWidth: true; Layout.fillHeight: true; columnSpacing: Style.space(8); rowSpacing: Style.space(8)
                 TextList {
                     Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: Math.max(Style.space(100), root.height * 0.24)
-                    onActivated: function(key) { root.playMusic(app.songs.filter(s => s.artist === key)) }
+                    onActivated: function(key) { root.playMusic(key ? app.songs.filter(s => s.artist === key) : root.filtered) }
                     id: artistList
                     addEnabled: true
                     addHeld: app.optionHeld || false
-                    onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.artist === key)) }
-                    heading: "ARTIST"; rows: root.artistRows; selected: [root.artist]
-                    onNavigated: function(key) { if (root.artist !== key) { root.artist = key; root.album = ""; root.selectedSongs = [] } }
+                    onAppendRequested: function(key) { root.appendMusic(key ? app.songs.filter(s => s.artist === key) : root.filtered) }
+                    heading: "ARTIST"; rows: root.artistBrowserRows; itemCount: root.artistRows.length; selected: [root.artist]
+                    onNavigated: function(key) { root.allSelected = !key; if (root.artist !== key) { root.artist = key; root.album = ""; root.selectedSongs = [] } }
                     emptyText: app.busy ? "Reading library…" : app.selectedLibrary === "local" && !app.songs.length ? "Add local files or a folder" : "No matching artists"
-                    onChosen: function(key) { root.artist = root.artist === key ? "" : key; root.album = ""; root.selectedSongs = [] }
+                    onChosen: function(key) { root.allSelected = !key; root.artist = root.artist === key ? "" : key; root.album = ""; root.selectedSongs = [] }
                 }
                 TextList {
                     Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: Math.max(Style.space(100), root.height * 0.24)
-                    onActivated: function(key) { root.playMusic(app.songs.filter(s => s.albumId === key)) }
+                    onActivated: function(key) { root.playMusic(key ? app.songs.filter(s => s.albumId === key) : root.artistSongs) }
                     id: albumList
                     addEnabled: true
                     addHeld: app.optionHeld || false
-                    onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.albumId === key)) }
-                    heading: "ALBUM"; rows: root.albumRows; selected: [root.album]
-                    onNavigated: function(key) { if (root.album !== key) { root.album = key; root.selectedSongs = [] } }
+                    onAppendRequested: function(key) { root.appendMusic(key ? app.songs.filter(s => s.albumId === key) : root.artistSongs) }
+                    heading: "ALBUM"; rows: root.albumBrowserRows; itemCount: root.albumRows.length; selected: [root.album]
+                    onNavigated: function(key) { root.allSelected = !key; if (root.album !== key) { root.album = key; root.selectedSongs = [] } }
                     emptyText: "No matching albums"
-                    onChosen: function(key) { root.album = root.album === key ? "" : key; root.selectedSongs = [] }
+                    onChosen: function(key) { root.allSelected = !key; root.album = root.album === key ? "" : key; root.selectedSongs = [] }
                 }
                 TextList {
                     Layout.columnSpan: 2; Layout.fillHeight: true; Layout.fillWidth: true

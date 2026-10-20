@@ -46,6 +46,8 @@ Shuffle/repeat icons use your theme accent and a small marker when enabled; repe
 
 P/L apply outside text fields. Option is Alt. Command accepts Meta and translated Control.
 
+Library **All artists** clears artist/album filters; **All albums** keeps the artist and clears the album. Search still applies. Return plays the group; Option/Alt+Return appends.
+
 Text fields support typing, selection, undo and explicit paste (Command/Ctrl+V, Shift+Insert, middle-click or the context menu). Clipboard reads run outside the shell with a 64 KiB / 2-second limit. IME composition is temporarily unsupported; compose elsewhere and paste.
 
 Suggested global binding: **Super+Alt+O** (Command+Option+O on Mac keys), if free. Bind it to:

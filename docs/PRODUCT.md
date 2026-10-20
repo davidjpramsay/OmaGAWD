@@ -79,3 +79,17 @@ and backend mode cycling are unchanged. Theme palette references are qualified
 to avoid the newer Qt Color name collision. Verified with 173 backend tests,
 40 QML checks and native themed renders of off/all/one, Library and Settings.
 This is local development work; no release or marketplace update is implied.
+
+## Omarchy library — 20 October 2026
+
+Artist and Album panes start with All artists / All albums when results exist.
+All artists clears both filters; All albums keeps the artist. Search remains in
+effect. Click/Space and keyboard browsing update children without playing;
+Return/double-click plays the group and Option/Alt appends. The All rows show
+song totals and do not inflate artist/album heading counts. Explicitly selecting
+an All row enables + ADD; initial/reset browsing keeps + ADD inactive. Empty
+results keep their existing message. Revisiting a pane preserves child choices.
+
+Omarchy passed 173 backend tests, 43 QML checks and native 460-pixel renders.
+This behaviour is a macOS parity candidate, pending implementation/verification
+there; no Mac changes or stable publication accompany this local update.

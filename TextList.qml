@@ -34,6 +34,7 @@ Rectangle {
     }
     signal appendRequested(string key)
     property var rows: []
+    property int itemCount: rows.length
     property var selected: []
     property string playing: ""
     property string emptyText: "Nothing here yet"
@@ -63,7 +64,7 @@ Rectangle {
         Rectangle {
             width: parent.width; height: Style.space(26)
             color: Style.normalFill
-            AmpText { anchors.fill: parent; anchors.margins: Style.space(6); text: root.heading + "  /  " + root.rows.length; font.pixelSize: Style.font.caption; font.letterSpacing: 1; opacity: 0.65 }
+            AmpText { anchors.fill: parent; anchors.margins: Style.space(6); text: root.heading + "  /  " + root.itemCount; font.pixelSize: Style.font.caption; font.letterSpacing: 1; opacity: 0.65 }
         }
         ListView {
             id: list
@@ -116,12 +117,12 @@ Rectangle {
                 color: root.selected.indexOf(modelData.key) >= 0 ? Style.selectedFill : mouse.containsMouse ? Style.hoverFill : "transparent"
                 border.width: list.activeFocus && ListView.isCurrentItem ? 1 : 0
                 border.color: Theme.Color.accent
-                Rectangle { visible: root.playing === modelData.key; width: Style.space(2); height: parent.height; color: Theme.Color.accent }
+                Rectangle { visible: !!root.playing && root.playing === modelData.key; width: Style.space(2); height: parent.height; color: Theme.Color.accent }
                 AmpText {
                     objectName: "rowLabel-" + modelData.key
                     anchors.left: parent.left; anchors.right: duration.left; anchors.verticalCenter: parent.verticalCenter
                     anchors.leftMargin: Style.space(10); anchors.rightMargin: Style.space(8)
-                    text: modelData.label; color: root.playing === modelData.key ? Theme.Color.accent : Theme.Color.foreground
+                    text: modelData.label; font.bold: !!modelData.summary; color: root.playing && root.playing === modelData.key ? Theme.Color.accent : Theme.Color.foreground
                 }
                 AmpText {
                     id: duration
