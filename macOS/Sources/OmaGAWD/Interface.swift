@@ -8,7 +8,7 @@ final class PaddedSourceCell: NSPopUpButtonCell {
     }
 }
 
-final class ActionButton: NSButton {
+class ActionButton: NSButton {
     var perform: () -> Void
     init(_ title: String, help: String? = nil, action: @escaping () -> Void) {
         perform = action; super.init(frame: .zero); self.title = title; target = self; self.action = #selector(run)
@@ -21,6 +21,40 @@ final class ActionButton: NSButton {
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc private func run() { perform() }
+}
+
+final class PlaybackModeButton: ActionButton {
+    private(set) var symbolName = ""
+    private(set) var modeActive = false
+    init(action: @escaping () -> Void) {
+        super.init("", action: action)
+        imagePosition = .imageOnly; imageScaling = .scaleProportionallyDown
+        symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        widthAnchor.constraint(equalToConstant: 36).isActive = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    func update(symbol: String, help: String, active: Bool) {
+        let color: NSColor = active ? .controlAccentColor : .labelColor
+        if symbolName != symbol || modeActive != active {
+            symbolName = symbol
+            let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+            image = NSImage(systemSymbolName: symbol, accessibilityDescription: help)?.withSymbolConfiguration(configuration)
+            image?.isTemplate = false
+        }
+        toolTip = help; setAccessibilityLabel(help)
+        if modeActive != active { modeActive = active; needsDisplay = true }
+        contentTintColor = color
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard modeActive else { return }
+        NSColor.controlAccentColor.set()
+        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 2, yRadius: 2)
+        border.lineWidth = 1; border.stroke()
+        let marker = NSRect(x: bounds.midX - 2, y: isFlipped ? bounds.maxY - 4 : bounds.minY + 2, width: 4, height: 2)
+        NSBezierPath(roundedRect: marker, xRadius: 1, yRadius: 1).fill()
+    }
 }
 func styleSquareInput(_ field: NSTextField) {
     field.bezelStyle = .squareBezel
@@ -79,6 +113,7 @@ final class SpectrumView: NSView {
 }
 final class MusicTable: NSTableView {
     var activate: ((Bool) -> Void)?
+    var chooseSelection: (() -> Void)?
     var removeSelection: (() -> Void)?
     var moveSelection: ((Int) -> Void)?
     override func keyDown(with event: NSEvent) {
@@ -89,7 +124,9 @@ final class MusicTable: NSTableView {
         case 36, 76: activate?(event.modifierFlags.contains(.option))
         case 51, 117: if let removeSelection { removeSelection() } else { super.keyDown(with: event) }
         case 126,125: if event.modifierFlags.contains(.option), let moveSelection { moveSelection(event.keyCode == 126 ? -1 : 1) } else { super.keyDown(with: event) }
-        case 49: if selectedRow < 0 && numberOfRows > 0 { selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
+        case 49:
+            if selectedRow < 0 && numberOfRows > 0 { selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
+            chooseSelection?()
         case 115, 119:
             if numberOfRows > 0 {
                 let row = event.keyCode == 115 ? 0 : numberOfRows - 1
@@ -101,11 +138,12 @@ final class MusicTable: NSTableView {
         }
     }
     override func mouseDown(with event: NSEvent) {
+        let index = self.row(at: convert(event.locationInWindow, from: nil))
         if event.modifierFlags.contains(.option) {
-            let index = self.row(at: convert(event.locationInWindow, from: nil))
-            if index >= 0 { selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false); activate?(true) }; return
+            if index >= 0 { selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false); chooseSelection?(); activate?(true) }; return
         }
         super.mouseDown(with: event)
+        if index >= 0 { chooseSelection?() }
     }
 }
 // Borderless panels must explicitly accept key focus for search and shortcuts.
@@ -142,6 +180,8 @@ final class DockedPlayerPanel: NSPanel {
     let artistTable = MusicTable(), albumTable = MusicTable(), songTable = MusicTable(), queueTable = MusicTable()
     var artists: [String] = [], albums: [(id: String, name: String)] = [], visibleSongs: [Song] = []
     var artist: String?, album: String?
+    private var allSelected = false
+    private var artistSongCount = 0, albumSongCount = 0
     var refreshing = false
     var libraryPane: NSView!, queuePane: NSView!, desk: NSView!
     private(set) var radioPane: RadioPane!
@@ -152,7 +192,8 @@ final class DockedPlayerPanel: NSPanel {
     var monitor: Any?
     private var outsideClickMonitor: Any?
     var timer: Timer?
-    var playButton: ActionButton!, shuffleButton: ActionButton!, repeatButton: ActionButton!, playlistButton: ActionButton!, libraryButton: ActionButton!
+    var playButton: ActionButton!, playlistButton: ActionButton!, libraryButton: ActionButton!
+    private(set) var shuffleButton: PlaybackModeButton!, repeatButton: PlaybackModeButton!
     var hotKeyWarning: String?
     private var placementScreenNumber: NSNumber?
     private var positioning = false
@@ -228,8 +269,8 @@ final class DockedPlayerPanel: NSPanel {
         volume.widthAnchor.constraint(greaterThanOrEqualToConstant: 90).isActive = true
         volume.setContentHuggingPriority(.init(1), for: .horizontal)
         playButton = ActionButton("▶", help: "Play or pause") { [weak model] in model?.toggle() }
-        shuffleButton = ActionButton("SHF", help: "Shuffle") { [weak model] in model?.toggleShuffle() }
-        repeatButton = ActionButton("RPT", help: "Repeat: off, all, one") { [weak model] in model?.cycleRepeat() }
+        shuffleButton = PlaybackModeButton { [weak model] in model?.toggleShuffle() }
+        repeatButton = PlaybackModeButton { [weak model] in model?.cycleRepeat() }
         let controls = row([ActionButton("◀|", help: "Previous track") { [weak model] in model?.previous() }, playButton, ActionButton("■", help: "Stop") { [weak model] in model?.stop() }, ActionButton("|▶", help: "Next track") { [weak model] in model?.next() }, shuffleButton, repeatButton, label("VOL", size: 10), volume, ActionButton("PL", help: "Show or hide music desk") { [weak self] in self?.toggleCompact() }])
         playlistButton = ActionButton("PLAYLIST", help: "Playlist (P)") { [weak self] in self?.showPlaylist(true) }
         libraryButton = ActionButton("LIBRARY", help: "Library (L)") { [weak self] in self?.showPlaylist(false) }
@@ -275,6 +316,7 @@ final class DockedPlayerPanel: NSPanel {
         root.translatesAutoresizingMaskIntoConstraints = false; content.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14), root.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14), root.topAnchor.constraint(equalTo: content.topAnchor, constant: 12), root.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12)])
         for t in [artistTable,albumTable,songTable] { t.activate = { [weak self, weak t] append in self?.activate(t, append: append) } }
+        for t in [artistTable, albumTable] { t.chooseSelection = { [weak self, weak t] in self?.selectBrowserRow(t, explicit: true) } }
         queueTable.activate = { [weak self] _ in guard let self else { return }; self.model.play(self.queueTable.selectedRow) }
         queueTable.removeSelection = { [weak self] in self?.removeQueue() }; queueTable.moveSelection = { [weak self] in self?.moveQueue($0) }
         artistTable.nextKeyView = albumTable; albumTable.nextKeyView = songTable; songTable.nextKeyView = artistTable
@@ -289,7 +331,7 @@ final class DockedPlayerPanel: NSPanel {
         return scroll
     }
     func numberOfRows(in tableView: NSTableView) -> Int {
-        if tableView === artistTable { return artists.count }; if tableView === albumTable { return albums.count }; if tableView === songTable { return visibleSongs.count }; return model.queue.entries.count
+        if tableView === artistTable { return artists.isEmpty ? 0 : artists.count + 1 }; if tableView === albumTable { return albums.isEmpty ? 0 : albums.count + 1 }; if tableView === songTable { return visibleSongs.count }; return model.queue.entries.count
     }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let id = NSUserInterfaceItemIdentifier("cell")
@@ -300,8 +342,8 @@ final class DockedPlayerPanel: NSPanel {
             cell.identifier = id
         }
         var text = ""
-        if tableView === artistTable { text = artists[row] }
-        else if tableView === albumTable { text = albums[row].name }
+        if tableView === artistTable { text = row == 0 ? "All artists...    \(artistSongCount)" : artists[row - 1] }
+        else if tableView === albumTable { text = row == 0 ? "All albums...    \(albumSongCount)" : albums[row - 1].name }
         else if tableView === songTable { let s = visibleSongs[row]; text = "\(s.track > 0 ? String(format: "%02d  ", s.track) : "")\(s.title)    \(clockText(s.duration))" }
         else { let e = model.queue.entries[row]; text = "\(e.id == model.queue.current ? "▶" : String(row + 1))  \(e.song.artist) — \(e.song.title)    \(e.song.isRadio ? "LIVE" : clockText(e.song.duration))" }
         cell.textField?.stringValue = text; cell.toolTip = text
@@ -309,22 +351,47 @@ final class DockedPlayerPanel: NSPanel {
         return cell
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
-        guard !refreshing, let table = notification.object as? NSTableView else { return }
-        if table === artistTable { artist = artists.indices.contains(table.selectedRow) ? artists[table.selectedRow] : nil; album = nil; filter(reloadArtists: false) }
-        else if table === albumTable { album = albums.indices.contains(table.selectedRow) ? albums[table.selectedRow].id : nil; filter(reloadArtists: false, reloadAlbums: false) }
+        guard !refreshing, let table = notification.object as? MusicTable else { return }
+        if table === artistTable || table === albumTable { selectBrowserRow(table, explicit: false) }
         updateAddButton()
     }
-    func controlTextDidChange(_ obj: Notification) { artist = nil; album = nil; filter() }
+    private func selectBrowserRow(_ table: MusicTable?, explicit: Bool) {
+        guard !refreshing, let table, table.selectedRow >= 0 else { return }
+        let index = table.selectedRow - 1
+        allSelected = table.selectedRow == 0
+        if table === artistTable {
+            let next = artists.indices.contains(index) ? artists[index] : nil
+            if explicit || artist != next {
+                artist = next; album = nil; songTable.deselectAll(nil); filter(reloadArtists: false)
+            }
+        } else if table === albumTable {
+            let next = albums.indices.contains(index) ? albums[index].id : nil
+            if explicit || album != next {
+                album = next; songTable.deselectAll(nil); filter(reloadArtists: false, reloadAlbums: false)
+            }
+        }
+        updateAddButton()
+    }
+    func controlTextDidChange(_ obj: Notification) { artist = nil; album = nil; allSelected = false; songTable.deselectAll(nil); filter() }
     private func filter(reloadArtists: Bool = true, reloadAlbums: Bool = true) {
         refreshing = true; defer { refreshing = false }
         let matches = LibraryFilter.songs(model.songs, query: search.stringValue)
         let selection = LibraryFilter.validSelection(in: matches, artist: artist, album: album)
         artist = selection.artist; album = selection.album
-        if reloadArtists { artists = Array(Set(matches.map(\.artist))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }; artistTable.reloadData(); artistTable.deselectAll(nil); if let artist, let i = artists.firstIndex(of: artist) { artistTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) } }
+        artistSongCount = matches.count
+        if reloadArtists {
+            artists = Array(Set(matches.map(\.artist))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            artistTable.reloadData(); artistTable.deselectAll(nil)
+            if let artist, let i = artists.firstIndex(of: artist) { artistTable.selectRowIndexes(IndexSet(integer: i + 1), byExtendingSelection: false) }
+            else if allSelected && !artists.isEmpty { artistTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
+        }
         let artistSongs = matches.filter { artist == nil || $0.artist == artist }
+        albumSongCount = artistSongs.count
         if reloadAlbums {
             var seen = Set<String>(); albums = artistSongs.filter { seen.insert($0.albumID).inserted }.map { ($0.albumID, $0.album) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            albumTable.reloadData(); albumTable.deselectAll(nil); if let album, let i = albums.firstIndex(where: { $0.id == album }) { albumTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false) }
+            albumTable.reloadData(); albumTable.deselectAll(nil)
+            if let album, let i = albums.firstIndex(where: { $0.id == album }) { albumTable.selectRowIndexes(IndexSet(integer: i + 1), byExtendingSelection: false) }
+            else if allSelected && !albums.isEmpty { albumTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
         }
         visibleSongs = artistSongs.filter { album == nil || $0.albumID == album }; songTable.reloadData(); updateAddButton()
     }
@@ -368,9 +435,9 @@ final class DockedPlayerPanel: NSPanel {
         seek.maxValue = max(1, model.duration); seek.doubleValue = model.position; seek.isEnabled = model.canSeek
         volume.floatValue = model.volume
         playButton.title = model.playing ? "Ⅱ" : "▶"
-        shuffleButton.contentTintColor = model.queue.shuffle ? .systemBlue : nil
-        repeatButton.title = model.queue.repeatMode == .one ? "RPT 1" : "RPT"
-        repeatButton.contentTintColor = model.queue.repeatMode == .off ? nil : .systemBlue
+        shuffleButton.update(symbol: "shuffle", help: model.queue.shuffle ? "Shuffle: on" : "Shuffle: off", active: model.queue.shuffle)
+        let repeatHelp = model.queue.repeatMode == .one ? "Repeat: one song" : model.queue.repeatMode == .all ? "Repeat: all songs" : "Repeat: off"
+        repeatButton.update(symbol: model.queue.repeatMode == .one ? "repeat.1" : "repeat", help: repeatHelp, active: model.queue.repeatMode != .off)
         playlistButton.contentTintColor = !settingsVisible && playlist ? .systemBlue : nil
         libraryButton.contentTintColor = !settingsVisible && !playlist ? .systemBlue : nil
         settingsButton.contentTintColor = settingsVisible ? .systemBlue : .secondaryLabelColor
@@ -381,20 +448,22 @@ final class DockedPlayerPanel: NSPanel {
     @objc private func volumeChanged() { model.volume = volume.floatValue }
     @objc private func sourceChanged() {
         guard let id = source.selectedItem?.representedObject as? String else { return }
-        artist = nil; album = nil; model.selectFolder(id); showPlaylist(false); if id == "radio" { radioPane.focusStations() }
+        artist = nil; album = nil; allSelected = false; songTable.deselectAll(nil); model.selectFolder(id); showPlaylist(false); if id == "radio" { radioPane.focusStations() }
     }
     @objc private func doubleClick(_ sender: MusicTable) { if sender === queueTable { model.play(sender.clickedRow) } else { activate(sender, append: NSEvent.modifierFlags.contains(.option)) } }
     private func activate(_ table: MusicTable?, append: Bool) {
         var selected: [Song] = []
-        if table === artistTable, artists.indices.contains(artistTable.selectedRow) { let name = artists[artistTable.selectedRow]; selected = model.songs.filter { $0.artist == name } }
-        else if table === albumTable, albums.indices.contains(albumTable.selectedRow) { let id = albums[albumTable.selectedRow].id; selected = model.songs.filter { $0.albumID == id } }
+        if table === artistTable, artistTable.selectedRow == 0, !artists.isEmpty { selected = LibraryFilter.songs(model.songs, query: search.stringValue) }
+        else if table === artistTable, artists.indices.contains(artistTable.selectedRow - 1) { let name = artists[artistTable.selectedRow - 1]; selected = model.songs.filter { $0.artist == name } }
+        else if table === albumTable, albumTable.selectedRow == 0, !albums.isEmpty { selected = LibraryFilter.songs(model.songs, query: search.stringValue).filter { artist == nil || $0.artist == artist } }
+        else if table === albumTable, albums.indices.contains(albumTable.selectedRow - 1) { let id = albums[albumTable.selectedRow - 1].id; selected = model.songs.filter { $0.albumID == id } }
         else if table === songTable { selected = songTable.selectedRowIndexes.compactMap { visibleSongs.indices.contains($0) ? visibleSongs[$0] : nil } }
         if append { model.append(selected) } else { model.replace(selected) }
     }
     private func chosenSongs() -> [Song] {
         let selected = songTable.selectedRowIndexes.compactMap { visibleSongs.indices.contains($0) ? visibleSongs[$0] : nil }
         if !selected.isEmpty { return selected }
-        return artist != nil || album != nil ? visibleSongs : []
+        return allSelected || artist != nil || album != nil ? visibleSongs : []
     }
     private func updateAddButton() { addButton?.isEnabled = !chosenSongs().isEmpty }
     private func removeQueue() { model.remove(Set(queueTable.selectedRowIndexes.compactMap { model.queue.entries.indices.contains($0) ? model.queue.entries[$0].id : nil })) }
@@ -430,7 +499,7 @@ final class DockedPlayerPanel: NSPanel {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.charactersIgnoringModifiers?.lowercased() == "f", flags.contains(.command) || flags.contains(.control) {
             if model.selectedFolder == "radio" { showPlaylist(false); radioPane.clearSearch(); return true }
-            showPlaylist(false); search.stringValue = ""; artist = nil; album = nil; filter(); window?.makeFirstResponder(search); return true
+            showPlaylist(false); search.stringValue = ""; artist = nil; album = nil; allSelected = false; songTable.deselectAll(nil); filter(); window?.makeFirstResponder(search); return true
         }
         if !settingsVisible && playlist && playlistSection != 0 && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) && !(window?.firstResponder is NSTextView) { collectionPane.cycleFocus(); return true }
         if !settingsVisible && !playlist && !compact && event.keyCode == 48 && flags.isDisjoint(with: [.command, .control, .option]) {

@@ -8,7 +8,7 @@ Download the signed and notarized [macOS 0.2.2 beta](https://github.com/davidjpr
 
 ## Current development version
 
-The native Mac source is now **0.3.0 (build 7)**. It ports the Omarchy work through `8f49e9e` (the pushed 0.9.2 development branch), including settings, saved playlists, recents, gapless preloading, live normalization, safe music drops, consolidated sources and the smoother head-bang shoulder. The downloadable signed release above remains **0.2.2** until a new Mac beta is packaged, notarized and published. See [port coverage and validation](PORTING-0.3.0.md).
+The native Mac source is now **0.3.0 (build 8)**. It ports the Omarchy work through `e3b6beb` (the pushed 0.9.2 development branch), including settings, saved playlists, recents, gapless preloading, live normalization, safe music drops, consolidated sources and the smoother head-bang shoulder. The latest additions are native shuffle/repeat icons with accent-colored active indicators and All artists... / All albums... library rows. The downloadable signed release above remains **0.2.2** until a new Mac beta is packaged, notarized and published. See [port coverage and validation](PORTING-0.3.0.md).
 
 ## Updates
 
@@ -33,6 +33,8 @@ Other modes: `--build` creates the debug bundle without launching; `--verify` la
 Choose **Settings → Sources → Local Music → + Files / + Folder**, or **Settings → Sources → Jellyfin → Connect…**. The source menu switches Jellyfin, Local Music and Radio; it remembers the last Jellyfin library. Imports and source removal keep the current queue. Drop supported music files or folders onto the player to add their music to the library and queue. Jellyfin accepts a direct HTTP(S) URL, including a `/jellyfin` base path. The server must support byte ranges. Sign-in tokens are saved in macOS Keychain; passwords are not retained. Sign out removes the saved token and attempts server-side revocation.
 
 Browse Artist → Album → Song, search across metadata, play a selection, or append it without interrupting playback. The queue supports duplicates, multiple selection, removal, reordering, clear, shuffle, and repeat off/all/one. Transport includes play/pause, stop, previous/next, seek, and volume. Media keys and Control Centre use macOS Now Playing. **PL** collapses the music desk to a small receiver. Escape or the menu bar button hides the panel while playback continues; **Quit** exits.
+
+**All artists...** clears artist and album filters; **All albums...** keeps the artist and clears the album. Both show matching song totals and keep search active. Selecting a row browses without playing; Return/double-click plays its group, while Option-click/Option–Return appends. Explicitly selecting an All row enables **+ ADD**; a new search clears that selection. Shuffle and repeat use native symbols with the macOS accent color, a border and a small marker when enabled. Repeat-one shows **1**; hovering describes the current mode.
 
 The header llama cycles through running man, side shuffle, head banging and twerking every ten seconds of playback. Head banging uses planted feet, a knee bounce and four quick neck snaps per phrase. Twerking keeps the head and front steady with four big hip pops, a sideways wiggle and bent rear knees. It rests when playback pauses or stops, and respects macOS Reduce Motion. The menu bar uses a 17-point SVG llama with the system's monochrome tint.
 

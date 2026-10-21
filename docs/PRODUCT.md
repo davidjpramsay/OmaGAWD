@@ -91,5 +91,20 @@ an All row enables + ADD; initial/reset browsing keeps + ADD inactive. Empty
 results keep their existing message. Revisiting a pane preserves child choices.
 
 Omarchy passed 173 backend tests, 43 QML checks and native 460-pixel renders.
-This behaviour is a macOS parity candidate, pending implementation/verification
-there; no Mac changes or stable publication accompany this local update.
+The macOS port is recorded below; no stable publication accompanies this update.
+
+## macOS parity — 21 October 2026
+
+Ported Omarchy development through `e3b6beb` to `codex/macos-parity-0.9.2`
+([PR #6](https://github.com/davidjpramsay/OmaGAWD/pull/6)). Native SF Symbols
+replace SHF/RPT, including repeat-one. Enabled icons, borders and small markers
+use the macOS accent color; tooltips and accessible labels describe the mode.
+All artists... / All albums... show song totals, preserve search, clear the
+appropriate filters, support group play/append and enable + ADD only after a
+selection. Repeated click/Space on All clears child selections; returning focus
+to a pane preserves them. Empty searches have no summary rows.
+
+Verified with 74 Swift tests, the full muted native local/Jellyfin/radio playback
+fixture, and rendered native controls/library rows. The Mac remains development
+0.3.0, build 8; its downloadable signed release and Sparkle feed remain 0.2.2.
+No stable release or marketplace submission is part of this port.

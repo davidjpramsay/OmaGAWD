@@ -43,6 +43,95 @@ import OmaCore
         XCTAssertEqual(controller.source.itemTitles, ["Jellyfin", "Local Music", "Radio"])
         XCTAssertTrue(controller.window!.contentView is MusicDropView)
     }
+    private func browserSongs() -> [Song] {
+        [Song(id: "a1", title: "Blue morning", artist: "Alice", album: "First", albumID: "a"),
+         Song(id: "a2", title: "Green evening", artist: "Alice", album: "Second", albumID: "b"),
+         Song(id: "b1", title: "Blue night", artist: "Bob", album: "Third", albumID: "c")]
+    }
+    private func addButton(_ controller: PlayerWindow) -> ActionButton {
+        descendants(controller.window!.contentView!).compactMap { $0 as? ActionButton }.first { $0.title == "+ ADD" }!
+    }
+    private func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+    }
+    func testAllRowsShowCountsAndResetFiltersWithoutStartingPlayback() {
+        let (model, controller) = fixture(); defer { controller.hide(); model.shutdown() }
+        model.songs = browserSongs(); controller.reload()
+        XCTAssertEqual(controller.artistTable.numberOfRows, 3)
+        XCTAssertEqual(controller.albumTable.numberOfRows, 4)
+        let artistCell = controller.tableView(controller.artistTable, viewFor: nil, row: 0) as! NSTableCellView
+        XCTAssertEqual(artistCell.textField?.stringValue, "All artists...    3")
+        XCTAssertFalse(addButton(controller).isEnabled)
+        controller.artistTable.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        controller.albumTable.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        XCTAssertEqual(controller.visibleSongs.map(\.id), ["a1"])
+        // Revisiting the artist pane must preserve the chosen album.
+        controller.window?.makeFirstResponder(controller.artistTable)
+        XCTAssertEqual(controller.album, "a")
+        controller.albumTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        XCTAssertEqual(controller.artist, "Alice"); XCTAssertNil(controller.album)
+        XCTAssertEqual(controller.visibleSongs.map(\.id), ["a1", "a2"])
+        let albumCell = controller.tableView(controller.albumTable, viewFor: nil, row: 0) as! NSTableCellView
+        XCTAssertEqual(albumCell.textField?.stringValue, "All albums...    2")
+        controller.artistTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        XCTAssertNil(controller.artist); XCTAssertNil(controller.album)
+        XCTAssertEqual(controller.visibleSongs.count, 3); XCTAssertTrue(addButton(controller).isEnabled)
+        XCTAssertTrue(model.queue.entries.isEmpty); XCTAssertFalse(model.playing)
+        addButton(controller).perform()
+        XCTAssertEqual(model.queue.entries.map(\.song.id), ["a1", "a2", "b1"])
+    }
+    func testAllRowsKeepSearchAndExplicitSpaceClearsChildSelection() {
+        let (model, controller) = fixture(); defer { controller.hide(); model.shutdown() }
+        model.songs = browserSongs(); controller.reload()
+        controller.search.stringValue = "Blue"; controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        XCTAssertFalse(addButton(controller).isEnabled)
+        controller.artistTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        XCTAssertEqual(controller.visibleSongs.map(\.id), ["a1", "b1"])
+        controller.albumTable.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        XCTAssertEqual(controller.visibleSongs.map(\.id), ["a1"])
+        // All artists is already selected: Space must still clear the album.
+        controller.artistTable.keyDown(with: key(49))
+        XCTAssertNil(controller.album); XCTAssertEqual(controller.visibleSongs.map(\.id), ["a1", "b1"])
+        controller.artistTable.keyDown(with: key(36, modifiers: [.option]))
+        XCTAssertEqual(model.queue.entries.map(\.song.id), ["a1", "b1"])
+        XCTAssertFalse(model.playing)
+        controller.search.stringValue = "nothing matches"; controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        XCTAssertEqual(controller.artistTable.numberOfRows, 0); XCTAssertEqual(controller.albumTable.numberOfRows, 0)
+        XCTAssertFalse(addButton(controller).isEnabled)
+    }
+    func testAllAlbumsAppendKeepsArtistAndReturnPlaysFilteredAllArtists() {
+        let (model, controller) = fixture(); defer { controller.hide(); model.shutdown() }
+        let file = Bundle.module.resourceURL!.appendingPathComponent("Fixtures/02.m4a")
+        model.player.volume = 0
+        model.songs = browserSongs().map { var song = $0; song.file = file; return song }; controller.reload()
+        controller.artistTable.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        controller.albumTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        controller.albumTable.keyDown(with: key(36, modifiers: [.option]))
+        XCTAssertEqual(model.queue.entries.map(\.song.id), ["a1", "a2"]); XCTAssertFalse(model.playing)
+        controller.search.stringValue = "Blue"; controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        controller.artistTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        controller.artistTable.keyDown(with: key(36))
+        XCTAssertEqual(model.queue.entries.map(\.song.id), ["a1", "b1"])
+        XCTAssertEqual(model.queue.song?.id, "a1"); XCTAssertFalse(model.stopped)
+    }
+    func testPlaybackIconsCycleModesAndDescribeTheirCurrentState() {
+        let (model, controller) = fixture(); defer { controller.hide(); model.shutdown() }
+        XCTAssertNotNil(controller.shuffleButton.image); XCTAssertNotNil(controller.repeatButton.image)
+        XCTAssertFalse(controller.shuffleButton.modeActive); XCTAssertEqual(controller.shuffleButton.toolTip, "Shuffle: off")
+        controller.shuffleButton.perform()
+        XCTAssertTrue(model.queue.shuffle); XCTAssertTrue(controller.shuffleButton.modeActive)
+        XCTAssertEqual(controller.shuffleButton.accessibilityLabel(), "Shuffle: on")
+        XCTAssertEqual(controller.shuffleButton.contentTintColor, .controlAccentColor)
+        XCTAssertFalse(controller.repeatButton.modeActive); XCTAssertEqual(controller.repeatButton.toolTip, "Repeat: off")
+        controller.repeatButton.perform()
+        XCTAssertTrue(controller.repeatButton.modeActive); XCTAssertEqual(controller.repeatButton.toolTip, "Repeat: all songs")
+        controller.repeatButton.perform()
+        XCTAssertEqual(model.queue.repeatMode, .one); XCTAssertEqual(controller.repeatButton.symbolName, "repeat.1")
+        XCTAssertEqual(controller.repeatButton.accessibilityLabel(), "Repeat: one song")
+        controller.repeatButton.perform()
+        XCTAssertEqual(model.queue.repeatMode, .off); XCTAssertFalse(controller.repeatButton.modeActive)
+        controller.shuffleButton.perform(); XCTAssertFalse(controller.shuffleButton.modeActive)
+    }
     func testPlaybackTogglesPersistAndReduceMotionStopsDance() {
         let (model, controller) = fixture(); defer { controller.hide(); model.shutdown() }
         controller.openSettings(section: 0)
