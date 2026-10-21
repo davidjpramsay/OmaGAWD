@@ -1,14 +1,15 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Theme
 
 Rectangle {
     id: root
     required property var app
     readonly property bool radio: !!app.current && app.current.source === "radio"
     implicitHeight: content.implicitHeight + Style.space(20)
-    color: Color.background
-    border.color: Style.normalBorderFor(Color.foreground, Color.accent)
+    color: Theme.Color.background
+    border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent)
     radius: Style.cornerRadius
     ColumnLayout {
         id: content
@@ -26,7 +27,7 @@ Rectangle {
                 visible: app.opened
             }
             AmpText { text: "OMAGAWD"; font.bold: true; font.letterSpacing: 2 }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
             AmpButton {
                 objectName: "updateAvailableButton"
                 visible: !!app.updateInfo && !!app.updateInfo.available
@@ -39,15 +40,15 @@ Rectangle {
         }
         Rectangle {
             Layout.fillWidth: true; Layout.preferredHeight: Style.space(90)
-            color: Qt.darker(Color.background, 1.3)
-            border.color: Style.normalBorderFor(Color.foreground, Color.accent)
+            color: Qt.darker(Theme.Color.background, 1.3)
+            border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent)
             RowLayout {
                 anchors.fill: parent; anchors.margins: Style.space(8); spacing: Style.space(8)
                 ColumnLayout {
                     Layout.preferredWidth: Style.space(90)
                     spacing: Style.space(5)
-                    AmpText { text: root.radio ? "LIVE" : app.time(app.state.position); font.pixelSize: Style.font.display; color: Color.accent; font.letterSpacing: 2 }
-                    AmpText { objectName: "playbackStatus"; text: root.radio && app.state.radioStatus === "unavailable" ? "UNAVAILABLE" : root.radio && app.state.radioStatus === "connecting" ? "CONNECTING" : root.radio && app.state.radioStatus === "buffering" ? "BUFFERING" : app.state.idle ? "■  STOPPED" : app.state.paused ? "Ⅱ  PAUSED" : "▶  STREAMING"; color: root.radio && app.state.radioStatus === "unavailable" ? Color.urgent : Color.accent; font.pixelSize: Style.font.caption }
+                    AmpText { text: root.radio ? "LIVE" : app.time(app.state.position); font.pixelSize: Style.font.display; color: Theme.Color.accent; font.letterSpacing: 2 }
+                    AmpText { objectName: "playbackStatus"; text: root.radio && app.state.radioStatus === "unavailable" ? "UNAVAILABLE" : root.radio && app.state.radioStatus === "connecting" ? "CONNECTING" : root.radio && app.state.radioStatus === "buffering" ? "BUFFERING" : app.state.idle ? "■  STOPPED" : app.state.paused ? "Ⅱ  PAUSED" : "▶  STREAMING"; color: root.radio && app.state.radioStatus === "unavailable" ? Theme.Color.urgent : Theme.Color.accent; font.pixelSize: Style.font.caption }
                     Visualizer {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Style.space(22)
@@ -55,10 +56,10 @@ Rectangle {
                         playing: app.opened && app.playing
                     }
                 }
-                Rectangle { width: 1; Layout.fillHeight: true; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+                Rectangle { width: 1; Layout.fillHeight: true; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: Style.space(5)
-                    AmpText { visible: !!app.current; Layout.fillWidth: true; textFormat: Text.PlainText; text: app.current ? root.radio ? (app.state.radioTitle || app.current.title) : app.current.title : ""; font.pixelSize: Style.font.body; color: Color.accent }
+                    AmpText { visible: !!app.current; Layout.fillWidth: true; textFormat: Text.PlainText; text: app.current ? root.radio ? (app.state.radioTitle || app.current.title) : app.current.title : ""; font.pixelSize: Style.font.body; color: Theme.Color.accent }
                     AmpText { visible: !!app.current; Layout.fillWidth: true; textFormat: Text.PlainText; text: app.current ? root.radio ? app.current.title + " / " + app.current.artist : app.current.artist + " / " + app.current.album : ""; opacity: 0.8 }
                     RowLayout {
                         visible: !!app.current && (app.state.bitrate > 0 || root.radio)
@@ -116,8 +117,8 @@ Rectangle {
             AmpButton { text: "▶|"; hint: "Next track"; enabled: app.state.queue.length > 0; onClicked: app.send({cmd: "next"}) }
             AmpButton { objectName: "retryRadio"; visible: root.radio && app.state.radioStatus === "unavailable"; text: "RETRY"; hint: "Reconnect to this radio station"; onClicked: app.send({cmd: "radio_retry"}) }
             Item { Layout.preferredWidth: Style.space(4) }
-            AmpButton { text: "SHF"; hint: "Shuffle"; lit: app.state.shuffle; onClicked: app.send({cmd: "shuffle"}) }
-            AmpButton { text: app.state.repeat === "one" ? "R1" : "RPT"; hint: "Repeat: " + app.state.repeat; lit: app.state.repeat !== "off"; onClicked: app.send({cmd: "repeat"}) }
+            AmpButton { objectName: "shuffleButton"; text: "󰒝"; iconOnly: true; stateIndicator: true; hint: app.state.shuffle ? "Shuffle: on" : "Shuffle: off"; lit: app.state.shuffle; onClicked: app.send({cmd: "shuffle"}) }
+            AmpButton { objectName: "repeatButton"; text: app.state.repeat === "one" ? "󰑘" : "󰑖"; iconOnly: true; stateIndicator: true; hint: app.state.repeat === "one" ? "Repeat: one song" : app.state.repeat === "all" ? "Repeat: all songs" : "Repeat: off"; lit: app.state.repeat !== "off"; onClicked: app.send({cmd: "repeat"}) }
             AmpText { text: "VOL"; font.pixelSize: Style.font.caption; opacity: 0.6 }
             AmpSlider { Layout.fillWidth: true; Layout.minimumWidth: Style.space(60); from: 0; to: 100; value: app.state.volume; Accessible.name: "Volume"; onMoved: app.send({cmd: "volume", value: value}) }
             AmpButton { text: "PL"; hint: "Playlist (P) / Library (L)"; lit: app.playlistOpen; onClicked: { app.playlistOpen = !app.playlistOpen } }

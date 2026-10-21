@@ -28,6 +28,8 @@ Local files: MP3, FLAC, AAC, M4A/M4B/ALAC, Ogg/Opus, WAV, AIFF, WMA, APE and Wav
 
 Open the llama in the bar. Library **+ ADD** activates after selecting an artist, album or songs. **⚙ Settings** contains playback options, sources, updates and shortcuts. Gapless preloads the next music track; matching audio formats flow without reopening the output. Optional volume normalization measures all music and radio live using EBU R128 (−18 LUFS, −1.5 dB true peak); it can soften volume contrasts and add buffering. No tags, scans or media edits. Recent history and llama motion can be turned off.
 
+Shuffle/repeat icons use your theme accent and a small marker when enabled; repeat-one shows **1**. Hover for the current mode.
+
 | Shortcut | Action |
 |---|---|
 | P / L | Playlist / library |
@@ -44,6 +46,8 @@ Open the llama in the bar. Library **+ ADD** activates after selecting an artist
 
 P/L apply outside text fields. Option is Alt. Command accepts Meta and translated Control.
 
+Library **All artists...** clears artist/album filters; **All albums...** keeps the artist and clears the album. Search still applies. Return plays the group; Option/Alt+Return appends.
+
 Text fields support typing, selection, undo and explicit paste (Command/Ctrl+V, Shift+Insert, middle-click or the context menu). Clipboard reads run outside the shell with a 64 KiB / 2-second limit. IME composition is temporarily unsupported; compose elsewhere and paste.
 
 Suggested global binding: **Super+Alt+O** (Command+Option+O on Mac keys), if free. Bind it to:
@@ -59,3 +63,5 @@ Spectrum analysis stops while hidden or paused. Editing existing Jellyfin playli
 ## macOS
 
 [Download the signed macOS 0.2.2 beta](https://github.com/davidjpramsay/OmaGAWD/releases/tag/macos-v0.2.2-beta.1) (macOS 14+, Apple silicon and Intel), including **Check for Updates…**, or see the [macOS guide](macOS/README.md) for builds, shortcuts, and format support.
+
+Development: [shared product behaviour and platform parity](docs/PRODUCT.md).

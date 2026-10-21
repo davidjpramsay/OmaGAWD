@@ -20,6 +20,7 @@ Item {
         property bool optionHeld: false
         property string tab: "library"
         property string settingsSection: "playback"
+        property bool editingJellyfin: false
         property var savedPlaylists: []
         property var recentItems: []
         property var hostedPlaylists: []
@@ -63,7 +64,8 @@ Item {
         function showLibrary() { tab = "library" }
         function chooseLocal(folder) { send({cmd: folder ? "choose_folder" : "choose_files"}) }
         function removeLocal(path) { send({cmd: "local_remove", paths: [path]}) }
-        function showSources() { settingsSection = "sources"; tab = "settings" }
+        function showSources() { settingsSection = "sources"; tab = "settings"; editingJellyfin = false }
+        function showAccount() { showSources(); editingJellyfin = true }
     }
     Library { id: library; anchors.fill: parent; app: fakeApp }
     TestCase {
@@ -93,6 +95,7 @@ Item {
             fakeApp.updateChecking = false; fakeApp.updateInstalling = false; fakeApp.updateTerminalOpened = false
             library.radioTab = "saved"
             fakeApp.settingsSection = "playback"
+            fakeApp.editingJellyfin = false
             fakeApp.savedPlaylists = []; fakeApp.recentItems = []; fakeApp.localSources = []
             fakeApp.cancelRadioSearch()
             fakeApp.songs = [
@@ -268,12 +271,16 @@ Item {
         }
         function test_cascade_and_reverse() {
             library.cycleLists(false)
+            compare(library.artist, "")
+            keyClick(Qt.Key_Down)
             compare(library.artist, "A")
             compare(library.albumRows.length, 2)
             keyClick(Qt.Key_Down)
             compare(library.artist, "B")
             compare(library.songRows.length, 1)
             library.cycleLists(false)
+            compare(library.album, "")
+            keyClick(Qt.Key_Down)
             compare(library.album, "b1")
             library.cycleLists(false)
             compare(library.selectedSongs, ["3"])
@@ -282,16 +289,19 @@ Item {
             library.cycleLists(true)
             compare(library.album, "b1")
             keyClick(Qt.Key_Home)
-            compare(library.artist, "A")
+            compare(library.artist, "")
             compare(library.album, "")
             compare(library.selectedSongs.length, 0)
             compare(fakeApp.commands.length, 0)
         }
         function test_filter_toggle_and_modifiers() {
             list("ARTIST").focusList()
+            keyClick(Qt.Key_Down)
             keyClick(Qt.Key_Space)
             compare(library.artist, "")
             keyClick(Qt.Key_Up)
+            compare(library.artist, "")
+            keyClick(Qt.Key_Down)
             compare(library.artist, "A")
             keyClick(Qt.Key_Return, Qt.AltModifier)
             compare(fakeApp.commands[0].cmd, "add")
@@ -314,6 +324,7 @@ Item {
             compare(fakeApp.commands.length, 0)
             init()
             list("ARTIST").focusList()
+            keyClick(Qt.Key_Down)
             fakeApp.songs = fakeApp.songs.slice().reverse()
             wait(30)
             compare(library.artist, "A")
@@ -323,6 +334,75 @@ Item {
             compare(library.songRows.length, 3)
             library.cycleLists(true)
             verify(list("SONG").listFocused)
+        }
+        function test_all_rows_clear_filters_and_keep_search_without_playing() {
+            const artists = list("ARTIST"), albums = list("ALBUM")
+            compare(artists.rows[0].label, "All artists...")
+            compare(albums.rows[0].label, "All albums...")
+            compare(artists.rows.length, 3); compare(artists.itemCount, 2)
+            compare(albums.rows.length, 4); compare(albums.itemCount, 3)
+            library.artist = "A"; library.album = "a2"; library.selectedSongs = ["2"]
+            mouseClick(albums, 20, 39)
+            compare(library.artist, "A"); compare(library.album, "")
+            compare(library.selectedSongs, []); compare(library.songRows.length, 2)
+            compare(albums.rows[0].detail, "2")
+            library.album = "a1"; library.selectedSongs = ["1"]
+            mouseClick(artists, 20, 39)
+            compare(library.artist, ""); compare(library.album, "")
+            compare(library.selectedSongs, []); compare(library.songRows.length, 3)
+            verify(findChild(library, "addSelectedMusic").enabled)
+            const search = findChild(library, "librarySearch")
+            search.text = "Two"
+            mouseClick(artists, 20, 39)
+            compare(search.text, "Two"); compare(library.songRows.length, 1)
+            compare(artists.rows[0].detail, "1")
+            compare(fakeApp.commands, [])
+            library.focusSearch()
+            verify(!findChild(library, "addSelectedMusic").enabled)
+        }
+        function test_all_rows_play_append_and_keyboard_scopes() {
+            const artists = list("ARTIST"), albums = list("ALBUM")
+            const queue = JSON.stringify(fakeApp.state.queue)
+            artists.focusList(); keyClick(Qt.Key_Home)
+            keyClick(Qt.Key_Return, Qt.AltModifier)
+            compare(fakeApp.commands[0], {cmd: "add", ids: ["1", "2", "3"]})
+            keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[1], {cmd: "replace_play", ids: ["1", "2", "3"]})
+            keyClick(Qt.Key_Down)
+            compare(library.artist, "A")
+            library.cycleLists(false)
+            compare(library.album, "")
+            keyClick(Qt.Key_Return, Qt.AltModifier)
+            compare(fakeApp.commands[2], {cmd: "add", ids: ["1", "2"]})
+            keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[3], {cmd: "replace_play", ids: ["1", "2"]})
+            keyClick(Qt.Key_End); compare(library.album, "a2")
+            keyClick(Qt.Key_Home); compare(library.album, "")
+            compare(library.songRows.length, 2)
+            findChild(library, "librarySearch").text = "Three"
+            artists.focusList(); keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[4], {cmd: "replace_play", ids: ["3"]})
+            mouseClick(albums, 20, 39, Qt.LeftButton, Qt.AltModifier)
+            compare(fakeApp.commands[5], {cmd: "add", ids: ["3"]})
+            compare(JSON.stringify(fakeApp.state.queue), queue)
+            findChild(library, "librarySearch").text = "No match"
+            compare(artists.rows, []); compare(albums.rows, [])
+            artists.focusList(); keyClick(Qt.Key_Return)
+            compare(fakeApp.commands.length, 6)
+        }
+        function test_all_row_labels_do_not_replace_real_metadata_and_double_click_plays() {
+            fakeApp.songs = fakeApp.songs.concat([{id: "4", artist: "All artists", albumId: "named-all", album: "All albums", title: "Real song", duration: 1}])
+            wait(30)
+            const artists = list("ARTIST")
+            verify(artists.rows.some(row => row.key === "All artists" && !row.summary))
+            const label = findChild(artists, "rowLabel-All artists")
+            mouseClick(label)
+            compare(library.artist, "All artists")
+            keyClick(Qt.Key_Return)
+            compare(fakeApp.commands[0], {cmd: "replace_play", ids: ["4"]})
+            compare(list("ALBUM").rows[1].key, "named-all")
+            mouseDoubleClickSequence(artists, 20, 39)
+            compare(fakeApp.commands[1], {cmd: "replace_play", ids: ["1", "2", "3", "4"]})
         }
         function test_shortcut_guide_and_playback_settings() {
             fakeApp.tab = "settings"
@@ -375,8 +455,14 @@ Item {
             fakeApp.busy = true; verify(!files.enabled); verify(!folders.enabled)
             verify(!findChild(listing.itemAtIndex(0), "removeLocalSource").enabled)
             fakeApp.busy = false
-            fakeApp.tab = "connect"
+            findChild(library, "jellyfinAccount").clicked()
+            verify(fakeApp.editingJellyfin)
+            compare(fakeApp.tab, "settings"); compare(fakeApp.settingsSection, "sources")
+            verify(findChild(library, "settings-playback").visible)
+            verify(findChild(library, "serverInput").visible)
+            verify(!files.visible)
             findChild(library, "backToSources").clicked()
+            verify(!fakeApp.editingJellyfin); verify(files.visible)
             compare(fakeApp.tab, "settings"); compare(fakeApp.settingsSection, "sources")
             grabImage(library).save("/tmp/omagawd-local-settings.png")
         }

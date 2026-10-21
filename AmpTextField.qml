@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls as Controls
 import qs.Commons
+import qs.Commons as Theme
 import qs.Ui as UI
 
 // Qt 6.12 reads foreign clipboard data when editable TextInput checks canPaste.
@@ -107,7 +108,7 @@ UI.TextField {
     }
     Controls.Menu {
         id: menu
-        background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
+        background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent); radius: Style.cornerRadius }
         component Action: Controls.MenuItem {
             id: action
             contentItem: AmpText { text: action.text; opacity: action.enabled ? 1 : .4 }

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import qs.Commons
+import qs.Commons as Theme
 import qs.Ui as UI
 
 Rectangle {
@@ -63,6 +64,7 @@ Rectangle {
     onRadioModeChanged: focusRadioWhenReady()
     property string artist: ""
     property string album: ""
+    property bool allSelected: false
     property var selectedSongs: []
     property var selectedQueue: []
     property string folder: ""
@@ -70,11 +72,13 @@ Rectangle {
     readonly property var filtered: (radioMode && radioTab === "discover" ? radioRows : app.songs).filter(s => !search.text || (s.artist + " " + s.album + " " + s.title).toLowerCase().indexOf(search.text.toLowerCase()) >= 0)
     readonly property var artistSongs: filtered.filter(s => !artist || s.artist === artist)
     readonly property var albumSongs: artistSongs.filter(s => !album || s.albumId === album)
-    readonly property bool hasMusicSelection: !!artist || !!album || selectedSongs.length > 0
+    readonly property bool hasMusicSelection: allSelected || !!artist || !!album || selectedSongs.length > 0
     readonly property int selectedQueueIndex: app.state.queue.findIndex(s => s.key === root.selectedQueue[0])
     readonly property var chosenSongs: selectedSongs.length ? albumSongs.filter(s => selectedSongs.indexOf(s.id) >= 0) : albumSongs
     readonly property var artistRows: unique(filtered, "artist")
     readonly property var albumRows: unique(artistSongs, "albumId")
+    readonly property var artistBrowserRows: artistRows.length ? [{key: "", label: "All artists...", detail: String(filtered.length), summary: true}].concat(artistRows) : []
+    readonly property var albumBrowserRows: albumRows.length ? [{key: "", label: "All albums...", detail: String(artistSongs.length), summary: true}].concat(albumRows) : []
     readonly property var songRows: albumSongs.map(s => ({key: s.id, label: (s.track ? String(s.track).padStart(2, "0") + "  " : "") + s.title, detail: app.time(s.duration)}))
     readonly property var queueRows: app.state.queue.map((s, i) => ({key: s.key, label: String(i + 1).padStart(2, "0") + "  " + s.artist + " — " + s.title, detail: s.source === "radio" ? "LIVE" : app.time(s.duration)}))
     function focusPlaylist() { queueList.focusList() }
@@ -102,6 +106,7 @@ Rectangle {
         root.artist = ""
         root.album = ""
         root.selectedSongs = []
+        root.allSelected = false
         root.station = ""
         search.forceActiveFocus(Qt.ShortcutFocusReason)
     }
@@ -133,8 +138,8 @@ Rectangle {
         var index = app.state.queue.findIndex(s => s.key === selectedQueue[0])
         if (index >= 0) app.send({cmd: "move", index: index, delta: delta})
     }
-    color: Color.background
-    border.color: Style.normalBorderFor(Color.foreground, Color.accent)
+    color: Theme.Color.background
+    border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent)
     radius: Style.cornerRadius
     Connections {
         target: app
@@ -178,7 +183,7 @@ Rectangle {
         anchors.fill: parent; anchors.margins: Style.space(10); spacing: Style.space(8)
         RowLayout {
             AmpText { text: "OMAGAWD / MUSIC DESK"; font.bold: true; font.letterSpacing: 2 }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
             AmpButton { text: "×"; hint: "Hide music desk"; implicitHeight: Style.space(24); onClicked: app.playlistOpen = false }
         }
         RowLayout {
@@ -195,8 +200,8 @@ Rectangle {
                 contentItem: Row {
                     id: accountLabel
                     spacing: Style.space(5)
-                    AmpText { text: "●"; visible: app.connected && app.selectedLibrary !== "local" && !root.radioMode; color: Color.accent; anchors.verticalCenter: parent.verticalCenter }
-                    AmpText { text: accountButton.text; color: Color.foreground; font.bold: accountButton.lit; anchors.verticalCenter: parent.verticalCenter }
+                    AmpText { text: "●"; visible: app.connected && app.selectedLibrary !== "local" && !root.radioMode; color: Theme.Color.accent; anchors.verticalCenter: parent.verticalCenter }
+                    AmpText { text: accountButton.text; color: Theme.Color.foreground; font.bold: accountButton.lit; anchors.verticalCenter: parent.verticalCenter }
                 }
                 onClicked: sourceMenu.open()
                 Controls.Menu {
@@ -205,7 +210,7 @@ Rectangle {
                     y: accountButton.height + Style.space(4)
                     width: Style.space(195)
                     padding: Style.space(4)
-                    background: Rectangle { color: Color.background; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
+                    background: Rectangle { color: Theme.Color.background; border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent); radius: Style.cornerRadius }
                     SourceAction {
                         objectName: "jellyfinSource"
                         text: app.connected ? "Jellyfin" : "Connect to Jellyfin…"
@@ -214,7 +219,7 @@ Rectangle {
                             const remote = app.libraries.find(item => item.id === app.lastRemoteLibrary)
                                 || app.libraries.find(item => item.id !== "local" && item.id !== "radio")
                             if (app.connected && remote) { app.showLibrary(); app.send({cmd: "library", folder: remote.id}) }
-                            else app.tab = "connect"
+                            else app.showAccount()
                         }
                     }
                     SourceAction {
@@ -232,7 +237,7 @@ Rectangle {
                 }
             }
         }
-        Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+        Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
         RowLayout {
             objectName: "playlistSections"
             visible: root.playlistMode
@@ -252,7 +257,7 @@ Rectangle {
                     required property var modelData
                     objectName: "settings-" + modelData.key
                     text: modelData.label; lit: app.settingsSection === modelData.key
-                    onClicked: { app.settingsSection = modelData.key; if (modelData.key === "updates") app.checkUpdates(false) }
+                    onClicked: { app.editingJellyfin = false; app.settingsSection = modelData.key; if (modelData.key === "updates") app.checkUpdates(false) }
                 }
             }
             Item { Layout.fillWidth: true }
@@ -317,8 +322,8 @@ Rectangle {
                 onNavigated: function(key) { root.hostedSong = key }
                 onActivated: function(key) { app.loadHosted(root.hostedPlaylistId, true, Number(key)) }
             }
-            AmpText { Layout.fillWidth: true; visible: !!app.hostedNotice; text: app.hostedNotice || ""; color: Color.accent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
-            AmpText { Layout.fillWidth: true; visible: !!app.hostedError; text: app.hostedError || ""; color: Color.urgent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
+            AmpText { Layout.fillWidth: true; visible: !!app.hostedNotice; text: app.hostedNotice || ""; color: Theme.Color.accent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
+            AmpText { Layout.fillWidth: true; visible: !!app.hostedError; text: app.hostedError || ""; color: Theme.Color.urgent; wrapMode: Text.WordWrap; elide: Text.ElideNone }
             ColumnLayout {
                 visible: !!root.hostedDeleteId
                 Layout.fillWidth: true
@@ -409,7 +414,7 @@ Rectangle {
                     delegate: ColumnLayout {
                         required property var modelData
                         Layout.fillWidth: true; spacing: Style.space(2)
-                        AmpText { text: modelData[0]; color: Color.accent; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                        AmpText { text: modelData[0]; color: Theme.Color.accent; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                         AmpText { text: modelData[1]; Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone; opacity: 0.7 }
                     }
                 }
@@ -422,12 +427,12 @@ Rectangle {
             AmpText {
                 objectName: "updateStatus"
                 text: app.updateChecking ? "Checking for updates…" : (app.updateInfo || {}).available ? "Update available · " + app.updateInfo.latest : app.updateError ? "Update check unavailable" : (app.updateInfo || {}).current ? "You’re up to date · " + app.updateInfo.current : "Check for the latest Omarchy release"
-                color: (app.updateInfo || {}).available ? Color.accent : Color.foreground
+                color: (app.updateInfo || {}).available ? Theme.Color.accent : Theme.Color.foreground
                 Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone
             }
             AmpText {
                 text: app.updateError || ""
-                visible: !!app.updateError; color: Color.urgent
+                visible: !!app.updateError; color: Theme.Color.urgent
                 Layout.fillWidth: true; wrapMode: Text.WordWrap; elide: Text.ElideNone
             }
             Controls.ScrollView {
@@ -454,15 +459,15 @@ Rectangle {
             }
         }
         ColumnLayout {
-            visible: app.tab === "sources" || (app.tab === "settings" && app.settingsSection === "sources")
+            visible: app.tab === "sources" || (app.tab === "settings" && app.settingsSection === "sources" && !app.editingJellyfin)
             Layout.fillWidth: true; Layout.fillHeight: true
             spacing: Style.space(10)
             RowLayout {
                 Layout.fillWidth: true
                 AmpText { text: app.connected ? "Jellyfin · " + app.username : "Jellyfin not connected"; Layout.fillWidth: true }
-                AmpButton { text: app.connected ? "Account…" : "Connect…"; onClicked: app.tab = "connect" }
+                AmpButton { objectName: "jellyfinAccount"; text: app.connected ? "Account…" : "Connect…"; onClicked: app.showAccount() }
             }
-            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+            Rectangle { Layout.fillWidth: true; height: 1; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
             RowLayout {
                 Layout.fillWidth: true
                 AmpText { text: "LOCAL MUSIC"; font.pixelSize: Style.font.caption; Layout.fillWidth: true }
@@ -492,14 +497,14 @@ Rectangle {
                         }
                         AmpButton { objectName: "removeLocalSource"; text: "Remove"; hint: "Forget this source; keep files and the current queue"; enabled: app.ready && !app.busy; onClicked: app.removeLocal(modelData) }
                     }
-                    Rectangle { width: parent.width; height: 1; color: Style.normalBorderFor(Color.foreground, Color.accent) }
+                    Rectangle { width: parent.width; height: 1; color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent) }
                 }
             }
             AmpText { visible: !localSourceList.count; text: "No local music added yet."; Layout.fillWidth: true; opacity: 0.6 }
             Item { visible: !localSourceList.count; Layout.fillHeight: true }
         }
         ColumnLayout {
-            visible: app.tab === "connect"
+            visible: app.tab === "settings" && app.settingsSection === "sources" && app.editingJellyfin
             Layout.fillWidth: true; Layout.fillHeight: true
             spacing: Style.space(8)
             RowLayout {
@@ -555,7 +560,7 @@ Rectangle {
                     Accessible.name: "Search library"
                     maximumLength: 160
                     onAccepted: if (root.radioMode && root.radioTab === "discover") root.discoverRadio()
-                    onTextChanged: { root.artist = ""; root.album = ""; root.selectedSongs = []; root.radioEdited() }
+                    onTextChanged: { root.artist = ""; root.album = ""; root.selectedSongs = []; root.allSelected = false; root.radioEdited() }
                     Controls.ToolButton {
                         id: clearSearch
                         visible: enabled
@@ -575,6 +580,7 @@ Rectangle {
                             root.artist = ""
                             root.album = ""
                             root.selectedSongs = []
+                            root.allSelected = false
                             search.forceActiveFocus(Qt.MouseFocusReason)
                         }
                     }
@@ -597,7 +603,7 @@ Rectangle {
                         highlighted: folders.highlightedIndex === index
                         contentItem: AmpText {
                             text: app.libraries[index] ? app.libraries[index].name : ""
-                            color: folders.currentIndex === index ? Color.accent : Color.foreground
+                            color: folders.currentIndex === index ? Theme.Color.accent : Theme.Color.foreground
                             verticalAlignment: Text.AlignVCenter
                         }
                         background: Rectangle {
@@ -611,8 +617,8 @@ Rectangle {
                         padding: Style.space(4)
                         implicitHeight: Math.min(contentItem.implicitHeight + 2 * padding, Style.space(240))
                         background: Rectangle {
-                            color: Color.background
-                            border.color: Style.normalBorderFor(Color.foreground, Color.accent)
+                            color: Theme.Color.background
+                            border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent)
                             radius: Style.cornerRadius
                         }
                         contentItem: ListView {
@@ -625,8 +631,8 @@ Rectangle {
                         }
                     }
                     contentItem: AmpText { text: folders.displayText; verticalAlignment: Text.AlignVCenter; leftPadding: Style.space(8); rightPadding: Style.space(22) }
-                    background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Color.foreground, Color.accent); radius: Style.cornerRadius }
-                    onActivated: { root.folder = currentValue; root.artist = ""; root.album = ""; root.selectedSongs = []; app.send({cmd: "library", folder: currentValue}) }
+                    background: Rectangle { color: Style.normalFill; border.color: Style.normalBorderFor(Theme.Color.foreground, Theme.Color.accent); radius: Style.cornerRadius }
+                    onActivated: { root.folder = currentValue; root.artist = ""; root.album = ""; root.selectedSongs = []; root.allSelected = false; app.send({cmd: "library", folder: currentValue}) }
                 }
             }
             RowLayout {
@@ -675,27 +681,27 @@ Rectangle {
                 Layout.fillWidth: true; Layout.fillHeight: true; columnSpacing: Style.space(8); rowSpacing: Style.space(8)
                 TextList {
                     Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: Math.max(Style.space(100), root.height * 0.24)
-                    onActivated: function(key) { root.playMusic(app.songs.filter(s => s.artist === key)) }
+                    onActivated: function(key) { root.playMusic(key ? app.songs.filter(s => s.artist === key) : root.filtered) }
                     id: artistList
                     addEnabled: true
                     addHeld: app.optionHeld || false
-                    onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.artist === key)) }
-                    heading: "ARTIST"; rows: root.artistRows; selected: [root.artist]
-                    onNavigated: function(key) { if (root.artist !== key) { root.artist = key; root.album = ""; root.selectedSongs = [] } }
+                    onAppendRequested: function(key) { root.appendMusic(key ? app.songs.filter(s => s.artist === key) : root.filtered) }
+                    heading: "ARTIST"; rows: root.artistBrowserRows; itemCount: root.artistRows.length; selected: [root.artist]
+                    onNavigated: function(key) { root.allSelected = !key; if (root.artist !== key) { root.artist = key; root.album = ""; root.selectedSongs = [] } }
                     emptyText: app.busy ? "Reading library…" : app.selectedLibrary === "local" && !app.songs.length ? "Add local files or a folder" : "No matching artists"
-                    onChosen: function(key) { root.artist = root.artist === key ? "" : key; root.album = ""; root.selectedSongs = [] }
+                    onChosen: function(key) { root.allSelected = !key; root.artist = root.artist === key ? "" : key; root.album = ""; root.selectedSongs = [] }
                 }
                 TextList {
                     Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: Math.max(Style.space(100), root.height * 0.24)
-                    onActivated: function(key) { root.playMusic(app.songs.filter(s => s.albumId === key)) }
+                    onActivated: function(key) { root.playMusic(key ? app.songs.filter(s => s.albumId === key) : root.artistSongs) }
                     id: albumList
                     addEnabled: true
                     addHeld: app.optionHeld || false
-                    onAppendRequested: function(key) { root.appendMusic(app.songs.filter(s => s.albumId === key)) }
-                    heading: "ALBUM"; rows: root.albumRows; selected: [root.album]
-                    onNavigated: function(key) { if (root.album !== key) { root.album = key; root.selectedSongs = [] } }
+                    onAppendRequested: function(key) { root.appendMusic(key ? app.songs.filter(s => s.albumId === key) : root.artistSongs) }
+                    heading: "ALBUM"; rows: root.albumBrowserRows; itemCount: root.albumRows.length; selected: [root.album]
+                    onNavigated: function(key) { root.allSelected = !key; if (root.album !== key) { root.album = key; root.selectedSongs = [] } }
                     emptyText: "No matching albums"
-                    onChosen: function(key) { root.album = root.album === key ? "" : key; root.selectedSongs = [] }
+                    onChosen: function(key) { root.allSelected = !key; root.album = root.album === key ? "" : key; root.selectedSongs = [] }
                 }
                 TextList {
                     Layout.columnSpan: 2; Layout.fillHeight: true; Layout.fillWidth: true
@@ -751,7 +757,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: !!text
             text: app.error || (app.busy ? "Loading…" : app.tab === "queue" && app.state.queue.some(s => s.duration > 0) ? app.time(app.state.queue.reduce((n,s) => n + s.duration, 0)) + " total" : app.tab === "library" && root.radioMode ? ((root.radioTab === "discover" && app.radioError) || (app.radioBusy ? "Searching…" : "")) : "")
-            color: app.error ? Color.urgent : Color.foreground
+            color: app.error ? Theme.Color.urgent : Theme.Color.foreground
             opacity: app.error ? 1 : 0.6
             wrapMode: Text.WordWrap; elide: Text.ElideNone; font.pixelSize: Style.font.caption
         }

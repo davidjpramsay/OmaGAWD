@@ -10,6 +10,7 @@ cat > "$preview_dir/shell.qml" <<'QML'
 import QtQuick
 import Quickshell
 import qs.Commons
+import qs.Commons as Theme
 import qs.Ui as UI
 import "Amp" as Amp
 ShellRoot {
@@ -17,16 +18,16 @@ ShellRoot {
         id: previewBar
         pluginId: "david.omaamp"
         moduleName: "david.omaamp"
-        foreground: Color.foreground
-        barForeground: Color.foreground
-        background: Color.background
+        foreground: Theme.Color.foreground
+        barForeground: Theme.Color.foreground
+        background: Theme.Color.background
         fontFamily: Style.font.family
         barSize: Style.bar.sizeHorizontal
     }
     PanelWindow {
         anchors { top: true; left: true; right: true }
         implicitHeight: Style.bar.sizeHorizontal
-        color: Color.background
+        color: Theme.Color.background
         Amp.BarWidget {
             anchors.right: parent.right
             anchors.rightMargin: Style.gapsOut
