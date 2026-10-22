@@ -165,6 +165,20 @@ import OmaCore
         XCTAssertEqual(model.queue.current, entry.id)
     }
 
+    func testRemoteSessionWithoutAnAccountIdentityCannotUseNewSignIn() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PlayerSessionStore(url: root.appendingPathComponent("session.json"))
+        let entry = QueueEntry(Song(id: "remote", title: "Unattributed saved track"))
+        try store.flush(PlayerSession(entries: [entry], current: entry.id, position: 10, selectedFolder: "local", stopped: false, library: nil))
+        let model = PlayerModel(defaults: isolatedDefaults(), sessionStore: store, loadAccount: { self.account }, loadFolders: { _ in [] })
+        defer { model.shutdown() }
+        model.start(); try await waitUntil { !model.accountLoading }
+        model.resume()
+        XCTAssertTrue(model.error); XCTAssertNil(model.player.currentItem); XCTAssertFalse(model.playing)
+        XCTAssertEqual(model.queue.current, entry.id)
+    }
+
     func testClearDuringStartupDoesNotBringBackSavedQueue() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
