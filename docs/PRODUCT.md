@@ -108,3 +108,13 @@ Verified with 74 Swift tests, the full muted native local/Jellyfin/radio playbac
 fixture, and rendered native controls/library rows. The Mac remains development
 0.3.0, build 8; its downloadable signed release and Sparkle feed remain 0.2.2.
 No stable release or marketplace submission is part of this port.
+
+## Local Mac installation — 22 October 2026
+
+macOS 0.3.0 build 8 (runtime source `b2e14f4`) was built universal, Developer ID
+signed, Apple notarized and installed on the development Mac at the user's
+request. Gatekeeper and the exact-bundle playback fixture passed, together with
+74 Swift tests. The previous app/state were kept for rollback; live launch,
+Jellyfin retrieval and paused queue/position restoration were verified.
+Published Mac downloads and the Sparkle feed remain at 0.2.2. No public release,
+stable-main merge or Omarchy marketplace submission accompanies this install.

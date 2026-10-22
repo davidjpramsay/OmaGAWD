@@ -2,7 +2,7 @@
 
 Source reference: Omarchy `omarchy-v0.9.1` (`16acca1`) plus the pushed 0.9.2 development work through `e3b6beb` on `codex/security-review-091`. Both remote references were refreshed on 21 October 2026 before the latest port.
 
-The Mac build is 0.3.0, build 8. This is source and a local development bundle, not a newly published/notarized download. The signed updater feed continues to advertise the existing 0.2.2 beta. No stable release or Omarchy marketplace submission is part of this work.
+The Mac build is 0.3.0, build 8. On 22 October 2026 the universal build was Developer ID signed, Apple notarized and installed on the development Mac. It has not been published as a GitHub download: the signed updater feed continues to advertise the existing 0.2.2 beta. No stable release or Omarchy marketplace submission is part of this work.
 
 ## Coverage
 
@@ -41,3 +41,11 @@ Validation completed on 15 October 2026 on the development Mac. The test report 
 - **74 Swift tests passed**; the muted native playback fixture reported **PASS** for local/Jellyfin/radio playback, spectrum, gapless transitions, hosted-playlist HTTP operations and all four llama dances. New UI cases exercise summary counts, parent/child resets, search retention, empty results, explicit Space selection, group play/append and shuffle/repeat mode cycling/accessibility.
 - Rendered native inspection verified off/on/repeat-one icons, accent-colored icons/borders/markers, All rows with song totals, explicit All selection enabling + ADD without playback, and Sources returning to the library. Fixture media used a disposable temporary directory; no real account or playlist was edited. A uniquely identified preview's initial Documents-folder scan blocked inside the OS directory open; it was stopped and visual verification used temporary fixture media. Documents access/privacy behavior remains a separate acceptance check.
 - Built local 0.3.0 build 8. No install replacement, signed distribution, release publication or updater-feed change.
+
+### 22 October local installation
+
+- Source runtime commit: `b2e14f4`. Universal arm64/x86_64 release build, Developer ID signed with the same app identifier/team and designated requirement as the previous installation. Apple notarization accepted; the ticket was stapled and validated; Gatekeeper accepted both the staged and installed app as Notarized Developer ID.
+- `OMAGAWD_TEST_BUNDLE="$PWD/dist/release.noindex/OmaGAWD.app" ./script/test_macos.sh --existing-bundle`: **74 Swift tests passed** and the full muted native playback report was **PASS** against that exact signed/notarized bundle.
+- The user-authorized local update replaced `/Applications/OmaGAWD.app` with 0.3.0 build 8 after a clean app quit. The previous app, application data and preferences were retained in a private `.noindex` rollback directory outside the repository. The installed executable checksum matches the validated candidate.
+- Live verification confirmed successful launch, Jellyfin library retrieval, native shuffle/repeat icons and All rows, unchanged queue entries/current track/source/account identity, preserved volume/shuffle and paused playback position. The player was left on its Queue view, paused.
+- GitHub source/PR is pushed. GitHub release assets, the Sparkle feed and Omarchy marketplace remain unchanged; this is a local installation, not a public release.
