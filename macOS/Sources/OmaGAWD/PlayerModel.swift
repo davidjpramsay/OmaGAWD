@@ -570,9 +570,11 @@ import OmaCore
     func toggle() { wantsPlayback && !stopped ? pause() : resume() }
     func resume() {
         wantsPlayback = true
+        if queue.song?.requiresAccount == true { buffering = !playing }
         if stopped || player.currentItem?.status == .failed || (player.currentItem == nil && playbackTask == nil) { prepare(queue.index ?? 0, autoplay: true, position: position) }
         else if let pendingPosition, player.currentItem?.status == .readyToPlay { seek(pendingPosition) }
         else if player.currentItem != nil && pendingPosition == nil { player.play() }
+        onTick?()
     }
     func pause() {
         cancelRecovery(); buffering = false

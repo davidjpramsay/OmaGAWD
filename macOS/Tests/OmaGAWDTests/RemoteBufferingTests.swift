@@ -117,6 +117,8 @@ final class RemoteBufferingTests: XCTestCase {
         let fixture = try await RemoteFixture(), model = model(fixture); defer { model.shutdown() }
         let start = Date(); model.replace([Song(id: "slow-start", title: "Slow remote fixture", duration: 45)])
         XCTAssertTrue(model.buffering)
+        model.pause(); XCTAssertFalse(model.buffering)
+        model.resume(); XCTAssertTrue(model.buffering)
         try await wait(20) { model.playing && model.position > 0.1 }
         XCTAssertGreaterThan(Date().timeIntervalSince(start), 11)
         XCTAssertFalse(model.error); XCTAssertFalse(model.buffering)
