@@ -136,3 +136,9 @@ Omarchy is a parity candidate for these remote resilience behaviours; its native
 mpv transport should be assessed independently rather than copying AVFoundation
 workarounds. This is source/local-install work, not a stable release or store
 submission. Validation and installation evidence live in the Mac port notes.
+
+Build 9 was subsequently signed/notarized, passed 84 Swift tests and the full
+exact-bundle native playback fixture, and was installed locally on 26 October.
+Live queue/account/state restoration was verified; the previous app/data were
+retained privately for rollback. Public downloads and the updater feed remain
+at Mac 0.2.2, independently of this local installation.
