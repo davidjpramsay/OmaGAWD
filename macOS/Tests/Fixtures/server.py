@@ -13,6 +13,12 @@ PLAYLIST = '11111111111111111111111111111111'
 CREATED = '44444444444444444444444444444444'
 playlists = {PLAYLIST: {'Id': PLAYLIST, 'Name': 'Fixture playlist', 'Type': 'Playlist', 'MediaType': 'Audio', 'CanDelete': True, 'ChildCount': 2}}
 playlist_lock = threading.Lock()
+audio_counts = {}
+audio_lock = threading.Lock()
+audio_delayed = set()
+large_path = os.path.join(folder, 'range-data.bin')
+with open(large_path, 'wb') as f:
+    f.write(bytes(range(256)) * (16 * 1024 * 1024 // 256))
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args): print(fmt % args, flush=True)
@@ -74,13 +80,46 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({'Items': rows, 'TotalRecordCount': len(rows)})
         elif self.path.startswith('/jellyfin/Items'):
             self.send_json({'Items':[{'Id':SONG,'Name':'Streaming test tone','AlbumArtist':'OmaGAWD','Album':'Verification','AlbumId':'verification','RunTimeTicks':450000000,'IndexNumber':1}], 'TotalRecordCount':1})
-        elif self.path.startswith('/jellyfin/Audio/tone/stream') or self.path.startswith('/jellyfin/Audio/' + SONG + '/stream'):
-            size = os.path.getsize(path); start, end = 0, size-1
+        elif self.path.startswith('/jellyfin/Audio/'):
+            audio_id = urllib.parse.urlsplit(self.path).path.split('/')[3]
+            with audio_lock:
+                audio_counts[audio_id] = audio_counts.get(audio_id, 0) + 1
+                attempt = audio_counts[audio_id]
+                with open(os.path.join(folder, 'audio-requests.jsonl'), 'a') as f:
+                    f.write(json.dumps({'id': audio_id, 'attempt': attempt, 'range': self.headers.get('Range'), 'time': time.monotonic()}) + '\n')
+            if audio_id in ('flaky', 'unavailable') and (audio_id == 'unavailable' or attempt <= 2):
+                self.send_error(503); return
+            if audio_id == 'unauthorized': self.send_error(401); return
+            if audio_id == 'redirect-audio':
+                self.send_response(302); self.send_header('Location', 'http://127.0.0.1:1/credentials-must-not-reach-here'); self.end_headers(); return
+            if audio_id == 'slow-start' and attempt == 1: time.sleep(12)
+            audio_path = large_path if audio_id == 'large' else path
+            if audio_id == 'mid-delay':
+                audio_path = os.path.join(folder, 'long-tone.wav')
+                if not os.path.exists(audio_path):
+                    with wave.open(path, 'rb') as original:
+                        params, tone = original.getparams(), original.readframes(44100 * 45)
+                    with wave.open(audio_path, 'wb') as output:
+                        output.setparams(params)
+                        for _ in range(4): output.writeframes(tone)
+            size = os.path.getsize(audio_path); start, end = 0, size-1
             if self.headers.get('Range'):
                 a,b = self.headers['Range'].removeprefix('bytes=').split('-'); start=int(a); end=min(int(b) if b else size-1,size-1)
-            self.send_response(206); self.send_header('Content-Type','audio/wav'); self.send_header('Accept-Ranges','bytes'); self.send_header('Content-Range',f'bytes {start}-{end}/{size}'); self.send_header('Content-Length',str(end-start+1)); self.end_headers()
+            if start >= size: self.send_error(416); return
+            if audio_id == 'mid-delay' and 4 * 1024 * 1024 <= start < 8 * 1024 * 1024:
+                with audio_lock:
+                    delay = audio_id not in audio_delayed
+                    audio_delayed.add(audio_id)
+                if delay: time.sleep(12)
+            tag = '"changed"' if audio_id == 'changed' and attempt > 1 else '"fixture-v1"'
+            first = start + 1 if audio_id == 'bad-range' else start
+            self.send_response(206); self.send_header('Content-Type','audio/wav'); self.send_header('Accept-Ranges','bytes'); self.send_header('Content-Range',f'bytes {first}-{end}/{size}'); self.send_header('Content-Length',str(end-start+1)); self.send_header('ETag',tag); self.end_headers()
             try:
-                with open(path,'rb') as f: f.seek(start); self.wfile.write(f.read(end-start+1))
+                with open(audio_path,'rb') as f:
+                    f.seek(start)
+                    if audio_id == 'drop' and attempt == 1:
+                        self.wfile.write(f.read(128 * 1024)); self.wfile.flush(); self.close_connection = True
+                    else: self.wfile.write(f.read(end-start+1))
             except (BrokenPipeError,ConnectionResetError): pass
         elif self.path == '/jellyfin/redirect':
             self.send_response(302); self.send_header('Location','http://127.0.0.1:1/credentials-must-not-reach-here'); self.end_headers()

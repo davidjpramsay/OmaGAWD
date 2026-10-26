@@ -431,10 +431,10 @@ final class DockedPlayerPanel: NSPanel {
         if detailLabel.toolTip != detailLabel.stringValue { detailLabel.toolTip = detailLabel.stringValue }
         elapsed.stringValue = model.queue.song?.isRadio == true ? "LIVE" : clockText(model.position)
         total.stringValue = model.queue.song?.isRadio == true ? "LIVE" : clockText(model.duration)
-        stateLabel.stringValue = model.stopped ? "STOPPED" : model.playing ? (model.queue.song?.isRadio == true ? "▶ RADIO" : model.queue.song?.file == nil ? "▶ STREAMING" : "▶ PLAYING") : "PAUSED"
+        stateLabel.stringValue = model.stopped ? "STOPPED" : model.buffering ? "BUFFERING" : model.playing ? (model.queue.song?.isRadio == true ? "▶ RADIO" : model.queue.song?.file == nil ? "▶ STREAMING" : "▶ PLAYING") : "PAUSED"
         seek.maxValue = max(1, model.duration); seek.doubleValue = model.position; seek.isEnabled = model.canSeek
         volume.floatValue = model.volume
-        playButton.title = model.playing ? "Ⅱ" : "▶"
+        playButton.title = model.playing || model.buffering ? "Ⅱ" : "▶"
         shuffleButton.update(symbol: "shuffle", help: model.queue.shuffle ? "Shuffle: on" : "Shuffle: off", active: model.queue.shuffle)
         let repeatHelp = model.queue.repeatMode == .one ? "Repeat: one song" : model.queue.repeatMode == .all ? "Repeat: all songs" : "Repeat: off"
         repeatButton.update(symbol: model.queue.repeatMode == .one ? "repeat.1" : "repeat", help: repeatHelp, active: model.queue.repeatMode != .off)

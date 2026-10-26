@@ -118,3 +118,21 @@ request. Gatekeeper and the exact-bundle playback fixture passed, together with
 Jellyfin retrieval and paused queue/position restoration were verified.
 Published Mac downloads and the Sparkle feed remain at 0.2.2. No public release,
 stable-main merge or Omarchy marketplace submission accompanies this install.
+
+## macOS remote playback — 26 October 2026
+
+Development 0.3.0 build 9 adds background authenticated range loading, bounded
+in-memory read-ahead and approximately 30 seconds of preparation/native forward
+buffering. Temporary audio GET failures retry the exact remaining range up to
+twice; interrupted current tracks can reconnect at their held position twice.
+BUFFERING distinguishes network waiting from Pause. Pause/Stop/Seek/Next and
+account changes invalidate delayed recovery. Invalid ranges, changed files,
+redirects, authentication/certificate errors and playlist mutations do not get
+automatic retries. Local files and native live-radio behaviour are unchanged.
+The cache is at most 8 MiB per item, with at most 16 pending 1 MiB reads per
+item and only the current/next items retained. No audio is cached to disk.
+
+Omarchy is a parity candidate for these remote resilience behaviours; its native
+mpv transport should be assessed independently rather than copying AVFoundation
+workarounds. This is source/local-install work, not a stable release or store
+submission. Validation and installation evidence live in the Mac port notes.

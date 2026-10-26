@@ -2,7 +2,7 @@
 
 Source reference: Omarchy `omarchy-v0.9.1` (`16acca1`) plus the pushed 0.9.2 development work through `e3b6beb` on `codex/security-review-091`. Both remote references were refreshed on 21 October 2026 before the latest port.
 
-The Mac build is 0.3.0, build 8. On 22 October 2026 the universal build was Developer ID signed, Apple notarized and installed on the development Mac. It has not been published as a GitHub download: the signed updater feed continues to advertise the existing 0.2.2 beta. No stable release or Omarchy marketplace submission is part of this work.
+The Mac source is 0.3.0, build 9, adding Jellyfin remote buffering/recovery. Build 8 was Developer ID signed, Apple notarized and installed on 22 October 2026. Neither development build has been published as a GitHub download: the signed updater feed continues to advertise the existing 0.2.2 beta. No stable release or Omarchy marketplace submission is part of this work.
 
 ## Coverage
 

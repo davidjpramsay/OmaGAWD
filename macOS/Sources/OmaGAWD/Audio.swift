@@ -23,59 +23,6 @@ final class RadioMetadataSink: NSObject, AVPlayerItemMetadataOutputPushDelegate 
     }
 }
 
-// Feed AVFoundation authenticated byte ranges without placing credentials in URLs
-// or allowing a redirect to forward them to a different endpoint.
-final class AudioResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate {
-    let account: Account
-    let songID: String
-    private var requests: [Int: AVAssetResourceLoadingRequest] = [:]
-    private var tasks: [ObjectIdentifier: URLSessionDataTask] = [:]
-    private lazy var session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: .main)
-    init(account: Account, songID: String) { self.account = account; self.songID = songID }
-    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource request: AVAssetResourceLoadingRequest) -> Bool {
-        var c = URLComponents(url: account.server.appendingPathComponent("Audio").appendingPathComponent(songID).appendingPathComponent("stream"), resolvingAgainstBaseURL: false)!
-        c.queryItems = [URLQueryItem(name: "static", value: "true")]
-        var r = URLRequest(url: c.url!); r.timeoutInterval = 45
-        r.setValue(account.authorization, forHTTPHeaderField: "Authorization")
-        r.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        if let data = request.dataRequest {
-            let start = max(data.requestedOffset, data.currentOffset)
-            let end = data.requestedOffset + Int64(data.requestedLength) - 1
-            r.setValue(data.requestsAllDataToEndOfResource ? "bytes=\(start)-" : "bytes=\(start)-\(max(start,end))", forHTTPHeaderField: "Range")
-        } else { r.setValue("bytes=0-1", forHTTPHeaderField: "Range") }
-        let task = session.dataTask(with: r)
-        requests[task.taskIdentifier] = request; tasks[ObjectIdentifier(request)] = task; task.resume(); return true
-    }
-    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel request: AVAssetResourceLoadingRequest) {
-        if let task = tasks.removeValue(forKey: ObjectIdentifier(request)) { requests.removeValue(forKey: task.taskIdentifier); task.cancel() }
-    }
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let request = requests[dataTask.taskIdentifier], let response = response as? HTTPURLResponse, [200,206].contains(response.statusCode) else { completionHandler(.cancel); return }
-        let mime = response.mimeType?.lowercased() ?? ""
-        guard !["application/vnd.apple.mpegurl", "application/x-mpegurl", "audio/x-mpegurl", "audio/x-scpls", "application/dash+xml", "text/html"].contains(mime) else {
-            request.finishLoading(with: MusicError.message("Jellyfin must return a direct music stream, not a playlist or web page.")); completionHandler(.cancel); return
-        }
-        let offset = request.dataRequest.map { max($0.currentOffset, $0.requestedOffset) } ?? 0
-        if response.statusCode == 200 && offset > 0 { request.finishLoading(with: MusicError.message("This server does not support seeking by byte range.")); completionHandler(.cancel); return }
-        var length = response.expectedContentLength
-        if let range = response.value(forHTTPHeaderField: "Content-Range"), let total = range.split(separator: "/").last, let value = Int64(total) { length = value }
-        let info = request.contentInformationRequest
-        info?.contentLength = max(0, length)
-        info?.isByteRangeAccessSupported = response.statusCode == 206 || response.value(forHTTPHeaderField: "Accept-Ranges") == "bytes"
-        info?.contentType = UTType(mimeType: response.mimeType ?? "audio/mpeg")?.identifier ?? UTType.mp3.identifier
-        completionHandler(.allow)
-    }
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) { requests[dataTask.taskIdentifier]?.dataRequest?.respond(with: data) }
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let request = requests.removeValue(forKey: task.taskIdentifier) else { return }
-        tasks.removeValue(forKey: ObjectIdentifier(request))
-        guard !request.isFinished, !request.isCancelled else { return }
-        if let error { request.finishLoading(with: error) } else { request.finishLoading() }
-    }
-    func cancel() { session.invalidateAndCancel(); requests.removeAll(); tasks.removeAll() }
-}
-
 final class Spectrum {
     let lock = NSLock()
     private var enabled = false
