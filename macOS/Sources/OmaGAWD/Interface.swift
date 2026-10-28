@@ -155,11 +155,13 @@ final class DockedPlayerPanel: NSPanel {
 @MainActor final class PlayerWindow: NSWindowController, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     var updates: AppUpdates?
     let model: PlayerModel
-    let titleLabel = label("Your records. One little receiver.", size: 16, color: .systemBlue)
+    let titleLabel = label("Your records. One little receiver.", size: 14, color: .controlAccentColor)
     let detailLabel = label("Jellyfin + local music", color: .secondaryLabelColor)
     let formatLabel = label("NATIVE AUDIO  /  macOS", size: 10, color: .tertiaryLabelColor)
-    let elapsed = label("0:00", size: 28, color: .systemBlue)
-    let stateLabel = label("STOPPED", size: 10, color: .secondaryLabelColor)
+    let elapsed = label("0:00", size: 26, color: .controlAccentColor)
+    let stateLabel = label("STOPPED", size: 10, color: .controlAccentColor)
+    let sourceBadge = label("LOCAL", size: 10, color: .secondaryLabelColor)
+    let seekElapsed = label("0:00", size: 10, color: .secondaryLabelColor)
     let total = label("0:00", size: 10, color: .secondaryLabelColor)
     let dancingLlama = DancingLlamaView()
     let spectrum = SpectrumView()
@@ -187,6 +189,10 @@ final class DockedPlayerPanel: NSPanel {
     private(set) var radioPane: RadioPane!
     private var filterTablesHeight: NSLayoutConstraint!
     private var contentStack: NSStackView!
+    private var seekRow: NSStackView!
+    private(set) var receiver: NSView!
+    private var deskButton: ActionButton!
+    private var transportButtons: [ActionButton] = []
     var playlist = false
     var compact = false
     var monitor: Any?
@@ -209,7 +215,7 @@ final class DockedPlayerPanel: NSPanel {
         panel.isRestorable = false; panel.hasShadow = true
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.contentView = MusicDropView(frame: panel.contentView?.bounds ?? .zero)
-        panel.backgroundColor = NSColor(calibratedRed: 0.085, green: 0.09, blue: 0.125, alpha: 1)
+        panel.isOpaque = false; panel.backgroundColor = .clear
         super.init(window: panel); panel.delegate = self
         build()
         (panel.contentView as? MusicDropView)?.importMusic = { [weak model] in model?.dropMusic($0, append: true) }
@@ -246,24 +252,37 @@ final class DockedPlayerPanel: NSPanel {
         settings.setAccessibilityLabel("Settings")
         settings.widthAnchor.constraint(equalToConstant: 26).isActive = true
         settings.heightAnchor.constraint(equalToConstant: 22).isActive = true
-        let branding = row([dancingLlama, label("O M A G A W D", size: 13), spacer(), settings], spacing: 10)
+        let brand = label("OMAGAWD", size: 12)
+        brand.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        let headerRule = ReceiverRule()
+        headerRule.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        headerRule.widthAnchor.constraint(greaterThanOrEqualToConstant: 12).isActive = true
+        headerRule.setContentHuggingPriority(.init(1), for: .horizontal)
+        sourceBadge.setAccessibilityLabel("Playback source")
+        let branding = row([dancingLlama, brand, headerRule, sourceBadge, settings], spacing: 10)
+        branding.distribution = .fill
         branding.heightAnchor.constraint(equalToConstant: DancingLlamaView.canvasSize.height).isActive = true
-        spectrum.heightAnchor.constraint(equalToConstant: 30).isActive = true
-        let left = column([elapsed, stateLabel, spectrum], spacing: 5); left.widthAnchor.constraint(equalToConstant: 122).isActive = true
-        let right = column([titleLabel, detailLabel, formatLabel], spacing: 12)
+        spectrum.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        let left = column([elapsed, stateLabel, spectrum], spacing: 4); left.widthAnchor.constraint(equalToConstant: 96).isActive = true
+        let right = column([titleLabel, detailLabel, formatLabel], spacing: 6)
         // Long album names must truncate instead of setting the panel's minimum
         // fitting width; AppKit otherwise grows it past its anchored display edge.
         for text in [titleLabel, detailLabel, formatLabel] {
             text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
         right.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let display = row([left, right], spacing: 18)
-        display.distribution = .fill
-        display.wantsLayer = true; display.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.22).cgColor
-        display.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-        // Keep the receiver at its content height; the library absorbs extra height.
-        display.heightAnchor.constraint(equalToConstant: display.fittingSize.height).isActive = true
+        let displayRule = ReceiverRule()
+        displayRule.widthAnchor.constraint(equalToConstant: 1).isActive = true
+        let displayContent = row([left, displayRule, right], spacing: 10)
+        displayContent.distribution = .fill
+        displayRule.heightAnchor.constraint(equalTo: left.heightAnchor).isActive = true
+        let display = ReceiverSurface(content: displayContent, recessed: true, padding: 8)
+        display.heightAnchor.constraint(equalToConstant: 96).isActive = true
         right.setContentHuggingPriority(.init(1), for: .horizontal)
+        for slider in [seek, volume] {
+            slider.cell = ReceiverSliderCell(); slider.minValue = 0; slider.maxValue = 1
+            slider.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        }
         seek.target = self; seek.action = #selector(seekChanged); seek.isContinuous = false; seek.setAccessibilityLabel("Playback position")
         volume.target = self; volume.action = #selector(volumeChanged); volume.doubleValue = Double(model.volume); volume.setAccessibilityLabel("Volume")
         volume.widthAnchor.constraint(greaterThanOrEqualToConstant: 90).isActive = true
@@ -271,7 +290,16 @@ final class DockedPlayerPanel: NSPanel {
         playButton = ActionButton("▶", help: "Play or pause") { [weak model] in model?.toggle() }
         shuffleButton = PlaybackModeButton { [weak model] in model?.toggleShuffle() }
         repeatButton = PlaybackModeButton { [weak model] in model?.cycleRepeat() }
-        let controls = row([ActionButton("◀|", help: "Previous track") { [weak model] in model?.previous() }, playButton, ActionButton("■", help: "Stop") { [weak model] in model?.stop() }, ActionButton("|▶", help: "Next track") { [weak model] in model?.next() }, shuffleButton, repeatButton, label("VOL", size: 10), volume, ActionButton("PL", help: "Show or hide music desk") { [weak self] in self?.toggleCompact() }])
+        transportButtons = [ActionButton("◀|", help: "Previous track") { [weak model] in model?.previous() }, playButton,
+                            ActionButton("■", help: "Stop") { [weak model] in model?.stop() }, ActionButton("|▶", help: "Next track") { [weak model] in model?.next() }]
+        deskButton = ActionButton("PL", help: "Show or hide music desk") { [weak self] in self?.toggleCompact() }
+        let controls = row(transportButtons + [shuffleButton, repeatButton, label("VOL", size: 10, color: .secondaryLabelColor), volume, deskButton], spacing: 5)
+        controls.distribution = .fill
+        seekElapsed.widthAnchor.constraint(greaterThanOrEqualToConstant: 34).isActive = true
+        total.widthAnchor.constraint(greaterThanOrEqualToConstant: 34).isActive = true
+        total.alignment = .right
+        seekRow = row([seekElapsed, seek, total], spacing: 10)
+        receiver = ReceiverSurface(content: column([branding, display, seekRow, controls], spacing: 7))
         playlistButton = ActionButton("PLAYLIST", help: "Playlist (P)") { [weak self] in self?.showPlaylist(true) }
         libraryButton = ActionButton("LIBRARY", help: "Library (L)") { [weak self] in self?.showPlaylist(false) }
         source.cell = PaddedSourceCell(textCell: "", pullsDown: false)
@@ -311,7 +339,7 @@ final class DockedPlayerPanel: NSPanel {
         settingsPane = PlayerSettings(model: model, player: self); settingsPane.isHidden = true
         desk = column([tabs, libraryPane, radioPane, queuePane, settingsPane]); desk.setContentHuggingPriority(.init(1), for: .vertical)
         footer.maximumNumberOfLines = 2; footer.lineBreakMode = .byWordWrapping
-        let root = column([branding, display, row([seek,total]), controls, desk, footer], spacing: 10)
+        let root = column([receiver, desk, footer], spacing: 12)
         contentStack = root
         root.translatesAutoresizingMaskIntoConstraints = false; content.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14), root.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14), root.topAnchor.constraint(equalTo: content.topAnchor, constant: 12), root.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12)])
@@ -347,7 +375,7 @@ final class DockedPlayerPanel: NSPanel {
         else if tableView === songTable { let s = visibleSongs[row]; text = "\(s.track > 0 ? String(format: "%02d  ", s.track) : "")\(s.title)    \(clockText(s.duration))" }
         else { let e = model.queue.entries[row]; text = "\(e.id == model.queue.current ? "▶" : String(row + 1))  \(e.song.artist) — \(e.song.title)    \(e.song.isRadio ? "LIVE" : clockText(e.song.duration))" }
         cell.textField?.stringValue = text; cell.toolTip = text
-        cell.textField?.textColor = tableView === queueTable && model.queue.entries[row].id == model.queue.current ? .systemBlue : .labelColor
+        cell.textField?.textColor = tableView === queueTable && model.queue.entries[row].id == model.queue.current ? .controlAccentColor : .labelColor
         return cell
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
@@ -419,28 +447,39 @@ final class DockedPlayerPanel: NSPanel {
         tick()
     }
     func tick() {
+        let radio = model.queue.song?.isRadio == true
+        let wasRadio = seekRow.isHidden
+        seekRow.isHidden = radio
+        sourceBadge.stringValue = model.queue.song.map { $0.isRadio ? "RADIO" : $0.file != nil ? "LOCAL" : "JELLYFIN" }
+            ?? (model.selectedFolder == "radio" ? "RADIO" : model.selectedFolder == "local" ? "LOCAL" : "JELLYFIN")
         titleLabel.stringValue = model.queue.song?.title ?? "Your records. One little receiver."
-        if model.queue.song?.isRadio == true {
-            detailLabel.stringValue = model.radioTitle.isEmpty ? model.queue.song!.artist : model.radioTitle
+        if radio {
+            titleLabel.stringValue = model.radioTitle.isEmpty ? model.queue.song!.title : model.radioTitle
+            detailLabel.stringValue = "\(model.queue.song!.title) / \(model.queue.song!.artist)"
             formatLabel.stringValue = model.bitRate > 0 ? "LIVE RADIO  /  \(Int(model.bitRate / 1000)) KBPS" : "LIVE RADIO"
         } else {
             detailLabel.stringValue = model.queue.song.map { "\($0.artist) / \($0.album)" } ?? "Jellyfin + local music"
-            formatLabel.stringValue = model.bitRate > 0 ? "\(Int(model.bitRate / 1000)) KBPS  /  ORIGINAL AUDIO" : "NATIVE AUDIO  /  macOS"
+            formatLabel.stringValue = model.bitRate > 0 ? "\(Int(model.bitRate / 1000)) KBPS  /  ORIGINAL AUDIO" : model.queue.song == nil ? "SELECT SOMETHING GAWD" : "ORIGINAL AUDIO"
         }
         if titleLabel.toolTip != titleLabel.stringValue { titleLabel.toolTip = titleLabel.stringValue }
         if detailLabel.toolTip != detailLabel.stringValue { detailLabel.toolTip = detailLabel.stringValue }
         elapsed.stringValue = model.queue.song?.isRadio == true ? "LIVE" : clockText(model.position)
+        seekElapsed.stringValue = clockText(model.position)
         total.stringValue = model.queue.song?.isRadio == true ? "LIVE" : clockText(model.duration)
-        stateLabel.stringValue = model.stopped ? "STOPPED" : model.buffering ? "BUFFERING" : model.playing ? (model.queue.song?.isRadio == true ? "▶ RADIO" : model.queue.song?.file == nil ? "▶ STREAMING" : "▶ PLAYING") : "PAUSED"
+        stateLabel.stringValue = model.stopped ? "■ STOPPED" : model.buffering ? "BUFFERING" : model.playing ? (radio ? "▶ RADIO" : model.queue.song?.file == nil ? "▶ STREAMING" : "▶ PLAYING") : "Ⅱ PAUSED"
+        for button in transportButtons { button.isEnabled = !model.queue.entries.isEmpty }
+        playButton.contentTintColor = model.playing || model.buffering ? .controlAccentColor : nil
+        deskButton.contentTintColor = compact ? nil : .controlAccentColor
         seek.maxValue = max(1, model.duration); seek.doubleValue = model.position; seek.isEnabled = model.canSeek
         volume.floatValue = model.volume
         playButton.title = model.playing || model.buffering ? "Ⅱ" : "▶"
         shuffleButton.update(symbol: "shuffle", help: model.queue.shuffle ? "Shuffle: on" : "Shuffle: off", active: model.queue.shuffle)
         let repeatHelp = model.queue.repeatMode == .one ? "Repeat: one song" : model.queue.repeatMode == .all ? "Repeat: all songs" : "Repeat: off"
         repeatButton.update(symbol: model.queue.repeatMode == .one ? "repeat.1" : "repeat", help: repeatHelp, active: model.queue.repeatMode != .off)
-        playlistButton.contentTintColor = !settingsVisible && playlist ? .systemBlue : nil
-        libraryButton.contentTintColor = !settingsVisible && !playlist ? .systemBlue : nil
-        settingsButton.contentTintColor = settingsVisible ? .systemBlue : .secondaryLabelColor
+        playlistButton.contentTintColor = !settingsVisible && playlist ? .controlAccentColor : nil
+        libraryButton.contentTintColor = !settingsVisible && !playlist ? .controlAccentColor : nil
+        settingsButton.contentTintColor = settingsVisible ? .controlAccentColor : .secondaryLabelColor
+        if compact && wasRadio != radio { positionAtTopRight() }
         updateSpectrumTimer()
         if !model.playing { spectrum.levels = Array(repeating: 0, count: 16) }
     }

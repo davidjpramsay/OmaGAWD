@@ -8,7 +8,7 @@ Download the signed and notarized [macOS 0.2.2 beta](https://github.com/davidjpr
 
 ## Current development version
 
-The native Mac source is now **0.3.0 (build 9)**. It ports the Omarchy work through `e3b6beb` (the pushed 0.9.2 development branch), including settings, saved playlists, recents, gapless preloading, live normalization, safe music drops, consolidated sources and the smoother head-bang shoulder. The latest additions are native shuffle/repeat icons with accent-colored active indicators, All artists... / All albums... library rows, and remote buffering/recovery for Jellyfin listening. The downloadable signed release above remains **0.2.2** until a new Mac beta is packaged, notarized and published. See [port coverage and validation](PORTING-0.3.0.md).
+The native Mac source is now **0.3.0 (build 10)**. It ports the Omarchy work through `e3b6beb` (the pushed 0.9.2 development branch), including settings, saved playlists, recents, gapless preloading, live normalization, safe music drops, consolidated sources and the smoother head-bang shoulder. The latest additions are the Omarchy receiver layout, native shuffle/repeat icons with accent-colored active indicators, All artists... / All albums... library rows, and remote buffering/recovery for Jellyfin listening. The downloadable signed release above remains **0.2.2** until a new Mac beta is packaged, notarized and published. See [port coverage and validation](PORTING-0.3.0.md).
 
 ## Updates
 
@@ -34,13 +34,15 @@ Choose **Settings → Sources → Local Music → + Files / + Folder**, or **Set
 
 Browse Artist → Album → Song, search across metadata, play a selection, or append it without interrupting playback. The queue supports duplicates, multiple selection, removal, reordering, clear, shuffle, and repeat off/all/one. Transport includes play/pause, stop, previous/next, seek, and volume. Media keys and Control Centre use macOS Now Playing. **PL** collapses the music desk to a small receiver. Escape or the menu bar button hides the panel while playback continues; **Quit** exits.
 
+The receiver follows the Omarchy panel: a compact llama header with a current-track source badge, framed time/spectrum and metadata areas, slim native sliders, and elapsed/total times beside the seek bar. The Mac accent colour highlights playback and navigation. Live radio shows its song title above the station and hides the seek bar. Empty queues disable the transport controls. The panel keeps its screen-fitting expanded desk and in-app Settings.
+
 **All artists...** clears artist and album filters; **All albums...** keeps the artist and clears the album. Both show matching song totals and keep search active. Selecting a row browses without playing; Return/double-click plays its group, while Option-click/Option–Return appends. Explicitly selecting an All row enables **+ ADD**; a new search clears that selection. Shuffle and repeat use native symbols with the macOS accent color, a border and a small marker when enabled. Repeat-one shows **1**; hovering describes the current mode.
 
 The header llama cycles through running man, side shuffle, head banging and twerking every ten seconds of playback. Head banging uses planted feet, a knee bounce and four quick neck snaps per phrase. Twerking keeps the head and front steady with four big hip pops, a sideways wiggle and bent rear knees. It rests when playback pauses or stops, and respects macOS Reduce Motion. The menu bar uses a 17-point SVG llama with the system's monochrome tint.
 
 Choose **Radio** in the music source menu. **Saved** starts with the same 14 Cliamp stations as Omarchy, including Omarchy, Lofi, Synthwave and the NCS channels. **Discover** searches [Radio Browser](https://www.radio-browser.info/) by station name, genre, country or language. Station names get the main column; country is shown separately and full details appear on hover. Select a result and **+ SAVE**, or use **+ STATION** to enter a name and direct HTTP(S) stream link. **− FORGET** removes a saved station without changing the queue or interrupting playback. Return tunes in, Option–Return appends, and arrows browse without starting playback. Saved stations work independently of Jellyfin sign-in and directory availability.
 
-Radio shows **LIVE**, disables seeking, displays stream-provided song titles, and supports the usual volume, queue, media controls and llama dances. A station that disconnects stops with an error and can be reconnected with Play. Live streams restart at the current broadcast when resumed; they do not retain a seekable listening history. After an app restart, the radio queue is restored paused and connects only when Play is pressed.
+Radio shows **LIVE**, hides the seek bar, displays stream-provided song titles, and supports the usual volume, queue, media controls and llama dances. A station that disconnects stops with an error and can be reconnected with Play. Live streams restart at the current broadcast when resumed; they do not retain a seekable listening history. After an app restart, the radio queue is restored paused and connects only when Play is pressed.
 
 | Shortcut | Action |
 | --- | --- |

@@ -142,3 +142,14 @@ exact-bundle native playback fixture, and was installed locally on 26 October.
 Live queue/account/state restoration was verified; the previous app/data were
 retained privately for rollback. Public downloads and the updater feed remain
 at Mac 0.2.2, independently of this local installation.
+
+## macOS receiver parity — 28 October 2026
+
+Development 0.3.0 build 10 ports Omarchy's receiver composition to native AppKit:
+compact header/source badge, framed time/spectrum and metadata areas, dividers,
+slim sliders and elapsed/total seek times. The receiver uses the Mac accent
+colour and native dark surfaces. Radio prioritises the live song title and
+omits seeking; compact mode refits on music/radio transitions. The menu-bar icon
+keeps its system tint. Playback, remote buffering, collections and in-app
+settings keep the Mac implementations. This does not publish a public release
+or change the updater feed.

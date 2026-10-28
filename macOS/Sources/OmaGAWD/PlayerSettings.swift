@@ -154,6 +154,12 @@ final class MusicDropView: NSView {
     var importMusic: (([URL]) -> Void)?
     override init(frame frameRect: NSRect) { super.init(frame: frameRect); registerForDraggedTypes([.fileURL]) }
     required init?(coder: NSCoder) { fatalError() }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
+        outline.fill(); NSColor.separatorColor.setStroke(); outline.lineWidth = 1; outline.stroke()
+    }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { sender.draggingPasteboard.types?.contains(.fileURL) == true ? .copy : [] }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         guard sender.draggingPasteboard.pasteboardItems?.count ?? 0 <= 1000,

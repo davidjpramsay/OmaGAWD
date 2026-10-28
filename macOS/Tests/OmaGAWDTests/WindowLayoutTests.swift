@@ -18,7 +18,7 @@ import OmaCore
         let detail = controller.detailLabel.convert(controller.detailLabel.bounds, to: window.contentView!)
         XCTAssertLessThanOrEqual(detail.maxX, window.contentView!.bounds.maxX - 14)
         XCTAssertEqual(detail.maxX - controller.detailLabel.alignmentRectInsets.right,
-                       window.contentView!.bounds.maxX - 26, accuracy: 1)
+                       window.contentView!.bounds.maxX - 32, accuracy: 1)
         XCTAssertEqual(controller.detailLabel.toolTip, controller.detailLabel.stringValue)
     }
 
@@ -77,5 +77,35 @@ import OmaCore
         XCTAssertTrue(menuAndDockVisible.contains(controller.window!.frame))
         XCTAssertLessThan(controller.window!.frame.height, 400)
         XCTAssertEqual(controller.window!.frame.maxY, menuAndDockVisible.maxY - 8)
+    }
+
+    func testCompactReceiverTracksCurrentSourceAndRefitsAfterRadioChanges() {
+        _ = NSApplication.shared
+        let model = PlayerModel(sessionStore: nil, loadAccount: { nil })
+        defer { model.shutdown() }
+        let controller = PlayerWindow(model: model)
+        controller.compact = true; controller.desk.isHidden = true; controller.footer.isHidden = true
+        let display = CGRect(x: 100, y: -200, width: 600, height: 850)
+        model.queue.replace([Song(id: "local", title: "Local song", file: URL(fileURLWithPath: "/fixture.m4a"))])
+        controller.tick(); controller.layout(in: display)
+        let musicHeight = controller.window!.frame.height
+        XCTAssertEqual(controller.sourceBadge.stringValue, "LOCAL")
+        XCTAssertFalse(controller.seek.isHiddenOrHasHiddenAncestor)
+        model.selectedFolder = "radio"; controller.tick()
+        XCTAssertEqual(controller.sourceBadge.stringValue, "LOCAL", "The badge describes the current track, not the browser.")
+        model.queue.replace([Song(id: "station", title: "Fixture FM", artist: "Station", radioURL: URL(string: "https://example.com/radio")!)])
+        let identity = model.queue.current
+        controller.tick(); controller.layout(in: display)
+        XCTAssertEqual(controller.sourceBadge.stringValue, "RADIO")
+        XCTAssertEqual(controller.titleLabel.stringValue, "Fixture FM")
+        XCTAssertTrue(controller.seek.isHiddenOrHasHiddenAncestor)
+        XCTAssertLessThan(controller.window!.frame.height, musicHeight)
+        XCTAssertEqual(model.queue.current, identity)
+        model.queue.replace([Song(id: "remote", title: "Remote song")])
+        controller.tick(); controller.layout(in: display)
+        XCTAssertEqual(controller.sourceBadge.stringValue, "JELLYFIN")
+        XCTAssertFalse(controller.seek.isHiddenOrHasHiddenAncestor)
+        XCTAssertEqual(controller.window!.frame.height, musicHeight, accuracy: 1)
+        XCTAssertTrue(display.contains(controller.window!.frame))
     }
 }

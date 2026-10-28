@@ -2,7 +2,7 @@
 
 Source reference: Omarchy `omarchy-v0.9.1` (`16acca1`) plus the pushed 0.9.2 development work through `e3b6beb` on `codex/security-review-091`. Both remote references were refreshed on 21 October 2026 before the latest port.
 
-The Mac source and local installation are 0.3.0, build 9, adding Jellyfin remote buffering/recovery. Build 9 was Developer ID signed, Apple notarized and installed on 26 October 2026. It has not been published as a GitHub download: the signed updater feed continues to advertise the existing 0.2.2 beta. No stable release or Omarchy marketplace submission is part of this work.
+The Mac source is 0.3.0, build 10, bringing over the Omarchy receiver layout. Build 9 added Jellyfin remote buffering/recovery and was Developer ID signed, Apple notarized and installed on 26 October 2026. It has not been published as a GitHub download: the signed updater feed continues to advertise the existing 0.2.2 beta. No stable release or Omarchy marketplace submission is part of this work.
 
 ## Coverage
 
@@ -58,3 +58,11 @@ Validation completed on 15 October 2026 on the development Mac. The test report 
 - The universal Developer ID signed/notarized candidate passed deep signature validation, stapler validation and Gatekeeper. `OMAGAWD_TEST_BUNDLE="$PWD/dist/release.noindex/OmaGAWD.app" ./script/test_macos.sh --existing-bundle` passed the 84 tests and full **PASS** native local/Jellyfin/radio/spectrum/gapless/llama playback report against that exact bundle. Unified `RemotePlayback` recovery logs were verified without titles, server addresses, account IDs or credentials.
 - Installed locally after a clean quit, preserving build 8, application data and preferences in a private `.noindex` rollback directory. Installed executable checksum matches the validated candidate. Live checks verified launch, saved Jellyfin sign-in/library access, unchanged queue/current/source/account identity/position/stopped state and volume/shuffle/repeat. The app was left on Queue, stopped as before; long-running listening over the user's variable internet connection is not a fixture-test guarantee.
 - GitHub source and PR are pushed; public downloads, the signed updater feed, stable main and the Omarchy marketplace remain unchanged. These changes improve temporary stalls, not sustained bandwidth below the track bitrate or Bluetooth output interruptions.
+
+### 28 October Omarchy receiver layout
+
+- Ported the current `Receiver.qml` composition to AppKit: framed receiver and recessed display, compact llama/brand header with a divider and current-track source badge, narrower time/spectrum column with a vertical divider, tighter metadata spacing, and elapsed/total times flanking the seek bar.
+- Slim slider cells retain native mouse/keyboard/accessibility input. Dynamic Mac accent colours replace the receiver's hard-coded blue, with rounded native-colour panel surfaces. Existing menu-bar tint, dances, expanded-screen placement, in-app settings, collections and playback/recovery remain.
+- Radio puts stream-provided song metadata above station details and hides the non-seekable position row. Compact mode refits when switching between radio and music. Empty queues disable the four transport buttons, matching Omarchy.
+- Public downloads, the updater feed and Omarchy code remain unchanged.
+- **85 Swift tests passed**, including the added current-source/music-radio compact-refit regression and the existing long-metadata, offset/portrait/full-screen bounds and in-app navigation checks. Native rendered inspection confirmed compact/expanded receiver layout, native volume input and Settings/Done navigation using isolated fixture media/preferences.
