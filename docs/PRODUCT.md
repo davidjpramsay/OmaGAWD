@@ -153,3 +153,11 @@ omits seeking; compact mode refits on music/radio transitions. The menu-bar icon
 keeps its system tint. Playback, remote buffering, collections and in-app
 settings keep the Mac implementations. This does not publish a public release
 or change the updater feed.
+
+The final build 10 was signed/notarized, passed 85 Swift tests and the full
+native playback fixture, and was installed locally on 28 October. Queue,
+settings and retained position were verified; the previous app/state were
+preserved privately. The installed app reported production Jellyfin offline,
+and an independent connection check also failed. Production connectivity is
+unverified; no server or network settings were changed. Public release assets
+and the signed updater feed remain unchanged.
