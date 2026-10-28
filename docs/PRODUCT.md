@@ -91,5 +91,73 @@ an All row enables + ADD; initial/reset browsing keeps + ADD inactive. Empty
 results keep their existing message. Revisiting a pane preserves child choices.
 
 Omarchy passed 173 backend tests, 43 QML checks and native 460-pixel renders.
-This behaviour is a macOS parity candidate, pending implementation/verification
-there; no Mac changes or stable publication accompany this local update.
+The macOS port is recorded below; no stable publication accompanies this update.
+
+## macOS parity — 21 October 2026
+
+Ported Omarchy development through `e3b6beb` to `codex/macos-parity-0.9.2`
+([PR #6](https://github.com/davidjpramsay/OmaGAWD/pull/6)). Native SF Symbols
+replace SHF/RPT, including repeat-one. Enabled icons, borders and small markers
+use the macOS accent color; tooltips and accessible labels describe the mode.
+All artists... / All albums... show song totals, preserve search, clear the
+appropriate filters, support group play/append and enable + ADD only after a
+selection. Repeated click/Space on All clears child selections; returning focus
+to a pane preserves them. Empty searches have no summary rows.
+
+Verified with 74 Swift tests, the full muted native local/Jellyfin/radio playback
+fixture, and rendered native controls/library rows. The Mac remains development
+0.3.0, build 8; its downloadable signed release and Sparkle feed remain 0.2.2.
+No stable release or marketplace submission is part of this port.
+
+## Local Mac installation — 22 October 2026
+
+macOS 0.3.0 build 8 (runtime source `b2e14f4`) was built universal, Developer ID
+signed, Apple notarized and installed on the development Mac at the user's
+request. Gatekeeper and the exact-bundle playback fixture passed, together with
+74 Swift tests. The previous app/state were kept for rollback; live launch,
+Jellyfin retrieval and paused queue/position restoration were verified.
+Published Mac downloads and the Sparkle feed remain at 0.2.2. No public release,
+stable-main merge or Omarchy marketplace submission accompanies this install.
+
+## macOS remote playback — 26 October 2026
+
+Development 0.3.0 build 9 adds background authenticated range loading, bounded
+in-memory read-ahead and approximately 30 seconds of preparation/native forward
+buffering. Temporary audio GET failures retry the exact remaining range up to
+twice; interrupted current tracks can reconnect at their held position twice.
+BUFFERING distinguishes network waiting from Pause. Pause/Stop/Seek/Next and
+account changes invalidate delayed recovery. Invalid ranges, changed files,
+redirects, authentication/certificate errors and playlist mutations do not get
+automatic retries. Local files and native live-radio behaviour are unchanged.
+The cache is at most 8 MiB per item, with at most 16 pending 1 MiB reads per
+item and only the current/next items retained. No audio is cached to disk.
+
+Omarchy is a parity candidate for these remote resilience behaviours; its native
+mpv transport should be assessed independently rather than copying AVFoundation
+workarounds. This is source/local-install work, not a stable release or store
+submission. Validation and installation evidence live in the Mac port notes.
+
+Build 9 was subsequently signed/notarized, passed 84 Swift tests and the full
+exact-bundle native playback fixture, and was installed locally on 26 October.
+Live queue/account/state restoration was verified; the previous app/data were
+retained privately for rollback. Public downloads and the updater feed remain
+at Mac 0.2.2, independently of this local installation.
+
+## macOS receiver parity — 28 October 2026
+
+Development 0.3.0 build 10 ports Omarchy's receiver composition to native AppKit:
+compact header/source badge, framed time/spectrum and metadata areas, dividers,
+slim sliders and elapsed/total seek times. The receiver uses the Mac accent
+colour and native dark surfaces. Radio prioritises the live song title and
+omits seeking; compact mode refits on music/radio transitions. The menu-bar icon
+keeps its system tint. Playback, remote buffering, collections and in-app
+settings keep the Mac implementations. This does not publish a public release
+or change the updater feed.
+
+The final build 10 was signed/notarized, passed 85 Swift tests and the full
+native playback fixture, and was installed locally on 28 October. Queue,
+settings and retained position were verified; the previous app/state were
+preserved privately. The installed app reported production Jellyfin offline,
+and an independent connection check also failed. Production connectivity is
+unverified; no server or network settings were changed. Public release assets
+and the signed updater feed remain unchanged.

@@ -23,58 +23,14 @@ final class RadioMetadataSink: NSObject, AVPlayerItemMetadataOutputPushDelegate 
     }
 }
 
-// Feed AVFoundation authenticated byte ranges without placing credentials in URLs
-// or allowing a redirect to forward them to a different endpoint.
-final class AudioResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate {
-    let account: Account
-    let songID: String
-    private var requests: [Int: AVAssetResourceLoadingRequest] = [:]
-    private var tasks: [ObjectIdentifier: URLSessionDataTask] = [:]
-    private lazy var session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: .main)
-    init(account: Account, songID: String) { self.account = account; self.songID = songID }
-    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource request: AVAssetResourceLoadingRequest) -> Bool {
-        var c = URLComponents(url: account.server.appendingPathComponent("Audio").appendingPathComponent(songID).appendingPathComponent("stream"), resolvingAgainstBaseURL: false)!
-        c.queryItems = [URLQueryItem(name: "static", value: "true")]
-        var r = URLRequest(url: c.url!); r.timeoutInterval = 45
-        r.setValue(account.authorization, forHTTPHeaderField: "Authorization")
-        r.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        if let data = request.dataRequest {
-            let start = max(data.requestedOffset, data.currentOffset)
-            let end = data.requestedOffset + Int64(data.requestedLength) - 1
-            r.setValue(data.requestsAllDataToEndOfResource ? "bytes=\(start)-" : "bytes=\(start)-\(max(start,end))", forHTTPHeaderField: "Range")
-        } else { r.setValue("bytes=0-1", forHTTPHeaderField: "Range") }
-        let task = session.dataTask(with: r)
-        requests[task.taskIdentifier] = request; tasks[ObjectIdentifier(request)] = task; task.resume(); return true
-    }
-    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel request: AVAssetResourceLoadingRequest) {
-        if let task = tasks.removeValue(forKey: ObjectIdentifier(request)) { requests.removeValue(forKey: task.taskIdentifier); task.cancel() }
-    }
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let request = requests[dataTask.taskIdentifier], let response = response as? HTTPURLResponse, [200,206].contains(response.statusCode) else { completionHandler(.cancel); return }
-        let offset = request.dataRequest.map { max($0.currentOffset, $0.requestedOffset) } ?? 0
-        if response.statusCode == 200 && offset > 0 { request.finishLoading(with: MusicError.message("This server does not support seeking by byte range.")); completionHandler(.cancel); return }
-        var length = response.expectedContentLength
-        if let range = response.value(forHTTPHeaderField: "Content-Range"), let total = range.split(separator: "/").last, let value = Int64(total) { length = value }
-        let info = request.contentInformationRequest
-        info?.contentLength = max(0, length)
-        info?.isByteRangeAccessSupported = response.statusCode == 206 || response.value(forHTTPHeaderField: "Accept-Ranges") == "bytes"
-        info?.contentType = UTType(mimeType: response.mimeType ?? "audio/mpeg")?.identifier ?? UTType.mp3.identifier
-        completionHandler(.allow)
-    }
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) { requests[dataTask.taskIdentifier]?.dataRequest?.respond(with: data) }
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let request = requests.removeValue(forKey: task.taskIdentifier) else { return }
-        tasks.removeValue(forKey: ObjectIdentifier(request))
-        guard !request.isFinished, !request.isCancelled else { return }
-        if let error { request.finishLoading(with: error) } else { request.finishLoading() }
-    }
-    func cancel() { session.invalidateAndCancel(); requests.removeAll(); tasks.removeAll() }
-}
-
 final class Spectrum {
     let lock = NSLock()
     private var enabled = false
+    private var normalize = false
+    var normalizationEnabled: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return normalize }
+        set { lock.lock(); normalize = newValue; lock.unlock() }
+    }
     private var levels = [Float](repeating: 0, count: 16)
     private var samples = [Float](repeating: 0, count: 1024)
     private var window = [Float](repeating: 0, count: 1024)
@@ -95,8 +51,9 @@ final class Spectrum {
         lock.lock(); defer { lock.unlock() }
         format = value; count = 0; skipped = 0; framesProcessed = 0; levels = Array(repeating: 0, count: 16)
     }
-    func consume(_ buffers: UnsafeMutablePointer<AudioBufferList>, frames: Int) {
+    func consume(_ buffers: UnsafeMutablePointer<AudioBufferList>, frames: Int, format incoming: AudioStreamBasicDescription) {
         guard lock.try() else { return }; defer { lock.unlock() }
+        if format.mSampleRate != incoming.mSampleRate || format.mChannelsPerFrame != incoming.mChannelsPerFrame || format.mFormatFlags != incoming.mFormatFlags { format = incoming; count = 0; skipped = 0 }
         guard enabled, format.mFormatFlags & kAudioFormatFlagIsFloat != 0, format.mBitsPerChannel == 32 else { return }
         let list = UnsafeMutableAudioBufferListPointer(buffers)
         guard let first = list.first, let pointer = first.mData?.assumingMemoryBound(to: Float.self) else { return }
@@ -128,14 +85,7 @@ final class Spectrum {
         }
     }
     func mix(for track: AVAssetTrack? = nil) -> AVAudioMix? {
-        var callbacks = MTAudioProcessingTapCallbacks(version: kMTAudioProcessingTapCallbacksVersion_0, clientInfo: Unmanaged.passRetained(self).toOpaque(), init: { _, info, storage in storage.pointee = info }, finalize: { tap in
-            Unmanaged<Spectrum>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release()
-        }, prepare: { tap, _, format in
-            Unmanaged<Spectrum>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue().setFormat(format.pointee)
-        }, unprepare: { _ in }, process: { tap, frames, flags, buffers, framesOut, flagsOut in
-            let status = MTAudioProcessingTapGetSourceAudio(tap, frames, buffers, flagsOut, nil, framesOut)
-            if status == noErr { Unmanaged<Spectrum>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue().consume(buffers, frames: Int(framesOut.pointee)) }
-        })
+        var callbacks = Self.tapCallbacks(for: self)
         var tap: MTAudioProcessingTap?
         let status: OSStatus
         if track == nil, #available(macOS 27.0, *),
@@ -158,7 +108,7 @@ final class Spectrum {
             status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
         }
         guard status == noErr, let tap else {
-            Unmanaged<Spectrum>.fromOpaque(callbacks.clientInfo!).release(); return nil
+            Self.releaseTapInfo(callbacks.clientInfo!); return nil
         }
         // The parameterless initializer targets the mixed output on macOS 27+.
         // The prepare callback observes the negotiated PCM format, including its
