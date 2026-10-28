@@ -339,6 +339,7 @@ final class DockedPlayerPanel: NSPanel {
         settingsPane = PlayerSettings(model: model, player: self); settingsPane.isHidden = true
         desk = column([tabs, libraryPane, radioPane, queuePane, settingsPane]); desk.setContentHuggingPriority(.init(1), for: .vertical)
         footer.maximumNumberOfLines = 2; footer.lineBreakMode = .byWordWrapping
+        footer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let root = column([receiver, desk, footer], spacing: 12)
         contentStack = root
         root.translatesAutoresizingMaskIntoConstraints = false; content.addSubview(root)

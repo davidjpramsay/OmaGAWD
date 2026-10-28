@@ -59,6 +59,10 @@ import OmaCore
         controller.reload(); controller.window!.contentView?.layoutSubtreeIfNeeded()
         XCTAssertEqual(controller.window!.frame, PlayerPanelLayout.frame(in: display))
         XCTAssertLessThanOrEqual(controller.window!.contentView!.fittingSize.width, 610)
+        model.message = "Could not refresh Jellyfin libraries: The Internet connection appears to be offline. Use Refresh to retry."
+        controller.reload(); controller.layout(in: display)
+        XCTAssertEqual(controller.window!.frame, PlayerPanelLayout.frame(in: display))
+        XCTAssertLessThanOrEqual(controller.window!.contentView!.fittingSize.width, 610)
     }
 
     func testCompactAndExpandedRefitWhenFullScreenVisibleBoundsChange() {
